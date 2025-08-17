@@ -977,10 +977,7 @@ class CRMApp:
         buttons_frame.columnconfigure(0, weight=1) # Spacer para empurrar botões para a direita
 
         # --- Criação das Abas com Rolagem ---
-        # Aba 1: Análise Prévia de Viabilidade
         analise_frame = self._create_scrollable_tab(notebook, '  Análise Prévia de Viabilidade  ')
-
-        # Aba 2: Sumário Executivo
         sumario_frame = self._create_scrollable_tab(notebook, '  Sumário Executivo  ')
 
         # Preparar dados
@@ -1364,4 +1361,1072 @@ class CRMApp:
                 entries['margem_contribuicao'].insert(0, op_data['margem_contribuicao'] or '')
 
                 if op_data['descricao_detalhada']:
-                    entries['descricao_detalhada'].insert('1.e...
+                    entries['descricao_detalhada'].insert('1.0', op_data['descricao_detalhada'])
+
+                # Carregar dados dinâmicos (serviços, equipes, bases)
+                def load_dynamic_data():
+                    # Carregar bases primeiro, pois as equipes dependem delas
+                    if op_data.get('bases_nomes'):
+                        try:
+                            bases_nomes_data = json.loads(op_data['bases_nomes'])
+                            base_widgets = entries.get('bases_nomes_widgets', [])
+                            for i, nome in enumerate(bases_nomes_data):
+                                if i < len(base_widgets):
+                                    base_widgets[i].insert(0, nome)
+                        except (json.JSONDecodeError, TypeError):
+                            pass
+
+                    # Carregar a estrutura de serviços e equipes
+                    if op_data.get('servicos_data'):
+                        try:
+                            servicos_data_json = json.loads(op_data['servicos_data'])
+                            tipos_servico_vars = entries.get('tipos_servico_vars', {})
+
+                            for servico_info in servicos_data_json:
+                                servico_nome = servico_info.get('servico_nome')
+                                if servico_nome in tipos_servico_vars:
+                                    tipos_servico_vars[servico_nome].set(True)
+
+                            # Chamar uma vez para criar todos os frames
+                            _update_servicos_ui()
+
+                            # Agora, popular as linhas de equipe
+                            for servico_info in servicos_data_json:
+                                servico_nome = servico_info.get('servico_nome')
+                                equipes_data = servico_info.get('equipes', [])
+
+                                if servico_nome in servico_frames:
+                                    servico_id = servico_map[servico_nome]
+                                    container = servico_frames[servico_nome].winfo_children()[0]
+
+                                    for equipe_info in equipes_data:
+                                        _add_equipe_row(servico_id, servico_nome, container)
+                                        new_row_widgets = servico_equipes_data[servico_nome][-1]
+
+                                        new_row_widgets['tipo_combo'].set(equipe_info.get('tipo_equipe', ''))
+                                        new_row_widgets['qtd_entry'].insert(0, equipe_info.get('quantidade', ''))
+                                        new_row_widgets['vol_entry'].insert(0, equipe_info.get('volumetria', ''))
+                                        new_row_widgets['base_combo'].set(equipe_info.get('base', ''))
+
+                        except (json.JSONDecodeError, TypeError) as e:
+                            print(f"Erro ao carregar dados de serviços: {e}")
+                            pass
+
+                form_win.after(100, load_dynamic_data)
+
+
+        # Pré-preenchimento se criando nova oportunidade
+        if client_to_prefill:
+            entries['cliente_id'].set(client_to_prefill)
+            entries['estagio_id'].set("Oportunidades")
+
+        # Função principal de salvamento
+        def on_save():
+            try:
+                data = {}
+                data['titulo'] = entries['titulo'].get().strip()
+                data['valor'] = entries['valor'].get().strip().replace('.','').replace(',', '.') or '0'
+                data['cliente_id'] = client_map.get(entries['cliente_id'].get())
+                data['estagio_id'] = estagio_map.get(entries['estagio_id'].get())
+
+                if not data['titulo'] or not data['cliente_id'] or not data['estagio_id']:
+                    messagebox.showerror("Erro", "Título, Cliente e Estágio são obrigatórios!", parent=form_win)
+                    return
+
+                # Dados da análise prévia
+                data['tempo_contrato_meses'] = entries['tempo_contrato_meses'].get().strip()
+                data['regional'] = entries['regional'].get().strip()
+                data['polo'] = entries['polo'].get().strip()
+                data['quantidade_bases'] = entries['quantidade_bases'].get()
+                data['empresa_referencia'] = entries['empresa_referencia'].get()
+
+                base_widgets = entries.get('bases_nomes_widgets', [])
+                data['bases_nomes'] = json.dumps([entry.get().strip() for entry in base_widgets if entry.get().strip()])
+
+                # Coletar dados da nova estrutura dinâmica de serviços e equipes
+                servicos_data_to_save = []
+                tipos_servico_vars = entries.get('tipos_servico_vars', {})
+                servico_equipes_data = entries.get('servicos_data', {})
+
+                for servico_nome, equipe_rows in servico_equipes_data.items():
+                    if tipos_servico_vars.get(servico_nome) and tipos_servico_vars[servico_nome].get():
+                        equipes_to_save = []
+                        for row_widgets in equipe_rows:
+                            equipe_data = {
+                                "tipo_equipe": row_widgets['tipo_combo'].get(),
+                                "quantidade": row_widgets['qtd_entry'].get(),
+                                "volumetria": row_widgets['vol_entry'].get(),
+                                "base": row_widgets['base_combo'].get()
+                            }
+                            equipes_to_save.append(equipe_data)
+
+                        servico_entry = { "servico_nome": servico_nome, "equipes": equipes_to_save }
+                        servicos_data_to_save.append(servico_entry)
+
+                data['servicos_data'] = json.dumps(servicos_data_to_save)
+
+                # Dados do sumário executivo
+                data['numero_edital'] = entries['numero_edital'].get().strip()
+                data['data_abertura'] = entries['data_abertura'].get() if hasattr(entries['data_abertura'], 'get') else ''
+                data['modalidade'] = entries['modalidade'].get().strip()
+                data['contato_principal'] = entries['contato_principal'].get().strip()
+                data['link_documentos'] = entries['link_documentos'].get().strip()
+                data['faturamento_estimado'] = entries['faturamento_estimado'].get().strip().replace('.','').replace(',', '.') or '0'
+                data['duracao_contrato'] = entries['duracao_contrato'].get().strip()
+                data['total_pessoas'] = entries['total_pessoas'].get().strip()
+                data['margem_contribuicao'] = entries['margem_contribuicao'].get().strip().replace(',', '.') or '0'
+                data['descricao_detalhada'] = entries['descricao_detalhada'].get('1.0', 'end-1c')
+
+                if op_id:
+                    self.db.update_opportunity(op_id, data)
+                    messagebox.showinfo("Sucesso", "Oportunidade atualizada com sucesso!", parent=form_win)
+                else:
+                    self.db.add_opportunity(data)
+                    messagebox.showinfo("Sucesso", "Oportunidade criada com sucesso!", parent=form_win)
+
+                self.show_kanban_view()
+                form_win.destroy()
+
+            except sqlite3.Error as e:
+                 messagebox.showerror("Erro de Banco de Dados", f"Erro ao salvar: {str(e)}", parent=form_win)
+            except Exception as e:
+                messagebox.showerror("Erro Inesperado", f"Ocorreu um erro: {str(e)}", parent=form_win)
+
+
+        # Bind do evento de mudança de aba
+        notebook.bind("<<NotebookTabChanged>>", on_tab_changed)
+
+        # Botões de Ação
+        ttk.Button(buttons_frame, text="Salvar Alterações" if op_id else "Criar Oportunidade", command=on_save, style='Success.TButton').grid(row=0, column=2)
+        ttk.Button(buttons_frame, text="Cancelar", command=form_win.destroy, style='TButton').grid(row=0, column=1, padx=10)
+
+    def show_opportunity_details(self, op_id):
+        details_win = Toplevel(self.root)
+        details_win.title("Detalhes da Oportunidade")
+        details_win.geometry("900x700")
+        details_win.configure(bg=DOLP_COLORS['white'])
+
+        op_data = self.db.get_opportunity_details(op_id)
+        if not op_data:
+            messagebox.showerror("Erro", "Oportunidade não encontrada!")
+            details_win.destroy()
+            return
+
+        header_frame = ttk.Frame(details_win, padding=20, style='TFrame')
+        header_frame.pack(fill='x')
+
+        ttk.Label(header_frame, text=f"Oportunidade: {op_data['titulo']}", style='Title.TLabel').pack(side='left')
+        ttk.Button(header_frame, text="Editar Detalhes", command=lambda: [details_win.destroy(), self.show_opportunity_form(op_id)], style='Primary.TButton').pack(side='right')
+        ttk.Button(header_frame, text="← Voltar", command=details_win.destroy, style='TButton').pack(side='right', padx=(0, 10))
+
+        notebook = ttk.Notebook(details_win, padding=10)
+        notebook.pack(fill='both', expand=True, padx=20, pady=(0, 20))
+
+        # Aba 1: Análise Prévia de Viabilidade
+        analise_tab = ttk.Frame(notebook, padding=20)
+        notebook.add(analise_tab, text='  Análise Prévia de Viabilidade  ')
+
+        info_frame = ttk.LabelFrame(analise_tab, text="Informações Básicas", padding=15, style='White.TLabelframe')
+        info_frame.pack(fill='x', pady=(0, 10))
+
+        basic_info = [
+            ("Cliente:", op_data['nome_empresa']),
+            ("Estágio:", op_data['estagio_nome']),
+            ("Valor Estimado:", format_currency(op_data['valor'])),
+            ("Tempo de Contrato:", f"{op_data['tempo_contrato_meses']} meses" if op_data['tempo_contrato_meses'] else "---"),
+            ("Regional:", op_data['regional'] or "---"),
+            ("Polo:", op_data['polo'] or "---"),
+            ("Empresa Referência:", op_data['empresa_referencia'] or "---")
+        ]
+
+        for i, (label, value) in enumerate(basic_info):
+            row_frame = ttk.Frame(info_frame)
+            row_frame.pack(fill='x', pady=2)
+            ttk.Label(row_frame, text=label, style='Metric.White.TLabel', width=20).pack(side='left')
+            ttk.Label(row_frame, text=str(value), style='Value.White.TLabel').pack(side='left', padx=(10, 0))
+
+        if op_data['link_documentos']:
+            link_frame = ttk.Frame(info_frame)
+            link_frame.pack(fill='x', pady=2)
+            ttk.Label(link_frame, text="Pasta de Documentos:", style='Metric.White.TLabel', width=20).pack(side='left')
+            link_label = ttk.Label(link_frame, text="Abrir Pasta", style='Link.White.TLabel', cursor="hand2")
+            link_label.pack(side='left', padx=(10, 0))
+            link_label.bind("<Button-1>", lambda e: open_link(op_data['link_documentos']))
+
+        # Tipos de serviço e equipes (lendo da nova estrutura JSON)
+        if op_data['servicos_data']:
+            try:
+                servicos_data = json.loads(op_data['servicos_data'])
+                if servicos_data:
+                    servicos_frame = ttk.LabelFrame(analise_tab, text="Serviços e Equipes Configurados", padding=15, style='White.TLabelframe')
+                    servicos_frame.pack(fill='x', pady=(10,0))
+
+                    for servico_info in servicos_data:
+                        servico_nome = servico_info.get("servico_nome", "N/A")
+                        equipes = servico_info.get("equipes", [])
+
+                        ttk.Label(servicos_frame, text=servico_nome, style='Metric.White.TLabel', font=('Segoe UI', 11, 'bold')).pack(anchor='w', pady=(5,2))
+
+                        if not equipes:
+                            ttk.Label(servicos_frame, text="  - Nenhuma equipe configurada", style='Value.White.TLabel').pack(anchor='w', padx=(15,0))
+                        else:
+                            for equipe in equipes:
+                                equipe_nome = equipe.get('tipo_equipe', 'N/A')
+                                qtd = equipe.get('quantidade', 'N/A')
+                                vol = equipe.get('volumetria', 'N/A')
+                                base = equipe.get('base', 'N/A')
+                                info_text = f"  - Equipe: {equipe_nome} | Qtd: {qtd} | Volumetria: {vol} | Base: {base}"
+                                ttk.Label(servicos_frame, text=info_text, style='Value.White.TLabel').pack(anchor='w', padx=(15,0))
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        # Bases alocadas
+        if op_data['bases_nomes']:
+            try:
+                bases_nomes = json.loads(op_data['bases_nomes'])
+                if bases_nomes:
+                    bases_frame = ttk.LabelFrame(analise_tab, text="Bases Alocadas", padding=15, style='White.TLabelframe')
+                    bases_frame.pack(fill='x', pady=(0, 10))
+
+                    for i, base in enumerate(bases_nomes, 1):
+                        base_frame = ttk.Frame(bases_frame)
+                        base_frame.pack(fill='x', pady=2)
+                        ttk.Label(base_frame, text=f"Base {i}:", style='Metric.White.TLabel', width=10).pack(side='left')
+                        ttk.Label(base_frame, text=base, style='Value.White.TLabel').pack(side='left', padx=(10, 0))
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        # Aba 2: Sumário Executivo
+        sumario_tab = ttk.Frame(notebook, padding=20)
+        notebook.add(sumario_tab, text='  Sumário Executivo  ')
+
+        edital_frame = ttk.LabelFrame(sumario_tab, text="Informações do Edital", padding=15, style='White.TLabelframe')
+        edital_frame.pack(fill='x', pady=(0, 10))
+
+        edital_info = [
+            ("Número do Edital:", op_data['numero_edital'] or "---"),
+            ("Data de Abertura:", op_data['data_abertura'] or "---"),
+            ("Modalidade:", op_data['modalidade'] or "---"),
+            ("Contato Principal:", op_data['contato_principal'] or "---")
+        ]
+
+        for label, value in edital_info:
+            row_frame = ttk.Frame(edital_frame)
+            row_frame.pack(fill='x', pady=2)
+            ttk.Label(row_frame, text=label, style='Metric.White.TLabel', width=20).pack(side='left')
+            ttk.Label(row_frame, text=str(value), style='Value.White.TLabel').pack(side='left', padx=(10, 0))
+
+        financeiro_frame = ttk.LabelFrame(sumario_tab, text="Informações Financeiras", padding=15, style='White.TLabelframe')
+        financeiro_frame.pack(fill='x', pady=(0, 10))
+
+        financeiro_info = [
+            ("Faturamento Estimado:", format_currency(op_data['faturamento_estimado']) if op_data['faturamento_estimado'] else "---"),
+            ("Duração do Contrato:", f"{op_data['duracao_contrato']} meses" if op_data['duracao_contrato'] else "---"),
+            ("Total de Pessoas:", op_data['total_pessoas'] or "---"),
+            ("Margem de Contribuição:", f"{op_data['margem_contribuicao']}%" if op_data['margem_contribuicao'] else "---")
+        ]
+
+        for label, value in financeiro_info:
+            row_frame = ttk.Frame(financeiro_frame)
+            row_frame.pack(fill='x', pady=2)
+            ttk.Label(row_frame, text=label, style='Metric.White.TLabel', width=20).pack(side='left')
+            ttk.Label(row_frame, text=str(value), style='Value.White.TLabel').pack(side='left', padx=(10, 0))
+
+        if op_data['descricao_detalhada']:
+            desc_frame = ttk.LabelFrame(sumario_tab, text="Descrição Detalhada", padding=15, style='White.TLabelframe')
+            desc_frame.pack(fill='both', expand=True, pady=(0, 10))
+
+            desc_text = tk.Text(desc_frame, height=8, wrap='word', bg='white', font=('Segoe UI', 10), state='disabled')
+            desc_scrollbar = ttk.Scrollbar(desc_frame, orient="vertical", command=desc_text.yview)
+            desc_text.configure(yscrollcommand=desc_scrollbar.set)
+            desc_text.pack(side="left", fill="both", expand=True)
+            desc_scrollbar.pack(side="right", fill="y")
+
+            desc_text.config(state='normal')
+            desc_text.insert('1.0', op_data['descricao_detalhada'])
+            desc_text.config(state='disabled')
+
+        # Aba 3: Histórico de Interações
+        interacoes_tab = ttk.Frame(notebook, padding=20)
+        notebook.add(interacoes_tab, text='  Histórico de Interações  ')
+
+        ttk.Button(interacoes_tab, text="Nova Interação", command=lambda: self.add_interaction_dialog(op_id, details_win), style='Success.TButton').pack(anchor='ne', pady=(0, 10))
+
+        interacoes = self.db.get_interactions_for_opportunity(op_id)
+        if interacoes:
+            for interacao in interacoes:
+                int_frame = ttk.LabelFrame(interacoes_tab, text=f"{interacao['tipo']} - {interacao['data_interacao']}", padding=10, style='White.TLabelframe')
+                int_frame.pack(fill='x', pady=5)
+
+                ttk.Label(int_frame, text=f"Usuário: {interacao['usuario']}", style='Metric.White.TLabel').pack(anchor='w')
+                ttk.Label(int_frame, text=interacao['resumo'], style='Value.White.TLabel', wraplength=800).pack(anchor='w', pady=(5, 0))
+        else:
+            ttk.Label(interacoes_tab, text="Nenhuma interação registrada.", style='Value.White.TLabel').pack(pady=20)
+
+        # Aba 4: Tarefas
+        tarefas_tab = ttk.Frame(notebook, padding=20)
+        notebook.add(tarefas_tab, text='  Tarefas  ')
+
+        ttk.Button(tarefas_tab, text="Nova Tarefa", command=lambda: self.add_task_dialog(op_id, details_win), style='Success.TButton').pack(anchor='ne', pady=(0, 10))
+
+        tarefas = self.db.get_tasks_for_opportunity(op_id)
+        if tarefas:
+            for tarefa in tarefas:
+                task_frame = ttk.LabelFrame(tarefas_tab, text=f"Tarefa - {tarefa['status']}", padding=10, style='White.TLabelframe')
+                task_frame.pack(fill='x', pady=5)
+
+                ttk.Label(task_frame, text=tarefa['descricao'], style='Value.White.TLabel', wraplength=800).pack(anchor='w')
+
+                info_frame = ttk.Frame(task_frame)
+                info_frame.pack(fill='x', pady=(5, 0))
+                ttk.Label(info_frame, text=f"Responsável: {tarefa['responsavel']}", style='Metric.White.TLabel').pack(side='left')
+                ttk.Label(info_frame, text=f"Vencimento: {tarefa['data_vencimento']}", style='Metric.White.TLabel').pack(side='right')
+
+                if tarefa['status'] != 'Concluída':
+                    ttk.Button(task_frame, text="Marcar como Concluída",
+                             command=lambda t_id=tarefa['id'], op_id=op_id: self.complete_task(t_id, op_id, details_win),
+                             style='Success.TButton').pack(anchor='e', pady=(5, 0))
+        else:
+            ttk.Label(tarefas_tab, text="Nenhuma tarefa registrada.", style='Value.White.TLabel').pack(pady=20)
+
+    def add_interaction_dialog(self, op_id, parent_win):
+        dialog = Toplevel(parent_win)
+        dialog.title("Nova Interação")
+        dialog.geometry("500x400")
+        dialog.configure(bg=DOLP_COLORS['white'])
+
+        ttk.Label(dialog, text="Tipo de Interação:", style='TLabel').pack(pady=5)
+        tipo_combo = ttk.Combobox(dialog, values=["Reunião", "Ligação", "E-mail", "Proposta", "Negociação", "Outro"], state='readonly')
+        tipo_combo.pack(pady=5, padx=20, fill='x')
+
+        ttk.Label(dialog, text="Usuário:", style='TLabel').pack(pady=5)
+        usuario_entry = ttk.Entry(dialog)
+        usuario_entry.pack(pady=5, padx=20, fill='x')
+
+        ttk.Label(dialog, text="Resumo:", style='TLabel').pack(pady=5)
+        resumo_text = tk.Text(dialog, height=8, wrap='word', bg='white')
+        resumo_text.pack(pady=5, padx=20, fill='both', expand=True)
+
+        def save_interaction():
+            data = {
+                'oportunidade_id': op_id,
+                'data_interacao': datetime.now().strftime('%d/%m/%Y %H:%M'),
+                'tipo': tipo_combo.get(),
+                'resumo': resumo_text.get('1.0', 'end-1c'),
+                'usuario': usuario_entry.get()
+            }
+
+            if not data['tipo'] or not data['resumo'] or not data['usuario']:
+                messagebox.showerror("Erro", "Todos os campos são obrigatórios!", parent=dialog)
+                return
+
+            self.db.add_interaction(data)
+            messagebox.showinfo("Sucesso", "Interação adicionada com sucesso!", parent=dialog)
+            parent_win.destroy()
+            self.show_opportunity_details(op_id)
+            dialog.destroy()
+
+
+        ttk.Button(dialog, text="Salvar", command=save_interaction, style='Success.TButton').pack(pady=10)
+
+    def add_task_dialog(self, op_id, parent_win):
+        dialog = Toplevel(parent_win)
+        dialog.title("Nova Tarefa")
+        dialog.geometry("500x350")
+        dialog.configure(bg=DOLP_COLORS['white'])
+
+        ttk.Label(dialog, text="Descrição:", style='TLabel').pack(pady=5)
+        desc_text = tk.Text(dialog, height=6, wrap='word', bg='white')
+        desc_text.pack(pady=5, padx=20, fill='both', expand=True)
+
+        ttk.Label(dialog, text="Responsável:", style='TLabel').pack(pady=5)
+        responsavel_entry = ttk.Entry(dialog)
+        responsavel_entry.pack(pady=5, padx=20, fill='x')
+
+        ttk.Label(dialog, text="Data de Vencimento:", style='TLabel').pack(pady=5)
+        vencimento_date = DateEntry(dialog, date_pattern='dd/mm/yyyy')
+        vencimento_date.pack(pady=5, padx=20)
+
+        def save_task():
+            data = {
+                'oportunidade_id': op_id,
+                'descricao': desc_text.get('1.0', 'end-1c'),
+                'data_criacao': datetime.now().strftime('%d/%m/%Y'),
+                'data_vencimento': vencimento_date.get(),
+                'responsavel': responsavel_entry.get(),
+                'status': 'Pendente'
+            }
+
+            if not data['descricao'] or not data['responsavel']:
+                messagebox.showerror("Erro", "Descrição e responsável são obrigatórios!", parent=dialog)
+                return
+
+            self.db.add_task(data)
+            messagebox.showinfo("Sucesso", "Tarefa adicionada com sucesso!", parent=dialog)
+            parent_win.destroy()
+            self.show_opportunity_details(op_id)
+            dialog.destroy()
+
+
+        ttk.Button(dialog, text="Salvar", command=save_task, style='Success.TButton').pack(pady=10)
+
+    def complete_task(self, task_id, op_id, parent_win):
+        self.db.update_task_status(task_id, 'Concluída')
+        messagebox.showinfo("Sucesso", "Tarefa marcada como concluída!")
+        parent_win.destroy()
+        self.show_opportunity_details(op_id)
+
+    def show_clients_view(self):
+        self.clear_content()
+
+        title_frame = ttk.Frame(self.content_frame, style='TFrame')
+        title_frame.pack(fill='x', pady=(0, 20))
+
+        ttk.Label(title_frame, text="Clientes", style='Title.TLabel').pack(side='left')
+        ttk.Button(title_frame, text="Novo Cliente", command=self.show_client_form, style='Success.TButton').pack(side='right')
+        ttk.Button(title_frame, text="← Voltar", command=self.show_main_menu, style='TButton').pack(side='right', padx=(0, 10))
+
+        clients_frame = ttk.Frame(self.content_frame, style='TFrame')
+        clients_frame.pack(fill='both', expand=True)
+
+        columns = ('id', 'nome_empresa', 'cnpj', 'cidade', 'estado', 'status')
+        tree = ttk.Treeview(clients_frame, columns=columns, show='headings', height=15)
+
+        tree.heading('id', text='ID')
+        tree.heading('nome_empresa', text='Empresa')
+        tree.heading('cnpj', text='CNPJ')
+        tree.heading('cidade', text='Cidade')
+        tree.heading('estado', text='Estado')
+        tree.heading('status', text='Status')
+
+        tree.column('id', width=50, anchor='center')
+        tree.column('nome_empresa', width=300)
+        tree.column('cnpj', width=150)
+        tree.column('cidade', width=150)
+        tree.column('estado', width=80, anchor='center')
+        tree.column('status', width=200)
+
+        scrollbar = ttk.Scrollbar(clients_frame, orient='vertical', command=tree.yview)
+        tree.configure(yscrollcommand=scrollbar.set)
+
+        tree.pack(side='left', fill='both', expand=True)
+        scrollbar.pack(side='right', fill='y')
+
+        clients = self.db.get_all_clients()
+        for client in clients:
+            status = client['status'] or 'Não cadastrado'
+            if client['data_atualizacao']:
+                try:
+                    data_atualizacao = datetime.strptime(client['data_atualizacao'], '%d/%m/%Y')
+                    if (datetime.now() - data_atualizacao).days > 365:
+                         status = 'Cadastro Desatualizado'
+                except (ValueError, TypeError):
+                    pass
+
+            tree.insert('', 'end', values=(
+                client['id'],
+                client['nome_empresa'],
+                client['cnpj'] or '---',
+                client['cidade'] or '---',
+                client['estado'] or '---',
+                status
+            ))
+
+        def on_double_click(event):
+            selection = tree.selection()
+            if selection:
+                item = tree.item(selection[0])
+                client_id = item['values'][0]
+                self.show_client_form(client_id)
+
+        tree.bind('<Double-1>', on_double_click)
+
+        def show_context_menu(event):
+            selection = tree.selection()
+            if selection:
+                context_menu = tk.Menu(self.root, tearoff=0)
+                context_menu.add_command(label="Editar Cliente", command=lambda: self.show_client_form(tree.item(selection[0])['values'][0]))
+                context_menu.add_command(label="Nova Oportunidade", command=lambda: self.show_opportunity_form(client_to_prefill=tree.item(selection[0])['values'][1]))
+                context_menu.tk_popup(event.x_root, event.y_root)
+
+        tree.bind('<Button-3>', show_context_menu)
+
+    def show_client_form(self, client_id=None):
+        form_win = Toplevel(self.root)
+        form_win.title("Novo Cliente" if not client_id else "Editar Cliente")
+        form_win.geometry("600x500")
+        form_win.configure(bg=DOLP_COLORS['white'])
+
+        main_frame = ttk.Frame(form_win, padding=20, style='TFrame')
+        main_frame.pack(fill='both', expand=True)
+
+        ttk.Label(main_frame, text="Novo Cliente" if not client_id else "Editar Cliente", style='Title.TLabel').pack(pady=(0, 20))
+
+        entries = {}
+
+        fields = [
+            ("Nome da Empresa:*", "nome_empresa", "entry"),
+            ("CNPJ:", "cnpj", "entry"),
+            ("Cidade:", "cidade", "entry"),
+            ("Estado:", "estado", "combobox", BRAZILIAN_STATES),
+            ("Setor de Atuação:", "setor_atuacao", "combobox", self.db.get_all_setores()),
+            ("Segmento de Atuação:", "segmento_atuacao", "combobox", self.db.get_all_segmentos()),
+            ("Data de Atualização:", "data_atualizacao", "date"),
+            ("Link do Portal:", "link_portal", "entry"),
+            ("Status:", "status", "combobox", CLIENT_STATUS_OPTIONS)
+        ]
+
+        for i, field_info in enumerate(fields):
+            text, key = field_info[0], field_info[1]
+            field_frame = ttk.Frame(main_frame, style='TFrame')
+            field_frame.pack(fill='x', pady=5)
+            ttk.Label(field_frame, text=text, style='TLabel', width=25).pack(side='left')
+
+            if len(field_info) > 3:
+                widget = ttk.Combobox(field_frame, values=field_info[3], state='readonly')
+            elif field_info[2] == "combobox":
+                widget = ttk.Combobox(field_frame, state='readonly')
+            elif field_info[2] == "date":
+                widget = DateEntry(field_frame, date_pattern='dd/mm/yyyy', width=20)
+            else:
+                widget = ttk.Entry(field_frame, width=40)
+
+            widget.pack(side='left', padx=(10, 0), fill='x', expand=True)
+            entries[key] = widget
+
+        if client_id:
+            client_data = self.db.get_client_by_id(client_id)
+            if client_data:
+                for key, widget in entries.items():
+                    value = client_data[key] or ''
+                    if hasattr(widget, 'set'):
+                        widget.set(value)
+                    else:
+                        widget.insert(0, value)
+        else:
+            entries['data_atualizacao'].set_date(datetime.now().date())
+
+        buttons_frame = ttk.Frame(main_frame, style='TFrame')
+        buttons_frame.pack(fill='x', pady=(20, 0))
+
+        def save_client():
+            try:
+                data = {}
+                for key, widget in entries.items():
+                    data[key] = widget.get().strip()
+
+                if not data['nome_empresa']:
+                    messagebox.showerror("Erro", "Nome da empresa é obrigatório!", parent=form_win)
+                    return
+
+                if client_id:
+                    self.db.update_client(client_id, data)
+                    messagebox.showinfo("Sucesso", "Cliente atualizado com sucesso!", parent=form_win)
+                else:
+                    self.db.add_client(data)
+                    messagebox.showinfo("Sucesso", "Cliente criado com sucesso!", parent=form_win)
+
+                form_win.destroy()
+                self.show_clients_view()
+
+            except Exception as e:
+                messagebox.showerror("Erro de Banco de Dados", f"Erro ao salvar: {str(e)}", parent=form_win)
+
+        ttk.Button(buttons_frame, text="Salvar", command=save_client, style='Success.TButton').pack(side='right')
+        ttk.Button(buttons_frame, text="Cancelar", command=form_win.destroy, style='TButton').pack(side='right', padx=(0, 10))
+
+    def show_crm_settings(self):
+        self.clear_content()
+
+        title_frame = ttk.Frame(self.content_frame, style='TFrame')
+        title_frame.pack(fill='x', pady=(0, 20))
+
+        ttk.Label(title_frame, text="Configurações do CRM", style='Title.TLabel').pack(side='left')
+        ttk.Button(title_frame, text="← Voltar", command=self.show_main_menu, style='TButton').pack(side='right')
+
+        settings_frame = ttk.Frame(self.content_frame, style='TFrame')
+        settings_frame.pack(expand=True)
+
+        config_buttons = [
+            ("Tipos de Serviço", self.show_servicos_view, 'Primary.TButton'),
+            ("Tipos de Equipe", self.show_team_types_view, 'Primary.TButton'),
+            ("Empresas Referência", self.show_empresa_referencia_view, 'Primary.TButton'),
+            ("Setores de Atuação", lambda: self.show_list_manager("Setores", self.db.get_all_setores, self.db.add_setor, self.db.delete_setor), 'Warning.TButton'),
+            ("Segmentos de Atuação", lambda: self.show_list_manager("Segmentos", self.db.get_all_segmentos, self.db.add_segmento, self.db.delete_segmento), 'Warning.TButton')
+        ]
+
+        for i, (text, command, style) in enumerate(config_buttons):
+            btn = ttk.Button(settings_frame, text=text, command=command, style=style, width=25)
+            btn.pack(pady=10)
+
+    def show_servicos_view(self):
+        self.clear_content()
+
+        title_frame = ttk.Frame(self.content_frame, style='TFrame')
+        title_frame.pack(fill='x', pady=(0, 20))
+
+        ttk.Label(title_frame, text="Tipos de Serviço", style='Title.TLabel').pack(side='left')
+        ttk.Button(title_frame, text="Novo Serviço", command=self.show_servico_form, style='Success.TButton').pack(side='right')
+        ttk.Button(title_frame, text="← Voltar", command=self.show_crm_settings, style='TButton').pack(side='right', padx=(0, 10))
+
+        types_frame = ttk.Frame(self.content_frame, style='TFrame')
+        types_frame.pack(fill='both', expand=True)
+
+        columns = ('id', 'nome', 'categoria', 'ativa')
+        tree = ttk.Treeview(types_frame, columns=columns, show='headings', height=15)
+
+        tree.heading('id', text='ID')
+        tree.heading('nome', text='Nome')
+        tree.heading('categoria', text='Categoria')
+        tree.heading('ativa', text='Ativa')
+
+        tree.column('id', width=50, anchor='center')
+        tree.column('nome', width=300)
+        tree.column('categoria', width=200)
+        tree.column('ativa', width=80, anchor='center')
+
+        scrollbar = ttk.Scrollbar(types_frame, orient='vertical', command=tree.yview)
+        tree.configure(yscrollcommand=scrollbar.set)
+
+        tree.pack(side='left', fill='both', expand=True)
+        scrollbar.pack(side='right', fill='y')
+
+        servicos = self.db.get_all_servicos()
+        for servico in servicos:
+            tree.insert('', 'end', values=(
+                servico['id'],
+                servico['nome'],
+                servico['categoria'] or '---',
+                'Sim' if servico['ativa'] else 'Não'
+            ))
+
+        def on_double_click(event):
+            selection = tree.selection()
+            if selection:
+                item = tree.item(selection[0])
+                servico_id = item['values'][0]
+                self.show_servico_form(servico_id)
+
+        tree.bind('<Double-1>', on_double_click)
+
+    def show_servico_form(self, servico_id=None):
+        form_win = Toplevel(self.root)
+        form_win.title("Novo Tipo de Serviço" if not servico_id else "Editar Tipo de Serviço")
+        form_win.geometry("500x400")
+        form_win.configure(bg=DOLP_COLORS['white'])
+
+        main_frame = ttk.Frame(form_win, padding=20, style='TFrame')
+        main_frame.pack(fill='both', expand=True)
+
+        ttk.Label(main_frame, text="Novo Tipo de Serviço" if not servico_id else "Editar Tipo de Serviço", style='Title.TLabel').pack(pady=(0, 20))
+
+        entries = {}
+
+        fields = [
+            ("Nome:*", "nome", "entry"),
+            ("Categoria:", "categoria", "entry"),
+            ("Descrição:", "descricao", "text"),
+            ("Ativa:", "ativa", "checkbox")
+        ]
+
+        for text, key, widget_type in fields:
+            field_frame = ttk.Frame(main_frame, style='TFrame')
+            field_frame.pack(fill='x', pady=5)
+            ttk.Label(field_frame, text=text, style='TLabel', width=15).pack(side='left')
+
+            if widget_type == "text":
+                widget = tk.Text(field_frame, height=4, wrap='word', bg='white')
+            elif widget_type == "checkbox":
+                widget = tk.BooleanVar()
+                cb = ttk.Checkbutton(field_frame, variable=widget)
+                cb.pack(side='left', padx=(10, 0))
+            else:
+                widget = ttk.Entry(field_frame, width=40)
+
+            if widget_type != "checkbox":
+                widget.pack(side='left', padx=(10, 0), fill='x', expand=True)
+            entries[key] = widget
+
+        if servico_id:
+            servico_data = self.db.get_servico_by_id(servico_id)
+            if servico_data:
+                entries['nome'].insert(0, servico_data['nome'] or '')
+                entries['categoria'].insert(0, servico_data['categoria'] or '')
+                if servico_data['descricao']:
+                    entries['descricao'].insert('1.0', servico_data['descricao'])
+                entries['ativa'].set(bool(servico_data['ativa']))
+        else:
+            entries['ativa'].set(True)
+
+        buttons_frame = ttk.Frame(main_frame, style='TFrame')
+        buttons_frame.pack(fill='x', pady=(20, 0))
+
+        def save_servico():
+            try:
+                data = {
+                    'nome': entries['nome'].get().strip(),
+                    'categoria': entries['categoria'].get().strip(),
+                    'descricao': entries['descricao'].get('1.0', 'end-1c').strip(),
+                    'ativa': 1 if entries['ativa'].get() else 0
+                }
+                if not data['nome']:
+                    messagebox.showerror("Erro", "Nome é obrigatório!", parent=form_win)
+                    return
+
+                if servico_id:
+                    self.db.update_servico(servico_id, data)
+                    messagebox.showinfo("Sucesso", "Tipo de serviço atualizado com sucesso!", parent=form_win)
+                else:
+                    self.db.add_servico(data)
+                    messagebox.showinfo("Sucesso", "Tipo de serviço criado com sucesso!", parent=form_win)
+                form_win.destroy()
+                self.show_servicos_view()
+            except Exception as e:
+                messagebox.showerror("Erro de Banco de Dados", f"Erro ao salvar: {str(e)}", parent=form_win)
+
+        ttk.Button(buttons_frame, text="Salvar", command=save_servico, style='Success.TButton').pack(side='right')
+        ttk.Button(buttons_frame, text="Cancelar", command=form_win.destroy, style='TButton').pack(side='right', padx=(0, 10))
+
+    def show_team_types_view(self):
+        self.clear_content()
+        title_frame = ttk.Frame(self.content_frame, style='TFrame')
+        title_frame.pack(fill='x', pady=(0, 20))
+        ttk.Label(title_frame, text="Tipos de Equipe", style='Title.TLabel').pack(side='left')
+        ttk.Button(title_frame, text="Novo Tipo de Equipe", command=self.show_team_type_form, style='Success.TButton').pack(side='right')
+        ttk.Button(title_frame, text="← Voltar", command=self.show_crm_settings, style='TButton').pack(side='right', padx=(0, 10))
+
+        view_frame = ttk.Frame(self.content_frame, style='TFrame')
+        view_frame.pack(fill='both', expand=True)
+        columns = ('id', 'nome', 'servico_nome', 'ativa')
+        tree = ttk.Treeview(view_frame, columns=columns, show='headings', height=15)
+        tree.heading('id', text='ID')
+        tree.heading('nome', text='Nome da Equipe')
+        tree.heading('servico_nome', text='Tipo de Serviço Associado')
+        tree.heading('ativa', text='Ativa')
+        tree.column('id', width=50, anchor='center')
+        tree.column('nome', width=300)
+        tree.column('servico_nome', width=300)
+        tree.column('ativa', width=80, anchor='center')
+
+        scrollbar = ttk.Scrollbar(view_frame, orient='vertical', command=tree.yview)
+        tree.configure(yscrollcommand=scrollbar.set)
+        tree.pack(side='left', fill='both', expand=True)
+        scrollbar.pack(side='right', fill='y')
+
+        team_types = self.db.get_all_team_types()
+        for tt in team_types:
+            tree.insert('', 'end', values=(tt['id'], tt['nome'], tt['servico_nome'], 'Sim' if tt['ativa'] else 'Não'))
+
+        def on_double_click(event):
+            selection = tree.selection()
+            if selection:
+                item = tree.item(selection[0])
+                team_id = item['values'][0]
+                self.show_team_type_form(team_id)
+        tree.bind('<Double-1>', on_double_click)
+
+    def show_team_type_form(self, team_id=None):
+        form_win = Toplevel(self.root)
+        form_win.title("Novo Tipo de Equipe" if not team_id else "Editar Tipo de Equipe")
+        form_win.geometry("500x300")
+        form_win.configure(bg=DOLP_COLORS['white'])
+        main_frame = ttk.Frame(form_win, padding=20, style='TFrame')
+        main_frame.pack(fill='both', expand=True)
+        ttk.Label(main_frame, text="Novo Tipo de Equipe" if not team_id else "Editar Tipo de Equipe", style='Title.TLabel').pack(pady=(0, 20))
+
+        entries = {}
+        servicos = self.db.get_all_servicos()
+        servico_map = {s['nome']: s['id'] for s in servicos}
+        servico_names = list(servico_map.keys())
+
+        # Nome
+        nome_frame = ttk.Frame(main_frame, style='TFrame')
+        nome_frame.pack(fill='x', pady=5)
+        ttk.Label(nome_frame, text="Nome da Equipe:*", style='TLabel', width=20).pack(side='left')
+        entries['nome'] = ttk.Entry(nome_frame, width=40)
+        entries['nome'].pack(side='left', padx=(10,0), fill='x', expand=True)
+
+        # Tipo de Serviço
+        servico_frame = ttk.Frame(main_frame, style='TFrame')
+        servico_frame.pack(fill='x', pady=5)
+        ttk.Label(servico_frame, text="Tipo de Serviço:*", style='TLabel', width=20).pack(side='left')
+        entries['servico_id'] = ttk.Combobox(servico_frame, values=servico_names, state='readonly')
+        entries['servico_id'].pack(side='left', padx=(10,0), fill='x', expand=True)
+
+        # Ativa
+        ativa_frame = ttk.Frame(main_frame, style='TFrame')
+        ativa_frame.pack(fill='x', pady=5)
+        ttk.Label(ativa_frame, text="Ativa:", style='TLabel', width=20).pack(side='left')
+        entries['ativa'] = tk.BooleanVar()
+        ttk.Checkbutton(ativa_frame, variable=entries['ativa']).pack(side='left', padx=(10,0))
+
+        if team_id:
+            team_data = self.db.get_team_type_by_id(team_id)
+            if team_data:
+                entries['nome'].insert(0, team_data['nome'] or '')
+                servico_id = team_data['servico_id']
+                for s_name, s_id in servico_map.items():
+                    if s_id == servico_id:
+                        entries['servico_id'].set(s_name)
+                        break
+                entries['ativa'].set(bool(team_data['ativa']))
+        else:
+            entries['ativa'].set(True)
+
+        buttons_frame = ttk.Frame(main_frame, style='TFrame')
+        buttons_frame.pack(fill='x', pady=(20, 0))
+
+        def save_team_type():
+            try:
+                servico_nome = entries['servico_id'].get()
+                if not servico_nome:
+                    messagebox.showerror("Erro", "Tipo de Serviço é obrigatório!", parent=form_win)
+                    return
+
+                data = {
+                    'nome': entries['nome'].get().strip(),
+                    'servico_id': servico_map[servico_nome],
+                    'ativa': 1 if entries['ativa'].get() else 0
+                }
+                if not data['nome']:
+                    messagebox.showerror("Erro", "Nome da equipe é obrigatório!", parent=form_win)
+                    return
+
+                if team_id:
+                    self.db.update_team_type(team_id, data)
+                    messagebox.showinfo("Sucesso", "Tipo de equipe atualizado com sucesso!", parent=form_win)
+                else:
+                    self.db.add_team_type(data)
+                    messagebox.showinfo("Sucesso", "Tipo de equipe criado com sucesso!", parent=form_win)
+                form_win.destroy()
+                self.show_team_types_view()
+            except Exception as e:
+                messagebox.showerror("Erro de Banco de Dados", f"Erro ao salvar: {str(e)}", parent=form_win)
+
+        ttk.Button(buttons_frame, text="Salvar", command=save_team_type, style='Success.TButton').pack(side='right')
+        ttk.Button(buttons_frame, text="Cancelar", command=form_win.destroy, style='TButton').pack(side='right', padx=(0, 10))
+
+    def show_empresa_referencia_view(self):
+        self.clear_content()
+
+        title_frame = ttk.Frame(self.content_frame, style='TFrame')
+        title_frame.pack(fill='x', pady=(0, 20))
+
+        ttk.Label(title_frame, text="Empresas Referência", style='Title.TLabel').pack(side='left')
+        ttk.Button(title_frame, text="Nova Empresa", command=self.show_empresa_referencia_form, style='Success.TButton').pack(side='right')
+        ttk.Button(title_frame, text="← Voltar", command=self.show_crm_settings, style='TButton').pack(side='right', padx=(0, 10))
+
+        empresas_frame = ttk.Frame(self.content_frame, style='TFrame')
+        empresas_frame.pack(fill='both', expand=True)
+
+        columns = ('id', 'nome_empresa', 'tipo_servico', 'valor_mensal', 'volumetria_minima', 'valor_por_pessoa', 'ativa')
+        tree = ttk.Treeview(empresas_frame, columns=columns, show='headings', height=15)
+
+        tree.heading('id', text='ID')
+        tree.heading('nome_empresa', text='Empresa')
+        tree.heading('tipo_servico', text='Tipo de Serviço')
+        tree.heading('valor_mensal', text='Valor Mensal (R$)')
+        tree.heading('volumetria_minima', text='Volumetria Mín.')
+        tree.heading('valor_por_pessoa', text='Valor/Pessoa (R$)')
+        tree.heading('ativa', text='Ativa')
+
+        tree.column('id', width=50, anchor='center')
+        tree.column('nome_empresa', width=200)
+        tree.column('tipo_servico', width=200)
+        tree.column('valor_mensal', width=120, anchor='center')
+        tree.column('volumetria_minima', width=120, anchor='center')
+        tree.column('valor_por_pessoa', width=120, anchor='center')
+        tree.column('ativa', width=80, anchor='center')
+
+        scrollbar = ttk.Scrollbar(empresas_frame, orient='vertical', command=tree.yview)
+        tree.configure(yscrollcommand=scrollbar.set)
+
+        tree.pack(side='left', fill='both', expand=True)
+        scrollbar.pack(side='right', fill='y')
+
+        empresas = self.db.get_all_empresas_referencia()
+        for empresa in empresas:
+            tree.insert('', 'end', values=(
+                empresa['id'],
+                empresa['nome_empresa'],
+                empresa['tipo_servico'],
+                format_currency(empresa['valor_mensal']),
+                f"{empresa['volumetria_minima']:,.0f}",
+                format_currency(empresa['valor_por_pessoa']),
+                'Sim' if empresa['ativa'] else 'Não'
+            ))
+
+        def on_double_click(event):
+            selection = tree.selection()
+            if selection:
+                item = tree.item(selection[0])
+                empresa_id = item['values'][0]
+                self.show_empresa_referencia_form(empresa_id)
+
+        tree.bind('<Double-1>', on_double_click)
+
+    def show_empresa_referencia_form(self, empresa_id=None):
+        form_win = Toplevel(self.root)
+        form_win.title("Nova Empresa Referência" if not empresa_id else "Editar Empresa Referência")
+        form_win.geometry("600x500")
+        form_win.configure(bg=DOLP_COLORS['white'])
+
+        main_frame = ttk.Frame(form_win, padding=20, style='TFrame')
+        main_frame.pack(fill='both', expand=True)
+
+        ttk.Label(main_frame, text="Nova Empresa Referência" if not empresa_id else "Editar Empresa Referência", style='Title.TLabel').pack(pady=(0, 20))
+
+        entries = {}
+        servicos = self.db.get_all_servicos()
+        service_names = [s['nome'] for s in servicos if s['ativa']]
+
+        fields = [
+            ("Nome da Empresa:*", "nome_empresa", "entry"),
+            ("Tipo de Serviço:*", "tipo_servico", "combobox", service_names),
+            ("Valor Mensal (R$):*", "valor_mensal", "entry"),
+            ("Volumetria Mínima:*", "volumetria_minima", "entry"),
+            ("Valor por Pessoa (R$):*", "valor_por_pessoa", "entry"),
+            ("Ativa:", "ativa", "checkbox")
+        ]
+
+        for text, key, widget_type, *args in fields:
+            field_frame = ttk.Frame(main_frame, style='TFrame')
+            field_frame.pack(fill='x', pady=5)
+
+            ttk.Label(field_frame, text=text, style='TLabel', width=20).pack(side='left')
+
+            if widget_type == "combobox":
+                widget = ttk.Combobox(field_frame, values=args[0], state='readonly', width=40)
+            elif widget_type == "checkbox":
+                widget = tk.BooleanVar()
+                cb = ttk.Checkbutton(field_frame, variable=widget)
+                cb.pack(side='left', padx=(10, 0))
+            else:
+                widget = ttk.Entry(field_frame, width=40)
+
+            if widget_type != "checkbox":
+                widget.pack(side='left', padx=(10, 0), fill='x', expand=True)
+
+            entries[key] = widget
+
+        if empresa_id:
+            empresa_data = self.db.get_empresa_referencia_by_id(empresa_id)
+            if empresa_data:
+                entries['nome_empresa'].insert(0, empresa_data['nome_empresa'] or '')
+                entries['tipo_servico'].set(empresa_data['tipo_servico'] or '')
+                entries['valor_mensal'].insert(0, str(empresa_data['valor_mensal'] or ''))
+                entries['volumetria_minima'].insert(0, str(empresa_data['volumetria_minima'] or ''))
+                entries['valor_por_pessoa'].insert(0, str(empresa_data['valor_por_pessoa'] or ''))
+                entries['ativa'].set(bool(empresa_data['ativa']))
+        else:
+            entries['ativa'].set(True)
+
+        buttons_frame = ttk.Frame(main_frame, style='TFrame')
+        buttons_frame.pack(fill='x', pady=(20, 0))
+
+        def save_empresa():
+            try:
+                data = {
+                    'nome_empresa': entries['nome_empresa'].get().strip(),
+                    'tipo_servico': entries['tipo_servico'].get(),
+                    'valor_mensal': float(entries['valor_mensal'].get().replace(',', '.')) if entries['valor_mensal'].get() else 0,
+                    'volumetria_minima': float(entries['volumetria_minima'].get().replace(',', '.')) if entries['volumetria_minima'].get() else 0,
+                    'valor_por_pessoa': float(entries['valor_por_pessoa'].get().replace(',', '.')) if entries['valor_por_pessoa'].get() else 0,
+                    'ativa': 1 if entries['ativa'].get() else 0
+                }
+
+                if not data['nome_empresa'] or not data['tipo_servico']:
+                    messagebox.showerror("Erro", "Nome da empresa e tipo de serviço são obrigatórios!", parent=form_win)
+                    return
+
+                if empresa_id:
+                    self.db.update_empresa_referencia(empresa_id, data)
+                    messagebox.showinfo("Sucesso", "Empresa referência atualizada com sucesso!", parent=form_win)
+                else:
+                    self.db.add_empresa_referencia(data)
+                    messagebox.showinfo("Sucesso", "Empresa referência criada com sucesso!", parent=form_win)
+
+                form_win.destroy()
+                self.show_empresa_referencia_view()
+
+            except ValueError:
+                messagebox.showerror("Erro", "Valores numéricos inválidos!", parent=form_win)
+            except Exception as e:
+                messagebox.showerror("Erro de Banco de Dados", f"Erro ao salvar: {str(e)}", parent=form_win)
+
+        ttk.Button(buttons_frame, text="Salvar", command=save_empresa, style='Success.TButton').pack(side='right')
+        ttk.Button(buttons_frame, text="Cancelar", command=form_win.destroy, style='TButton').pack(side='right', padx=(0, 10))
+
+    def show_list_manager(self, title, get_func, add_func, delete_func):
+        manager_win = Toplevel(self.root)
+        manager_win.title(f"Gerenciar {title}")
+        manager_win.geometry("500x400")
+        manager_win.configure(bg=DOLP_COLORS['white'])
+
+        main_frame = ttk.Frame(manager_win, padding=20, style='TFrame')
+        main_frame.pack(fill='both', expand=True)
+
+        ttk.Label(main_frame, text=f"Gerenciar {title}", style='Title.TLabel').pack(pady=(0, 20))
+
+        list_frame = ttk.Frame(main_frame, style='TFrame')
+        list_frame.pack(fill='both', expand=True, pady=(0, 10))
+
+        listbox = tk.Listbox(list_frame, bg='white', font=('Segoe UI', 10))
+        scrollbar_list = ttk.Scrollbar(list_frame, orient='vertical', command=listbox.yview)
+        listbox.configure(yscrollcommand=scrollbar_list.set)
+
+        listbox.pack(side='left', fill='both', expand=True)
+        scrollbar_list.pack(side='right', fill='y')
+
+        def refresh_list():
+            listbox.delete(0, 'end')
+            items = get_func()
+            for item in items:
+                listbox.insert('end', item)
+
+        refresh_list()
+
+        add_frame = ttk.Frame(main_frame, style='TFrame')
+        add_frame.pack(fill='x', pady=(0, 10))
+
+        ttk.Label(add_frame, text=f"Novo {title[:-1]}:", style='TLabel').pack(side='left')
+        new_entry = ttk.Entry(add_frame, width=30)
+        new_entry.pack(side='left', padx=(10, 0), fill='x', expand=True)
+
+        def add_item():
+            new_item = new_entry.get().strip()
+            if new_item:
+                try:
+                    add_func(new_item)
+                    new_entry.delete(0, 'end')
+                    refresh_list()
+                except Exception as e:
+                    messagebox.showerror("Erro", f"Erro ao adicionar: {str(e)}", parent=manager_win)
+
+        ttk.Button(add_frame, text="Adicionar", command=add_item, style='Success.TButton').pack(side='right', padx=(10, 0))
+
+        buttons_frame = ttk.Frame(main_frame, style='TFrame')
+        buttons_frame.pack(fill='x')
+
+        def delete_selected():
+            selection = listbox.curselection()
+            if selection:
+                item = listbox.get(selection[0])
+                if messagebox.askyesno("Confirmar", f"Deseja excluir '{item}'?", parent=manager_win):
+                    try:
+                        delete_func(item)
+                        refresh_list()
+                    except Exception as e:
+                        messagebox.showerror("Erro", f"Erro ao excluir: {str(e)}", parent=manager_win)
+
+        ttk.Button(buttons_frame, text="Excluir Selecionado", command=delete_selected, style='Danger.TButton').pack(side='left')
+        ttk.Button(buttons_frame, text="Fechar", command=manager_win.destroy, style='TButton').pack(side='right')
+
+# --- 5. EXECUÇÃO PRINCIPAL ---
+def main():
+    root = tk.Tk()
+    app = CRMApp(root)
+    root.mainloop()
+
+if __name__ == "__main__":
+    main()
