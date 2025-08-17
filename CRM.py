@@ -537,6 +537,18 @@ class CRMApp:
         canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
         canvas.configure(yscrollcommand=scrollbar.set)
 
+        def _on_mousewheel(event):
+            canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
+        def _bind_mousewheel(event):
+            canvas.bind_all("<MouseWheel>", _on_mousewheel)
+
+        def _unbind_mousewheel(event):
+            canvas.unbind_all("<MouseWheel>")
+
+        canvas.bind('<Enter>', _bind_mousewheel)
+        canvas.bind('<Leave>', _unbind_mousewheel)
+
         canvas.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
 
@@ -1320,38 +1332,27 @@ class CRMApp:
         if op_id:
             op_data = self.db.get_opportunity_details(op_id)
             if op_data:
-                # Carregar dados básicos
+                # Carregar dados estáticos primeiro
                 entries['titulo'].insert(0, op_data['titulo'] or '')
                 entries['valor'].insert(0, op_data['valor'] or '')
-
                 for client in clients:
                     if client['id'] == op_data['cliente_id']:
                         entries['cliente_id'].set(client['nome_empresa'])
                         break
-
                 for estagio in estagios:
                     if estagio['id'] == op_data['estagio_id']:
                         entries['estagio_id'].set(estagio['nome'])
                         break
-
-                # Carregar dados da análise prévia
                 entries['tempo_contrato_meses'].insert(0, op_data['tempo_contrato_meses'] or '')
                 entries['regional'].insert(0, op_data['regional'] or '')
                 entries['polo'].insert(0, op_data['polo'] or '')
                 entries['empresa_referencia'].set(op_data['empresa_referencia'] or '')
-
-                if op_data.get('quantidade_bases') is not None:
-                    bases_spinbox.set(op_data['quantidade_bases'])
-                    _update_base_fields_ui()
-
-                # Carregar dados do sumário executivo
                 entries['numero_edital'].insert(0, op_data['numero_edital'] or '')
                 if op_data['data_abertura']:
                     try:
                         date_obj = datetime.strptime(op_data['data_abertura'], '%d/%m/%Y').date()
                         entries['data_abertura'].set_date(date_obj)
-                    except (ValueError, TypeError):
-                        pass # Ignora se o formato da data for inválido
+                    except (ValueError, TypeError): pass
                 entries['modalidade'].insert(0, op_data['modalidade'] or '')
                 entries['contato_principal'].insert(0, op_data['contato_principal'] or '')
                 entries['link_documentos'].insert(0, op_data['link_documentos'] or '')
@@ -1359,60 +1360,55 @@ class CRMApp:
                 entries['duracao_contrato'].insert(0, op_data['duracao_contrato'] or '')
                 entries['total_pessoas'].insert(0, op_data['total_pessoas'] or '')
                 entries['margem_contribuicao'].insert(0, op_data['margem_contribuicao'] or '')
-
                 if op_data['descricao_detalhada']:
                     entries['descricao_detalhada'].insert('1.0', op_data['descricao_detalhada'])
 
-                # Carregar dados dinâmicos (serviços, equipes, bases)
-                def load_dynamic_data():
-                    # Carregar bases primeiro, pois as equipes dependem delas
+                # Forçar a atualização da UI para garantir que os widgets existam
+                form_win.update_idletasks()
+
+                # Carregar dados dinâmicos de forma sequencial e robusta
+                # 1. Carregar Bases
+                if op_data.get('quantidade_bases') is not None:
+                    bases_spinbox.set(op_data['quantidade_bases'])
+                    _update_base_fields_ui()
+                    form_win.update_idletasks() # Forçar criação dos campos de base
                     if op_data.get('bases_nomes'):
                         try:
                             bases_nomes_data = json.loads(op_data['bases_nomes'])
                             base_widgets = entries.get('bases_nomes_widgets', [])
                             for i, nome in enumerate(bases_nomes_data):
-                                if i < len(base_widgets):
-                                    base_widgets[i].insert(0, nome)
-                        except (json.JSONDecodeError, TypeError):
-                            pass
+                                if i < len(base_widgets): base_widgets[i].insert(0, nome)
+                        except (json.JSONDecodeError, TypeError): pass
 
-                    # Carregar a estrutura de serviços e equipes
-                    if op_data.get('servicos_data'):
-                        try:
-                            servicos_data_json = json.loads(op_data['servicos_data'])
-                            tipos_servico_vars = entries.get('tipos_servico_vars', {})
+                # 2. Carregar Serviços e Equipes
+                if op_data.get('servicos_data'):
+                    try:
+                        servicos_data_json = json.loads(op_data['servicos_data'])
+                        tipos_servico_vars = entries.get('tipos_servico_vars', {})
 
-                            for servico_info in servicos_data_json:
-                                servico_nome = servico_info.get('servico_nome')
-                                if servico_nome in tipos_servico_vars:
-                                    tipos_servico_vars[servico_nome].set(True)
+                        for servico_info in servicos_data_json:
+                            servico_nome = servico_info.get('servico_nome')
+                            if servico_nome in tipos_servico_vars:
+                                tipos_servico_vars[servico_nome].set(True)
 
-                            # Chamar uma vez para criar todos os frames
-                            _update_servicos_ui()
+                        _update_servicos_ui()
+                        form_win.update_idletasks()
 
-                            # Agora, popular as linhas de equipe
-                            for servico_info in servicos_data_json:
-                                servico_nome = servico_info.get('servico_nome')
-                                equipes_data = servico_info.get('equipes', [])
-
-                                if servico_nome in servico_frames:
-                                    servico_id = servico_map[servico_nome]
-                                    container = servico_frames[servico_nome].winfo_children()[0]
-
-                                    for equipe_info in equipes_data:
-                                        _add_equipe_row(servico_id, servico_nome, container)
-                                        new_row_widgets = servico_equipes_data[servico_nome][-1]
-
-                                        new_row_widgets['tipo_combo'].set(equipe_info.get('tipo_equipe', ''))
-                                        new_row_widgets['qtd_entry'].insert(0, equipe_info.get('quantidade', ''))
-                                        new_row_widgets['vol_entry'].insert(0, equipe_info.get('volumetria', ''))
-                                        new_row_widgets['base_combo'].set(equipe_info.get('base', ''))
-
-                        except (json.JSONDecodeError, TypeError) as e:
-                            print(f"Erro ao carregar dados de serviços: {e}")
-                            pass
-
-                form_win.after(100, load_dynamic_data)
+                        for servico_info in servicos_data_json:
+                            servico_nome = servico_info.get('servico_nome')
+                            equipes_data = servico_info.get('equipes', [])
+                            if servico_nome in servico_frames:
+                                servico_id = servico_map[servico_nome]
+                                container = servico_frames[servico_nome].winfo_children()[0]
+                                for equipe_info in equipes_data:
+                                    _add_equipe_row(servico_id, servico_nome, container)
+                                    new_row_widgets = servico_equipes_data[servico_nome][-1]
+                                    new_row_widgets['tipo_combo'].set(equipe_info.get('tipo_equipe', ''))
+                                    new_row_widgets['qtd_entry'].insert(0, equipe_info.get('quantidade', ''))
+                                    new_row_widgets['vol_entry'].insert(0, equipe_info.get('volumetria', ''))
+                                    new_row_widgets['base_combo'].set(equipe_info.get('base', ''))
+                    except (json.JSONDecodeError, TypeError) as e:
+                        print(f"Erro ao carregar dados de serviços: {e}")
 
 
         # Pré-preenchimento se criando nova oportunidade
