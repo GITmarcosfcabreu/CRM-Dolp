@@ -1330,7 +1330,9 @@ class CRMApp:
         if op_id:
             op_data = self.db.get_opportunity_details(op_id)
             if op_data:
-                # Carregar dados estáticos primeiro
+                # --- Início da Lógica de Carregamento ---
+
+                # 1. Carregar todos os dados estáticos primeiro
                 entries['titulo'].insert(0, op_data['titulo'] or '')
                 entries['valor'].insert(0, op_data['valor'] or '')
                 for client in clients:
@@ -1361,53 +1363,52 @@ class CRMApp:
                 if op_data['descricao_detalhada']:
                     entries['descricao_detalhada'].insert('1.0', op_data['descricao_detalhada'])
 
-                # A função de carregamento dinâmico que será chamada após a janela estar pronta
-                def load_dynamic_data_on_edit():
-                    # 1. Carregar Bases
-                    if op_data.get('quantidade_bases') is not None:
-                        bases_spinbox.set(op_data['quantidade_bases'])
-                        _update_base_fields_ui()
-                        if op_data.get('bases_nomes'):
-                            try:
-                                bases_nomes_data = json.loads(op_data['bases_nomes'])
-                                base_widgets = entries.get('bases_nomes_widgets', [])
-                                for i, nome in enumerate(bases_nomes_data):
-                                    if i < len(base_widgets): base_widgets[i].insert(0, nome)
-                            except (json.JSONDecodeError, TypeError): pass
-
-                    # 2. Carregar Serviços e Equipes
-                    if op_data.get('servicos_data'):
+                # 2. Carregar dados das bases
+                if op_data.get('quantidade_bases') is not None:
+                    bases_spinbox.set(op_data['quantidade_bases'])
+                    _update_base_fields_ui() # Cria os widgets de entrada de base
+                    if op_data.get('bases_nomes'):
                         try:
-                            servicos_data_json = json.loads(op_data['servicos_data'])
-                            tipos_servico_vars = entries.get('tipos_servico_vars', {})
+                            bases_nomes_data = json.loads(op_data['bases_nomes'])
+                            base_widgets = entries.get('bases_nomes_widgets', [])
+                            for i, nome in enumerate(bases_nomes_data):
+                                if i < len(base_widgets): base_widgets[i].insert(0, nome)
+                        except (json.JSONDecodeError, TypeError): pass
 
-                            for servico_info in servicos_data_json:
-                                servico_nome = servico_info.get('servico_nome')
-                                if servico_nome in tipos_servico_vars:
-                                    tipos_servico_vars[servico_nome].set(True)
+                # 3. Carregar dados de serviços e equipes
+                if op_data.get('servicos_data'):
+                    try:
+                        servicos_data_json = json.loads(op_data['servicos_data'])
+                        tipos_servico_vars = entries.get('tipos_servico_vars', {})
 
-                            _update_servicos_ui()
-                            form_win.update_idletasks()
+                        # Primeiro, marcar todos os checkboxes de serviços relevantes
+                        for servico_info in servicos_data_json:
+                            servico_nome = servico_info.get('servico_nome')
+                            if servico_nome in tipos_servico_vars:
+                                tipos_servico_vars[servico_nome].set(True)
 
-                            for servico_info in servicos_data_json:
-                                servico_nome = servico_info.get('servico_nome')
-                                equipes_data = servico_info.get('equipes', [])
-                                if servico_nome in servico_frames:
-                                    servico_id = servico_map[servico_nome]
-                                    container = servico_frames[servico_nome].winfo_children()[0]
-                                    for equipe_info in equipes_data:
-                                        _add_equipe_row(servico_id, servico_nome, container)
-                                        new_row_widgets = servico_equipes_data[servico_nome][-1]
-                                        new_row_widgets['tipo_combo'].set(equipe_info.get('tipo_equipe', ''))
-                                        new_row_widgets['qtd_entry'].insert(0, equipe_info.get('quantidade', ''))
-                                        new_row_widgets['vol_entry'].insert(0, equipe_info.get('volumetria', ''))
-                                        new_row_widgets['base_combo'].set(equipe_info.get('base', ''))
-                        except (json.JSONDecodeError, TypeError) as e:
-                            print(f"Erro ao carregar dados de serviços: {e}")
+                        # Forçar a criação dos frames de serviço
+                        _update_servicos_ui()
 
-                # Usar 'after' para garantir que a janela principal e seus widgets
-                # sejam totalmente criados e visíveis antes de carregar os dados dinâmicos.
-                form_win.after(100, load_dynamic_data_on_edit)
+                        # Agora, popular as linhas de equipe dentro dos frames corretos
+                        for servico_info in servicos_data_json:
+                            servico_nome = servico_info.get('servico_nome')
+                            equipes_data = servico_info.get('equipes', [])
+                            if servico_nome in servico_frames:
+                                servico_id = servico_map[servico_nome]
+                                container = servico_frames[servico_nome].winfo_children()[0]
+                                for equipe_info in equipes_data:
+                                    _add_equipe_row(servico_id, servico_nome, container)
+                                    # Acessar a última linha de widgets adicionada
+                                    new_row_widgets = servico_equipes_data[servico_nome][-1]
+
+                                    # Preencher os widgets com os dados salvos
+                                    new_row_widgets['tipo_combo'].set(equipe_info.get('tipo_equipe', ''))
+                                    new_row_widgets['qtd_entry'].insert(0, equipe_info.get('quantidade', ''))
+                                    new_row_widgets['vol_entry'].insert(0, equipe_info.get('volumetria', ''))
+                                    new_row_widgets['base_combo'].set(equipe_info.get('base', ''))
+                    except (json.JSONDecodeError, TypeError) as e:
+                        print(f"Erro ao carregar dados de serviços: {e}")
 
 
         # Pré-preenchimento se criando nova oportunidade
@@ -1479,8 +1480,9 @@ class CRMApp:
                     self.db.add_opportunity(data)
                     messagebox.showinfo("Sucesso", "Oportunidade criada com sucesso!", parent=form_win)
 
+                # Atualiza a visão principal para refletir as mudanças
                 self.show_kanban_view()
-                form_win.destroy()
+                # A janela não é mais destruída, permitindo mais edições.
 
             except sqlite3.Error as e:
                  messagebox.showerror("Erro de Banco de Dados", f"Erro ao salvar: {str(e)}", parent=form_win)
