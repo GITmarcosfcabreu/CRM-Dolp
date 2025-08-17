@@ -118,7 +118,8 @@ class DatabaseManager:
             cursor.execute('CREATE TABLE IF NOT EXISTS pipeline_estagios (id INTEGER PRIMARY KEY, nome TEXT UNIQUE NOT NULL, ordem INTEGER)')
 
             # Tabela para Tipos de Serviço (anteriormente crm_tipos_equipe)
-            cursor.execute('''CREATE TABLE IF NOT EXISTS crm_servicos (
+            cursor.execute('DROP TABLE IF EXISTS crm_servicos')
+            cursor.execute('''CREATE TABLE crm_servicos (
                                 id INTEGER PRIMARY KEY,
                                 nome TEXT UNIQUE NOT NULL,
                                 descricao TEXT,
@@ -127,7 +128,8 @@ class DatabaseManager:
                            )''')
 
             # Nova tabela para Tipos de Equipe, com Foreign Key para crm_servicos
-            cursor.execute('''CREATE TABLE IF NOT EXISTS crm_tipos_equipe (
+            cursor.execute('DROP TABLE IF EXISTS crm_tipos_equipe')
+            cursor.execute('''CREATE TABLE crm_tipos_equipe (
                                 id INTEGER PRIMARY KEY,
                                 nome TEXT NOT NULL,
                                 servico_id INTEGER NOT NULL,
@@ -136,7 +138,8 @@ class DatabaseManager:
                            )''')
 
             # Tabela de Oportunidades Refatorada
-            cursor.execute('''CREATE TABLE IF NOT EXISTS oportunidades (
+            cursor.execute('DROP TABLE IF EXISTS oportunidades')
+            cursor.execute('''CREATE TABLE oportunidades (
                                 id INTEGER PRIMARY KEY,
                                 titulo TEXT NOT NULL,
                                 valor REAL DEFAULT 0,
@@ -172,7 +175,8 @@ class DatabaseManager:
                             FOREIGN KEY (oportunidade_id) REFERENCES oportunidades(id) ON DELETE CASCADE)''')
             cursor.execute('''CREATE TABLE IF NOT EXISTS crm_bases_alocadas (id INTEGER PRIMARY KEY, oportunidade_id INTEGER NOT NULL, nome_base TEXT, equipes_alocadas TEXT,
                             FOREIGN KEY (oportunidade_id) REFERENCES oportunidades(id) ON DELETE CASCADE)''')
-            cursor.execute('''CREATE TABLE IF NOT EXISTS crm_empresas_referencia (id INTEGER PRIMARY KEY, nome_empresa TEXT NOT NULL, tipo_servico TEXT NOT NULL, valor_mensal REAL NOT NULL, volumetria_minima REAL NOT NULL, valor_por_pessoa REAL NOT NULL, ativa INTEGER DEFAULT 1, data_criacao TEXT DEFAULT CURRENT_TIMESTAMP)''')
+            cursor.execute('DROP TABLE IF EXISTS crm_empresas_referencia')
+            cursor.execute('''CREATE TABLE crm_empresas_referencia (id INTEGER PRIMARY KEY, nome_empresa TEXT NOT NULL, tipo_servico TEXT NOT NULL, valor_mensal REAL NOT NULL, volumetria_minima REAL NOT NULL, valor_por_pessoa REAL NOT NULL, ativa INTEGER DEFAULT 1, data_criacao TEXT DEFAULT CURRENT_TIMESTAMP)''')
             cursor.execute('CREATE TABLE IF NOT EXISTS crm_setores (id INTEGER PRIMARY KEY, nome TEXT UNIQUE NOT NULL)')
             cursor.execute('CREATE TABLE IF NOT EXISTS crm_segmentos (id INTEGER PRIMARY KEY, nome TEXT UNIQUE NOT NULL)')
 
@@ -518,6 +522,8 @@ class CRMApp:
         self.content_frame.pack(fill='both', expand=True, padx=20, pady=(0, 20))
 
     def clear_content(self):
+        # Limpar quaisquer eventos globais para evitar erros de widgets destruídos
+        self.root.unbind_all("<MouseWheel>")
         for widget in self.content_frame.winfo_children():
             widget.destroy()
 
@@ -687,9 +693,11 @@ class CRMApp:
 
         # Bind scroll do mouse
         def on_mousewheel(event):
-            canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+            # Verificar se o widget canvas ainda existe antes de usá-lo
+            if canvas.winfo_exists():
+                canvas.yview_scroll(int(-1*(event.delta/120)), "units")
 
-        canvas.bind_all("<MouseWheel>", on_mousewheel)
+        self.root.bind_all("<MouseWheel>", on_mousewheel)
 
     def show_resultado_dialog(self, op_id, current_stage_id):
         """Mostra dialog para aprovar ou reprovar oportunidade"""
@@ -1001,6 +1009,10 @@ class CRMApp:
 
         # --- Seção de Configuração de Serviços e Equipes (Lógica Nova) ---
 
+        # Frame para as configurações dinâmicas de serviço/equipe
+        servicos_config_frame = ttk.Frame(analise_frame, padding=(0, 10))
+        servicos_config_frame.pack(fill='x', expand=True)
+
         # Dicionários para manter o estado da UI dinâmica
         servico_frames = {}
         servico_equipes_data = {}
@@ -1152,10 +1164,6 @@ class CRMApp:
         bases_spinbox = ttk.Spinbox(bases_input_frame, from_=0, to=50, width=10, command=_update_base_fields_ui_and_combos)
         bases_spinbox.pack(side='left')
         entries['quantidade_bases'] = bases_spinbox
-
-        # Frame para as configurações dinâmicas de serviço/equipe
-        servicos_config_frame = ttk.Frame(analise_frame, padding=(0, 10))
-        servicos_config_frame.pack(fill='x', expand=True)
 
 
         # === SUMÁRIO EXECUTIVO ===
@@ -1470,6 +1478,11 @@ class CRMApp:
 
         # Bind do evento de mudança de aba
         notebook.bind("<<NotebookTabChanged>>", on_tab_changed)
+
+        # Botões de Ação
+        buttons_frame = ttk.Frame(form_win, padding=(20, 10, 20, 20))
+        buttons_frame.pack(side='bottom', fill='x')
+        buttons_frame.columnconfigure(0, weight=1)
 
         ttk.Button(buttons_frame, text="Salvar Alterações" if op_id else "Criar Oportunidade", command=on_save, style='Success.TButton').grid(row=0, column=2)
         ttk.Button(buttons_frame, text="Cancelar", command=form_win.destroy, style='TButton').grid(row=0, column=1, padx=10)
