@@ -540,14 +540,12 @@ class CRMApp:
         def _on_mousewheel(event):
             canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
 
-        def _bind_mousewheel(event):
-            canvas.bind_all("<MouseWheel>", _on_mousewheel)
+        def _on_mousewheel(event):
+            canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
 
-        def _unbind_mousewheel(event):
-            canvas.unbind_all("<MouseWheel>")
-
-        canvas.bind('<Enter>', _bind_mousewheel)
-        canvas.bind('<Leave>', _unbind_mousewheel)
+        # This binding is more robust. It activates when the mouse enters the tab area.
+        tab_main_frame.bind('<Enter>', lambda e: self.root.bind_all("<MouseWheel>", _on_mousewheel))
+        tab_main_frame.bind('<Leave>', lambda e: self.root.unbind_all("<MouseWheel>"))
 
         canvas.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
@@ -1363,52 +1361,53 @@ class CRMApp:
                 if op_data['descricao_detalhada']:
                     entries['descricao_detalhada'].insert('1.0', op_data['descricao_detalhada'])
 
-                # Forçar a atualização da UI para garantir que os widgets existam
-                form_win.update_idletasks()
+                # A função de carregamento dinâmico que será chamada após a janela estar pronta
+                def load_dynamic_data_on_edit():
+                    # 1. Carregar Bases
+                    if op_data.get('quantidade_bases') is not None:
+                        bases_spinbox.set(op_data['quantidade_bases'])
+                        _update_base_fields_ui()
+                        if op_data.get('bases_nomes'):
+                            try:
+                                bases_nomes_data = json.loads(op_data['bases_nomes'])
+                                base_widgets = entries.get('bases_nomes_widgets', [])
+                                for i, nome in enumerate(bases_nomes_data):
+                                    if i < len(base_widgets): base_widgets[i].insert(0, nome)
+                            except (json.JSONDecodeError, TypeError): pass
 
-                # Carregar dados dinâmicos de forma sequencial e robusta
-                # 1. Carregar Bases
-                if op_data.get('quantidade_bases') is not None:
-                    bases_spinbox.set(op_data['quantidade_bases'])
-                    _update_base_fields_ui()
-                    form_win.update_idletasks() # Forçar criação dos campos de base
-                    if op_data.get('bases_nomes'):
+                    # 2. Carregar Serviços e Equipes
+                    if op_data.get('servicos_data'):
                         try:
-                            bases_nomes_data = json.loads(op_data['bases_nomes'])
-                            base_widgets = entries.get('bases_nomes_widgets', [])
-                            for i, nome in enumerate(bases_nomes_data):
-                                if i < len(base_widgets): base_widgets[i].insert(0, nome)
-                        except (json.JSONDecodeError, TypeError): pass
+                            servicos_data_json = json.loads(op_data['servicos_data'])
+                            tipos_servico_vars = entries.get('tipos_servico_vars', {})
 
-                # 2. Carregar Serviços e Equipes
-                if op_data.get('servicos_data'):
-                    try:
-                        servicos_data_json = json.loads(op_data['servicos_data'])
-                        tipos_servico_vars = entries.get('tipos_servico_vars', {})
+                            for servico_info in servicos_data_json:
+                                servico_nome = servico_info.get('servico_nome')
+                                if servico_nome in tipos_servico_vars:
+                                    tipos_servico_vars[servico_nome].set(True)
 
-                        for servico_info in servicos_data_json:
-                            servico_nome = servico_info.get('servico_nome')
-                            if servico_nome in tipos_servico_vars:
-                                tipos_servico_vars[servico_nome].set(True)
+                            _update_servicos_ui()
+                            form_win.update_idletasks()
 
-                        _update_servicos_ui()
-                        form_win.update_idletasks()
+                            for servico_info in servicos_data_json:
+                                servico_nome = servico_info.get('servico_nome')
+                                equipes_data = servico_info.get('equipes', [])
+                                if servico_nome in servico_frames:
+                                    servico_id = servico_map[servico_nome]
+                                    container = servico_frames[servico_nome].winfo_children()[0]
+                                    for equipe_info in equipes_data:
+                                        _add_equipe_row(servico_id, servico_nome, container)
+                                        new_row_widgets = servico_equipes_data[servico_nome][-1]
+                                        new_row_widgets['tipo_combo'].set(equipe_info.get('tipo_equipe', ''))
+                                        new_row_widgets['qtd_entry'].insert(0, equipe_info.get('quantidade', ''))
+                                        new_row_widgets['vol_entry'].insert(0, equipe_info.get('volumetria', ''))
+                                        new_row_widgets['base_combo'].set(equipe_info.get('base', ''))
+                        except (json.JSONDecodeError, TypeError) as e:
+                            print(f"Erro ao carregar dados de serviços: {e}")
 
-                        for servico_info in servicos_data_json:
-                            servico_nome = servico_info.get('servico_nome')
-                            equipes_data = servico_info.get('equipes', [])
-                            if servico_nome in servico_frames:
-                                servico_id = servico_map[servico_nome]
-                                container = servico_frames[servico_nome].winfo_children()[0]
-                                for equipe_info in equipes_data:
-                                    _add_equipe_row(servico_id, servico_nome, container)
-                                    new_row_widgets = servico_equipes_data[servico_nome][-1]
-                                    new_row_widgets['tipo_combo'].set(equipe_info.get('tipo_equipe', ''))
-                                    new_row_widgets['qtd_entry'].insert(0, equipe_info.get('quantidade', ''))
-                                    new_row_widgets['vol_entry'].insert(0, equipe_info.get('volumetria', ''))
-                                    new_row_widgets['base_combo'].set(equipe_info.get('base', ''))
-                    except (json.JSONDecodeError, TypeError) as e:
-                        print(f"Erro ao carregar dados de serviços: {e}")
+                # Usar 'after' para garantir que a janela principal e seus widgets
+                # sejam totalmente criados e visíveis antes de carregar os dados dinâmicos.
+                form_win.after(100, load_dynamic_data_on_edit)
 
 
         # Pré-preenchimento se criando nova oportunidade
