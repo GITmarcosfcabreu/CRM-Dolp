@@ -1252,6 +1252,12 @@ class CRMApp:
 
                 # Carregar dados do sumário executivo
                 entries['numero_edital'].insert(0, op_data['numero_edital'] or '')
+                if op_data['data_abertura']:
+                    try:
+                        date_obj = datetime.strptime(op_data['data_abertura'], '%d/%m/%Y').date()
+                        entries['data_abertura'].set_date(date_obj)
+                    except (ValueError, TypeError):
+                        pass # Ignora se o formato da data for inválido
                 entries['modalidade'].insert(0, op_data['modalidade'] or '')
                 entries['contato_principal'].insert(0, op_data['contato_principal'] or '')
                 entries['faturamento_estimado'].insert(0, op_data['faturamento_estimado'] or '')
