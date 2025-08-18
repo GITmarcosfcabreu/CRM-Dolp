@@ -47,16 +47,6 @@ DOLP_COLORS = {
     'gradient_end': '#0d4a8f',     # Gradiente para botões (fim)
 }
 
-# --- FONTES ---
-# Usar uma fonte mais moderna se disponível no sistema do usuário
-PRIMARY_FONT = "Roboto"
-try:
-    # Verifica se a fonte está disponível
-    import tkinter.font as tkfont
-    if PRIMARY_FONT not in tkfont.families():
-        PRIMARY_FONT = "Segoe UI" # Fallback para uma fonte comum no Windows
-except ImportError:
-    PRIMARY_FONT = "Helvetica" # Fallback genérico
 
 ESTAGIOS_PIPELINE_DOLP = [
     "Clientes e Segmentos definidos (Playbook)",
@@ -535,10 +525,22 @@ class CRMApp:
     def __init__(self, root):
         self.root = root
         self.db = DatabaseManager(DB_NAME)
+
+        # --- FONT CHECKING LOGIC ---
+        self.primary_font = "Roboto"
+        try:
+            import tkinter.font as tkfont
+            # A verificação de fontes precisa de um root window, que já temos aqui.
+            if self.primary_font not in tkfont.families(root):
+                self.primary_font = "Segoe UI" # Fallback para Windows
+        except (ImportError, tk.TclError):
+             # tk.TclError pode ocorrer em alguns sistemas sem ambiente gráfico completo
+            self.primary_font = "Helvetica" # Fallback genérico
+        # ------------------------------------
+
         self.root.title("CRM Dolp Engenharia")
         self.root.geometry("1600x900")
         self.root.minsize(1280, 720)
-        # A cor de fundo principal agora é definida em _configure_styles
         self.logo_image = load_logo_image()
         self._configure_styles()
         self._create_main_container()
@@ -562,50 +564,50 @@ class CRMApp:
         style.configure('Card.TFrame', background=white_color, relief='solid', borderwidth=1, bordercolor=DOLP_COLORS['border_color'])
 
         # --- Botões ---
-        style.configure('TButton', font=(PRIMARY_FONT, 10), padding=(12, 6), relief='flat', borderwidth=0, foreground=text_color)
+        style.configure('TButton', font=(self.primary_font, 10), padding=(12, 6), relief='flat', borderwidth=0, foreground=text_color)
         style.map('TButton', background=[('active', DOLP_COLORS['disabled_bg'])])
 
-        style.configure('Primary.TButton', background=primary_color, foreground=white_color, font=(PRIMARY_FONT, 10, 'bold'))
+        style.configure('Primary.TButton', background=primary_color, foreground=white_color, font=(self.primary_font, 10, 'bold'))
         style.map('Primary.TButton', background=[('active', DOLP_COLORS['gradient_start']), ('pressed', DOLP_COLORS['gradient_end'])])
 
-        style.configure('Success.TButton', background=DOLP_COLORS['success_green'], foreground=white_color, font=(PRIMARY_FONT, 10, 'bold'))
+        style.configure('Success.TButton', background=DOLP_COLORS['success_green'], foreground=white_color, font=(self.primary_font, 10, 'bold'))
         style.map('Success.TButton', background=[('active', '#2ecc71')])
 
-        style.configure('Danger.TButton', background=DOLP_COLORS['primary_red'], foreground=white_color, font=(PRIMARY_FONT, 10, 'bold'))
+        style.configure('Danger.TButton', background=DOLP_COLORS['primary_red'], foreground=white_color, font=(self.primary_font, 10, 'bold'))
         style.map('Danger.TButton', background=[('active', '#e74c3c')])
 
         # --- Labels ---
-        style.configure('TLabel', background=bg_color, foreground=text_color, font=(PRIMARY_FONT, 10))
-        style.configure('Header.TLabel', background=white_color, foreground=primary_color, font=(PRIMARY_FONT, 18, 'bold'))
-        style.configure('Title.TLabel', background=bg_color, foreground=text_color, font=(PRIMARY_FONT, 16, 'bold'))
+        style.configure('TLabel', background=bg_color, foreground=text_color, font=(self.primary_font, 10))
+        style.configure('Header.TLabel', background=white_color, foreground=primary_color, font=(self.primary_font, 18, 'bold'))
+        style.configure('Title.TLabel', background=bg_color, foreground=text_color, font=(self.primary_font, 16, 'bold'))
 
         # --- LabelFrames (usados como contêineres de seção) ---
         style.configure('TLabelframe', background=white_color, borderwidth=1, relief='solid', bordercolor=DOLP_COLORS['border_color'])
-        style.configure('TLabelframe.Label', background=white_color, foreground=primary_color, font=(PRIMARY_FONT, 11, 'bold'))
+        style.configure('TLabelframe.Label', background=white_color, foreground=primary_color, font=(self.primary_font, 11, 'bold'))
 
         # --- Estilos para Labels dentro de Cards/Frames Brancos ---
-        style.configure('Card.TLabel', background=white_color, foreground=text_color, font=(PRIMARY_FONT, 10))
-        style.configure('Card.Title.TLabel', background=white_color, foreground=primary_color, font=(PRIMARY_FONT, 12, 'bold'))
-        style.configure('Metric.TLabel', background=white_color, foreground=text_color, font=(PRIMARY_FONT, 10, 'bold'))
-        style.configure('Value.TLabel', background=white_color, foreground=DOLP_COLORS['light_text'], font=(PRIMARY_FONT, 10))
-        style.configure('Link.TLabel', background=white_color, foreground=primary_color, font=(PRIMARY_FONT, 10, 'underline'))
+        style.configure('Card.TLabel', background=white_color, foreground=text_color, font=(self.primary_font, 10))
+        style.configure('Card.Title.TLabel', background=white_color, foreground=primary_color, font=(self.primary_font, 12, 'bold'))
+        style.configure('Metric.TLabel', background=white_color, foreground=text_color, font=(self.primary_font, 10, 'bold'))
+        style.configure('Value.TLabel', background=white_color, foreground=DOLP_COLORS['light_text'], font=(self.primary_font, 10))
+        style.configure('Link.TLabel', background=white_color, foreground=primary_color, font=(self.primary_font, 10, 'underline'))
 
         # --- Entry, Combobox e Spinbox ---
-        style.configure('TEntry', fieldbackground=white_color, borderwidth=1, relief='solid', bordercolor=DOLP_COLORS['border_color'], padding=5, font=(PRIMARY_FONT, 10))
-        style.configure('TCombobox', fieldbackground=white_color, borderwidth=1, relief='solid', bordercolor=DOLP_COLORS['border_color'], padding=5, font=(PRIMARY_FONT, 10))
-        style.configure('TSpinbox', fieldbackground=white_color, borderwidth=1, relief='solid', bordercolor=DOLP_COLORS['border_color'], padding=5, font=(PRIMARY_FONT, 10))
+        style.configure('TEntry', fieldbackground=white_color, borderwidth=1, relief='solid', bordercolor=DOLP_COLORS['border_color'], padding=5, font=(self.primary_font, 10))
+        style.configure('TCombobox', fieldbackground=white_color, borderwidth=1, relief='solid', bordercolor=DOLP_COLORS['border_color'], padding=5, font=(self.primary_font, 10))
+        style.configure('TSpinbox', fieldbackground=white_color, borderwidth=1, relief='solid', bordercolor=DOLP_COLORS['border_color'], padding=5, font=(self.primary_font, 10))
 
 
         # --- Notebook (Abas) ---
         style.configure('TNotebook', background=bg_color, borderwidth=0)
-        style.configure('TNotebook.Tab', background=DOLP_COLORS['disabled_bg'], foreground=DOLP_COLORS['light_text'], padding=(15, 8), font=(PRIMARY_FONT, 10))
+        style.configure('TNotebook.Tab', background=DOLP_COLORS['disabled_bg'], foreground=DOLP_COLORS['light_text'], padding=(15, 8), font=(self.primary_font, 10))
         style.map('TNotebook.Tab',
                   background=[('selected', primary_color), ('active', DOLP_COLORS['gradient_start'])],
                   foreground=[('selected', white_color), ('active', white_color)])
 
         # --- Treeview (Tabelas) ---
-        style.configure('Treeview', background=white_color, foreground=text_color, font=(PRIMARY_FONT, 10), rowheight=28, fieldbackground=white_color)
-        style.configure('Treeview.Heading', background=primary_color, foreground=white_color, font=(PRIMARY_FONT, 10, 'bold'), padding=8)
+        style.configure('Treeview', background=white_color, foreground=text_color, font=(self.primary_font, 10), rowheight=28, fieldbackground=white_color)
+        style.configure('Treeview.Heading', background=primary_color, foreground=white_color, font=(self.primary_font, 10, 'bold'), padding=8)
         style.map('Treeview',
                   background=[('selected', DOLP_COLORS['gradient_start'])],
                   foreground=[('selected', white_color)])
@@ -846,7 +848,7 @@ class CRMApp:
                         ops_frame.columnconfigure(col, weight=1)
                 else:
                     # Mensagem quando não há oportunidades
-                    no_ops_label = ttk.Label(stage_frame, text="Nenhuma oportunidade neste estágio", style='Value.TLabel', font=(PRIMARY_FONT, 10, 'italic'))
+                    no_ops_label = ttk.Label(stage_frame, text="Nenhuma oportunidade neste estágio", style='Value.TLabel', font=(self.primary_font, 10, 'italic'))
                     no_ops_label.pack(pady=20)
                     no_ops_label.configure(background=DOLP_COLORS['white']) # Garantir fundo branco
 
@@ -885,7 +887,7 @@ class CRMApp:
         ttk.Label(main_frame, text=op_data['titulo'], style='Title.TLabel', wraplength=400).pack(pady=(0, 10))
         ttk.Label(main_frame, text=f"Estágio Atual: {op_data['estagio_nome']}", style='TLabel').pack(pady=(0, 20))
 
-        ttk.Label(main_frame, text="Qual o resultado desta avaliação?", style='TLabel', font=(PRIMARY_FONT, 11)).pack(pady=(0, 20))
+        ttk.Label(main_frame, text="Qual o resultado desta avaliação?", style='TLabel', font=(self.primary_font, 11)).pack(pady=(0, 20))
 
         # Botões de resultado
         buttons_frame = ttk.Frame(main_frame)
@@ -1259,8 +1261,8 @@ class CRMApp:
         # --- Início da UI do Checklist ---
 
         # Tipos de Serviço (Checkboxes)
-        ttk.Label(checklist_frame, text="Tipos de Serviço:", font=('Segoe UI', 10, 'bold')).grid(row=0, column=0, sticky='nw', pady=5, padx=5)
-        tipos_frame = ttk.Frame(checklist_frame)
+        ttk.Label(checklist_frame, text="Tipos de Serviço:", font=(self.primary_font, 10, 'bold')).grid(row=0, column=0, sticky='nw', pady=5, padx=5)
+        tipos_frame = ttk.Frame(checklist_frame, style='TLabelframe')
         tipos_frame.grid(row=0, column=1, sticky='ew', pady=5, padx=5)
         tipos_vars = {}
         col_count = 3
@@ -1288,7 +1290,7 @@ class CRMApp:
 
         # Empresa Referência
         empresa_row = start_row_after_services + len(checklist_fields)
-        ttk.Label(checklist_frame, text="Empresa Referência:", font=('Segoe UI', 10, 'bold')).grid(row=empresa_row, column=0, sticky='w', pady=5, padx=5)
+        ttk.Label(checklist_frame, text="Empresa Referência:", font=(self.primary_font, 10, 'bold')).grid(row=empresa_row, column=0, sticky='w', pady=5, padx=5)
         empresas_ref = self.db.get_all_empresas_referencia()
         empresa_names = sorted(list(set([emp['nome_empresa'] for emp in empresas_ref])))
         empresa_combo = ttk.Combobox(checklist_frame, values=empresa_names, state='readonly')
@@ -1297,8 +1299,8 @@ class CRMApp:
 
         # Quantidade de Bases
         bases_row = empresa_row + 1
-        ttk.Label(checklist_frame, text="Quantidade de Bases:", font=('Segoe UI', 10, 'bold')).grid(row=bases_row, column=0, sticky='w', pady=5, padx=5)
-        bases_input_frame = ttk.Frame(checklist_frame)
+        ttk.Label(checklist_frame, text="Quantidade de Bases:", font=(self.primary_font, 10, 'bold')).grid(row=bases_row, column=0, sticky='w', pady=5, padx=5)
+        bases_input_frame = ttk.Frame(checklist_frame, style='TLabelframe')
         bases_input_frame.grid(row=bases_row, column=1, sticky='ew', pady=5, padx=5)
         bases_fields_frame = ttk.Frame(checklist_frame)
         bases_fields_frame.grid(row=bases_row + 1, column=0, columnspan=2, sticky='ew', pady=5, padx=5)
@@ -1406,8 +1408,9 @@ class CRMApp:
         servicos_frame.pack(fill='x', pady=(0, 10))
 
         # Informações sobre cálculo
-        info_calculo = ttk.Label(servicos_frame, text="Os preços são calculados com base na Análise Prévia. Clique no botão para recalcular.", font=(PRIMARY_FONT, 9, 'italic'), foreground=DOLP_COLORS['light_text'])
+        info_calculo = ttk.Label(servicos_frame, text="Os preços são calculados com base na Análise Prévia. Clique no botão para recalcular.", font=(self.primary_font, 9, 'italic'), foreground=DOLP_COLORS['light_text'])
         info_calculo.pack(pady=(0, 10))
+        info_calculo.configure(background=DOLP_COLORS['white'])
 
         # Botão para calcular preços
         calculo_frame = ttk.Frame(servicos_frame)
@@ -1495,7 +1498,7 @@ class CRMApp:
         desc_frame = ttk.LabelFrame(sumario_frame, text="Descrição Detalhada", padding=15, style='TLabelframe')
         desc_frame.pack(fill='both', expand=True, pady=(0, 10))
 
-        desc_text = tk.Text(desc_frame, height=8, wrap='word', bg=DOLP_COLORS['white'], font=(PRIMARY_FONT, 10), relief='flat', highlightthickness=1, highlightbackground=DOLP_COLORS['border_color'])
+        desc_text = tk.Text(desc_frame, height=8, wrap='word', bg=DOLP_COLORS['white'], font=(self.primary_font, 10), relief='flat', highlightthickness=1, highlightbackground=DOLP_COLORS['border_color'])
         desc_scrollbar = ttk.Scrollbar(desc_frame, orient="vertical", command=desc_text.yview)
         desc_text.configure(yscrollcommand=desc_scrollbar.set)
         desc_text.pack(side="left", fill="both", expand=True)
@@ -1857,7 +1860,7 @@ class CRMApp:
                         servico_nome = servico_info.get("servico_nome", "N/A")
                         equipes = servico_info.get("equipes", [])
 
-                        ttk.Label(servicos_frame, text=servico_nome, style='Metric.TLabel', font=(PRIMARY_FONT, 11, 'bold')).pack(anchor='w', pady=(5,2))
+                        ttk.Label(servicos_frame, text=servico_nome, style='Metric.TLabel', font=(self.primary_font, 11, 'bold')).pack(anchor='w', pady=(5,2))
 
                         if not equipes:
                             ttk.Label(servicos_frame, text="  - Nenhuma equipe configurada", style='Value.TLabel').pack(anchor='w', padx=(15,0))
@@ -1877,7 +1880,7 @@ class CRMApp:
             desc_frame = ttk.LabelFrame(sumario_tab, text="Descrição Detalhada", padding=15, style='TLabelframe')
             desc_frame.pack(fill='both', expand=True, pady=(10, 0))
 
-            desc_text = tk.Text(desc_frame, height=5, wrap='word', bg=DOLP_COLORS['white'], font=(PRIMARY_FONT, 10), state='disabled', relief='flat', highlightthickness=1, highlightbackground=DOLP_COLORS['border_color'])
+            desc_text = tk.Text(desc_frame, height=5, wrap='word', bg=DOLP_COLORS['white'], font=(self.primary_font, 10), state='disabled', relief='flat', highlightthickness=1, highlightbackground=DOLP_COLORS['border_color'])
             desc_scrollbar = ttk.Scrollbar(desc_frame, orient="vertical", command=desc_text.yview)
             desc_text.configure(yscrollcommand=desc_scrollbar.set)
             desc_text.pack(side="left", fill="both", expand=True)
@@ -2619,7 +2622,7 @@ class CRMApp:
         list_frame = ttk.Frame(main_frame)
         list_frame.pack(fill='both', expand=True, pady=(0, 10))
 
-        listbox = tk.Listbox(list_frame, bg=DOLP_COLORS['white'], font=(PRIMARY_FONT, 10), relief='flat', highlightthickness=1, highlightbackground=DOLP_COLORS['border_color'])
+        listbox = tk.Listbox(list_frame, bg=DOLP_COLORS['white'], font=(self.primary_font, 10), relief='flat', highlightthickness=1, highlightbackground=DOLP_COLORS['border_color'])
         scrollbar_list = ttk.Scrollbar(list_frame, orient='vertical', command=listbox.yview)
         listbox.configure(yscrollcommand=scrollbar_list.set)
 
