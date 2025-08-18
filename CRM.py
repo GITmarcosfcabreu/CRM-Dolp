@@ -922,23 +922,7 @@ class CRMApp:
             'resumo': f"Movida de '{from_stage}' para '{to_stage}' - Resultado: {result}",
             'usuario': 'Sistema'
         }
-        # self.db.add_interaction(data)
-
-        # --- Abordagem de Gravação Direta para Debug ---
-        # Bypassing the DatabaseManager to isolate the problem.
-        conn = None
-        try:
-            conn = sqlite3.connect(DB_NAME)
-            cursor = conn.cursor()
-            cursor.execute("INSERT INTO crm_interacoes (oportunidade_id, data_interacao, tipo, resumo, usuario) VALUES (?, ?, ?, ?, ?)",
-                           (data['oportunidade_id'], data['data_interacao'], data['tipo'], data['resumo'], data['usuario']))
-            conn.commit()
-        except sqlite3.Error as e:
-            print(f"Erro de gravação direta no banco de dados: {e}")
-            # Em um aplicativo real, isso seria logado ou mostrado ao usuário.
-        finally:
-            if conn:
-                conn.close()
+        self.db.add_interaction(data)
 
     def show_historico_view(self):
         """Mostra histórico de oportunidades com filtros avançados"""
@@ -1092,7 +1076,7 @@ class CRMApp:
 
             tree.insert('', 'end',
                        values=(
-                           op.get('numero_oportunidade') or '---',
+                           op['numero_oportunidade'] if 'numero_oportunidade' in op.keys() else '---',
                            op['titulo'],
                            op['nome_empresa'],
                            op['estagio_nome'],
