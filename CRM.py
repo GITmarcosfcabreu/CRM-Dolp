@@ -1494,8 +1494,8 @@ class CRMApp:
                 # --- Início da Lógica de Carregamento Robusta ---
 
                 # 1. Carregar todos os dados estáticos primeiro, usando a verificação de chaves
-                entries['titulo'].insert(0, op_data['titulo'] if 'titulo' in op_keys else '')
-                entries['valor'].insert(0, op_data['valor'] if 'valor' in op_keys else '')
+                entries['titulo'].insert(0, str(op_data['titulo']) if 'titulo' in op_keys and op_data['titulo'] is not None else '')
+                entries['valor'].insert(0, str(op_data['valor']) if 'valor' in op_keys and op_data['valor'] is not None else '')
 
                 cliente_id_val = op_data['cliente_id'] if 'cliente_id' in op_keys else None
                 for client in clients:
@@ -1509,11 +1509,11 @@ class CRMApp:
                         entries['estagio_id'].set(estagio['nome'])
                         break
 
-                entries['tempo_contrato_meses'].insert(0, op_data['tempo_contrato_meses'] if 'tempo_contrato_meses' in op_keys else '')
-                entries['regional'].insert(0, op_data['regional'] if 'regional' in op_keys else '')
-                entries['polo'].insert(0, op_data['polo'] if 'polo' in op_keys else '')
-                entries['empresa_referencia'].set(op_data['empresa_referencia'] if 'empresa_referencia' in op_keys else '')
-                entries['numero_edital'].insert(0, op_data['numero_edital'] if 'numero_edital' in op_keys else '')
+                entries['tempo_contrato_meses'].insert(0, str(op_data['tempo_contrato_meses']) if 'tempo_contrato_meses' in op_keys and op_data['tempo_contrato_meses'] is not None else '')
+                entries['regional'].insert(0, str(op_data['regional']) if 'regional' in op_keys and op_data['regional'] is not None else '')
+                entries['polo'].insert(0, str(op_data['polo']) if 'polo' in op_keys and op_data['polo'] is not None else '')
+                entries['empresa_referencia'].set(str(op_data['empresa_referencia']) if 'empresa_referencia' in op_keys and op_data['empresa_referencia'] is not None else '')
+                entries['numero_edital'].insert(0, str(op_data['numero_edital']) if 'numero_edital' in op_keys and op_data['numero_edital'] is not None else '')
 
                 data_abertura_str = op_data['data_abertura'] if 'data_abertura' in op_keys else None
                 if data_abertura_str:
@@ -1522,19 +1522,19 @@ class CRMApp:
                         entries['data_abertura'].set_date(date_obj)
                     except (ValueError, TypeError): pass
 
-                entries['modalidade'].insert(0, op_data['modalidade'] if 'modalidade' in op_keys else '')
-                entries['contato_principal'].insert(0, op_data['contato_principal'] if 'contato_principal' in op_keys else '')
-                entries['link_documentos'].insert(0, op_data['link_documentos'] if 'link_documentos' in op_keys else '')
-                entries['faturamento_estimado'].insert(0, op_data['faturamento_estimado'] if 'faturamento_estimado' in op_keys else '')
-                entries['duracao_contrato'].insert(0, op_data['duracao_contrato'] if 'duracao_contrato' in op_keys else '')
-                entries['mod'].insert(0, op_data['mod'] if 'mod' in op_keys else '')
-                entries['moi'].insert(0, op_data['moi'] if 'moi' in op_keys else '')
-                entries['total_pessoas'].insert(0, op_data['total_pessoas'] if 'total_pessoas' in op_keys else '')
-                entries['margem_contribuicao'].insert(0, op_data['margem_contribuicao'] if 'margem_contribuicao' in op_keys else '')
+                entries['modalidade'].insert(0, str(op_data['modalidade']) if 'modalidade' in op_keys and op_data['modalidade'] is not None else '')
+                entries['contato_principal'].insert(0, str(op_data['contato_principal']) if 'contato_principal' in op_keys and op_data['contato_principal'] is not None else '')
+                entries['link_documentos'].insert(0, str(op_data['link_documentos']) if 'link_documentos' in op_keys and op_data['link_documentos'] is not None else '')
+                entries['faturamento_estimado'].insert(0, str(op_data['faturamento_estimado']) if 'faturamento_estimado' in op_keys and op_data['faturamento_estimado'] is not None else '')
+                entries['duracao_contrato'].insert(0, str(op_data['duracao_contrato']) if 'duracao_contrato' in op_keys and op_data['duracao_contrato'] is not None else '')
+                entries['mod'].insert(0, str(op_data['mod']) if 'mod' in op_keys and op_data['mod'] is not None else '')
+                entries['moi'].insert(0, str(op_data['moi']) if 'moi' in op_keys and op_data['moi'] is not None else '')
+                entries['total_pessoas'].insert(0, str(op_data['total_pessoas']) if 'total_pessoas' in op_keys and op_data['total_pessoas'] is not None else '')
+                entries['margem_contribuicao'].insert(0, str(op_data['margem_contribuicao']) if 'margem_contribuicao' in op_keys and op_data['margem_contribuicao'] is not None else '')
 
                 descricao_detalhada = op_data['descricao_detalhada'] if 'descricao_detalhada' in op_keys else None
                 if descricao_detalhada:
-                    entries['descricao_detalhada'].insert('1.0', descricao_detalhada)
+                    entries['descricao_detalhada'].insert('1.0', str(descricao_detalhada))
 
                 form_win.update_idletasks()
 
