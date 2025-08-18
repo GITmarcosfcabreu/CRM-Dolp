@@ -740,7 +740,7 @@ class CRMApp:
         min_padx = 20
         # A largura máxima do conteúdo será a largura do container - 2*min_padx
         # A largura mínima será a largura do container - 2*max_padx
-        max_padx = (self.content_frame.winfo_width() * 0.4) # Deixa a última etapa com 20% da largura
+        max_padx = (self.content_frame.winfo_width() * 0.6) # Deixa a última etapa com 40% da largura
 
         if num_stages > 1:
             padx_step = (max_padx - min_padx) / (num_stages - 1)
@@ -775,7 +775,7 @@ class CRMApp:
                         client_card.grid(row=row, column=col, padx=5, pady=5, sticky='ew')
 
                         # Nome da empresa
-                        ttk.Label(client_card, text=client['nome_empresa'], style='Card.Title.TLabel').pack(anchor='w')
+                        ttk.Label(client_card, text=client['nome_empresa'], style='Card.Title.TLabel', wraplength=300, justify='left').pack(anchor='w')
 
                         # Status
                         status = client['status'] or 'Não cadastrado'
