@@ -418,7 +418,9 @@ class DatabaseManager:
 
     def add_interaction(self, data):
         with self._connect() as conn:
-            conn.execute("INSERT INTO crm_interacoes (oportunidade_id, data_interacao, tipo, resumo, usuario) VALUES (?, ?, ?, ?, ?)", (data['oportunidade_id'], data['data_interacao'], data['tipo'], data['resumo'], data['usuario']))
+            cursor = conn.cursor()
+            cursor.execute("INSERT INTO crm_interacoes (oportunidade_id, data_interacao, tipo, resumo, usuario) VALUES (?, ?, ?, ?, ?)", (data['oportunidade_id'], data['data_interacao'], data['tipo'], data['resumo'], data['usuario']))
+            conn.commit()
 
     # Métodos de Tarefas
     def get_tasks_for_opportunity(self, op_id):
@@ -677,7 +679,8 @@ class CRMApp:
         v_scrollbar.pack(side="right", fill="y")
 
         # Obter dados do pipeline
-        estagios, oportunidades = self.db.get_pipeline_data()
+        estagios_todos, oportunidades = self.db.get_pipeline_data()
+        estagios = [e for e in estagios_todos if e['nome'] != 'Histórico']
         clients = self.db.get_all_clients()
 
         # Container para o funil, que se expande para preencher o espaço
