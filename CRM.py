@@ -417,10 +417,20 @@ class DatabaseManager:
             return conn.execute("SELECT * FROM crm_interacoes WHERE oportunidade_id = ? ORDER BY data_interacao DESC", (op_id,)).fetchall()
 
     def add_interaction(self, data):
-        with self._connect() as conn:
+        conn = None
+        try:
+            conn = self._connect()
             cursor = conn.cursor()
             cursor.execute("INSERT INTO crm_interacoes (oportunidade_id, data_interacao, tipo, resumo, usuario) VALUES (?, ?, ?, ?, ?)", (data['oportunidade_id'], data['data_interacao'], data['tipo'], data['resumo'], data['usuario']))
             conn.commit()
+        except sqlite3.Error as e:
+            print(f"Database error in add_interaction: {e}")
+            if conn:
+                conn.rollback()
+            raise e
+        finally:
+            if conn:
+                conn.close()
 
     # Métodos de Tarefas
     def get_tasks_for_opportunity(self, op_id):
@@ -907,7 +917,7 @@ class CRMApp:
         """Adiciona registro de movimentação no histórico"""
         data = {
             'oportunidade_id': op_id,
-            'data_interacao': datetime.now().strftime('%d/%m/%Y %H:%M'),
+            'data_interacao': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
             'tipo': 'Movimentação',
             'resumo': f"Movida de '{from_stage}' para '{to_stage}' - Resultado: {result}",
             'usuario': 'Sistema'
