@@ -185,18 +185,19 @@ class DatabaseManager:
             self._run_migrations(cursor)
 
     def _run_migrations(self, cursor):
-        """Aplica migrações de schema no banco de dados existente."""
+        """Aplica migrações de schema de forma robusta no banco de dados existente."""
 
-        # Migração 1: Adicionar a coluna 'numero_oportunidade' se não existir
+        # Migração 1: Adicionar a coluna 'numero_oportunidade' de forma segura
         try:
-            cursor.execute("PRAGMA table_info(oportunidades)")
-            columns = [info['name'] for info in cursor.fetchall()]
-            if 'numero_oportunidade' not in columns:
-                print("Aplicando migração: Adicionando coluna 'numero_oportunidade'...")
+            # Tenta selecionar a coluna. Se falhar, ela não existe.
+            cursor.execute("SELECT numero_oportunidade FROM oportunidades LIMIT 1")
+        except sqlite3.OperationalError:
+            print("Aplicando migração: Adicionando coluna 'numero_oportunidade'...")
+            try:
                 cursor.execute("ALTER TABLE oportunidades ADD COLUMN numero_oportunidade TEXT UNIQUE")
-                print("Migração concluída.")
-        except Exception as e:
-            print(f"Erro ao aplicar migração da coluna 'numero_oportunidade': {e}")
+                print("Migração (Adicionar Coluna) concluída.")
+            except Exception as e:
+                print(f"Erro CRÍTICO ao tentar adicionar a coluna 'numero_oportunidade': {e}")
 
         # Migração 2: Preencher 'numero_oportunidade' para registros existentes
         try:
@@ -1037,7 +1038,7 @@ class CRMApp:
 
             tree.insert('', 'end',
                        values=(
-                           op['numero_oportunidade'] or '---',
+                           op.get('numero_oportunidade') or '---',
                            op['titulo'],
                            op['nome_empresa'],
                            op['estagio_nome'],
@@ -1647,7 +1648,7 @@ class CRMApp:
         header_frame = ttk.Frame(details_win, padding=20, style='TFrame')
         header_frame.pack(fill='x')
 
-        title_text = f"{op_data['numero_oportunidade'] or 'OPP-?????'}: {op_data['titulo']}"
+        title_text = f"{op_data.get('numero_oportunidade') or 'OPP-?????'}: {op_data['titulo']}"
         ttk.Label(header_frame, text=title_text, style='Title.TLabel').pack(side='left')
         ttk.Button(header_frame, text="Editar Detalhes", command=lambda: [details_win.destroy(), self.show_opportunity_form(op_id)], style='Primary.TButton').pack(side='right')
         ttk.Button(header_frame, text="← Voltar", command=details_win.destroy, style='TButton').pack(side='right', padx=(0, 10))
