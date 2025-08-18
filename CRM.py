@@ -86,6 +86,19 @@ def open_link(url):
     except Exception as e:
         messagebox.showerror("Erro", f"Não foi possível abrir o link: {e}")
 
+def strip_cnpj(cnpj):
+    """Remove todos os caracteres não numéricos de um CNPJ."""
+    if not isinstance(cnpj, str):
+        return ""
+    return "".join(c for c in cnpj if c.isdigit())
+
+def format_cnpj(cnpj):
+    """Formata uma string de 14 dígitos de CNPJ para XX.XXX.XXX/XXXX-XX."""
+    cnpj_digits = strip_cnpj(cnpj)
+    if len(cnpj_digits) == 14:
+        return f"{cnpj_digits[:2]}.{cnpj_digits[2:5]}.{cnpj_digits[5:8]}/{cnpj_digits[8:12]}-{cnpj_digits[12:]}"
+    return cnpj # Retorna o original (ou o que sobrou) se não tiver 14 dígitos
+
 # --- 3. GERENCIADOR DE BANCO DE DADOS ---
 class DatabaseManager:
     def __init__(self, db_name):
@@ -2039,7 +2052,7 @@ class CRMApp:
             tree.insert('', 'end', values=(
                 client['id'],
                 client['nome_empresa'],
-                client['cnpj'] or '---',
+                format_cnpj(client['cnpj']) or '---',
                 client['cidade'] or '---',
                 client['estado'] or '---',
                 status
@@ -2112,6 +2125,10 @@ class CRMApp:
             if client_data:
                 for key, widget in entries.items():
                     value = client_data[key] or ''
+                    # Formata o CNPJ antes de exibir no formulário
+                    if key == 'cnpj':
+                        value = format_cnpj(value)
+
                     if hasattr(widget, 'set'):
                         widget.set(value)
                     else:
@@ -2127,6 +2144,10 @@ class CRMApp:
                 data = {}
                 for key, widget in entries.items():
                     data[key] = widget.get().strip()
+
+                # Garante que apenas os dígitos do CNPJ sejam salvos
+                if 'cnpj' in data:
+                    data['cnpj'] = strip_cnpj(data['cnpj'])
 
                 if not data['nome_empresa']:
                     messagebox.showerror("Erro", "Nome da empresa é obrigatório!", parent=form_win)
