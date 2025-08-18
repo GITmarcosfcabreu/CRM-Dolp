@@ -1085,9 +1085,8 @@ class CRMApp:
         notebook.pack(fill='both', expand=True, padx=10, pady=(10, 0))
 
         # Botões de Ação (sempre visíveis na parte inferior)
-        buttons_frame = ttk.Frame(form_win, padding=(20, 10, 20, 20))
+        buttons_frame = ttk.Frame(form_win, padding=(10, 15, 10, 15))
         buttons_frame.pack(side='bottom', fill='x')
-        buttons_frame.columnconfigure(0, weight=1) # Spacer para empurrar botões para a direita
 
         # --- Criação das Abas com Rolagem ---
         analise_frame = self._create_scrollable_tab(notebook, '  Análise Prévia de Viabilidade  ')
@@ -1675,8 +1674,9 @@ class CRMApp:
         notebook.bind("<<NotebookTabChanged>>", on_tab_changed)
 
         # Botões de Ação
-        ttk.Button(buttons_frame, text="Salvar Alterações" if op_id else "Criar Oportunidade", command=on_save, style='Success.TButton').grid(row=0, column=2)
-        ttk.Button(buttons_frame, text="Cancelar", command=form_win.destroy, style='TButton').grid(row=0, column=1, padx=10)
+        # Usar .pack() é mais robusto aqui. Os botões são empacotados da direita para a esquerda.
+        ttk.Button(buttons_frame, text="Salvar Alterações" if op_id else "Criar Oportunidade", command=on_save, style='Success.TButton').pack(side='right')
+        ttk.Button(buttons_frame, text="Cancelar", command=form_win.destroy, style='TButton').pack(side='right', padx=(0, 10))
 
     def show_opportunity_details(self, op_id):
         details_win = Toplevel(self.root)
