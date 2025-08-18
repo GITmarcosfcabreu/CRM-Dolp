@@ -740,7 +740,7 @@ class CRMApp:
         min_padx = 150
         # A largura máxima do conteúdo será a largura do container - 2*min_padx
         # A largura mínima será a largura do container - 2*max_padx
-        max_padx = (self.content_frame.winfo_width() * 0.6) # Deixa a última etapa com 40% da largura
+        max_padx = (self.content_frame.winfo_width() * 0.5) # Deixa a última etapa com 40% da largura
 
         if num_stages > 1:
             padx_step = (max_padx - min_padx) / (num_stages - 1)
