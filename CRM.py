@@ -1696,12 +1696,12 @@ class CRMApp:
         financeiro_frame.pack(fill='x', pady=(10, 10))
 
         financeiro_info = [
-            ("Faturamento Estimado:", format_currency(op_data['faturamento_estimado']) if op_data['faturamento_estimado'] else "---"),
-            ("Duração do Contrato:", f"{op_data['duracao_contrato']} meses" if op_data['duracao_contrato'] else "---"),
-            ("MOD (Mão de Obra Direta):", op_data['mod'] or "---"),
-            ("MOI (Mão de Obra Indireta):", op_data['moi'] or "---"),
-            ("Total de Pessoas:", op_data['total_pessoas'] or "---"),
-            ("Margem de Contribuição:", f"{op_data['margem_contribuicao']}%" if op_data['margem_contribuicao'] else "---")
+            ("Faturamento Estimado:", format_currency(op_data['faturamento_estimado']) if 'faturamento_estimado' in op_data.keys() and op_data['faturamento_estimado'] else "---"),
+            ("Duração do Contrato:", f"{op_data['duracao_contrato']} meses" if 'duracao_contrato' in op_data.keys() and op_data['duracao_contrato'] else "---"),
+            ("MOD (Mão de Obra Direta):", op_data['mod'] if 'mod' in op_data.keys() and op_data['mod'] else "---"),
+            ("MOI (Mão de Obra Indireta):", op_data['moi'] if 'moi' in op_data.keys() and op_data['moi'] else "---"),
+            ("Total de Pessoas:", op_data['total_pessoas'] if 'total_pessoas' in op_data.keys() and op_data['total_pessoas'] else "---"),
+            ("Margem de Contribuição:", f"{op_data['margem_contribuicao']}%" if 'margem_contribuicao' in op_data.keys() and op_data['margem_contribuicao'] else "---")
         ]
 
         for label, value in financeiro_info:
