@@ -117,9 +117,8 @@ class DatabaseManager:
 
             cursor.execute('CREATE TABLE IF NOT EXISTS pipeline_estagios (id INTEGER PRIMARY KEY, nome TEXT UNIQUE NOT NULL, ordem INTEGER)')
 
-            # Tabela para Tipos de Serviço (anteriormente crm_tipos_equipe)
-            cursor.execute('DROP TABLE IF EXISTS crm_servicos')
-            cursor.execute('''CREATE TABLE crm_servicos (
+            # Tabela para Tipos de Serviço
+            cursor.execute('''CREATE TABLE IF NOT EXISTS crm_servicos (
                                 id INTEGER PRIMARY KEY,
                                 nome TEXT UNIQUE NOT NULL,
                                 descricao TEXT,
@@ -127,9 +126,8 @@ class DatabaseManager:
                                 ativa INTEGER DEFAULT 1
                            )''')
 
-            # Nova tabela para Tipos de Equipe, com Foreign Key para crm_servicos
-            cursor.execute('DROP TABLE IF EXISTS crm_tipos_equipe')
-            cursor.execute('''CREATE TABLE crm_tipos_equipe (
+            # Nova tabela para Tipos de Equipe
+            cursor.execute('''CREATE TABLE IF NOT EXISTS crm_tipos_equipe (
                                 id INTEGER PRIMARY KEY,
                                 nome TEXT NOT NULL,
                                 servico_id INTEGER NOT NULL,
@@ -138,9 +136,9 @@ class DatabaseManager:
                            )''')
 
             # Tabela de Oportunidades Refatorada
-            cursor.execute('DROP TABLE IF EXISTS oportunidades')
-            cursor.execute('''CREATE TABLE oportunidades (
+            cursor.execute('''CREATE TABLE IF NOT EXISTS oportunidades (
                                 id INTEGER PRIMARY KEY,
+                                numero_oportunidade TEXT UNIQUE,
                                 titulo TEXT NOT NULL,
                                 valor REAL DEFAULT 0,
                                 cliente_id INTEGER NOT NULL,
@@ -151,8 +149,8 @@ class DatabaseManager:
                                 regional TEXT,
                                 polo TEXT,
                                 quantidade_bases INTEGER,
-                                bases_nomes TEXT,          -- JSON com lista de nomes das bases
-                                servicos_data TEXT,        -- NOVO JSON com a estrutura de serviços, equipes, qtd, volumetria, etc.
+                                bases_nomes TEXT,
+                                servicos_data TEXT,
                                 empresa_referencia TEXT,
                                 -- Campos do Sumário Executivo
                                 numero_edital TEXT,
@@ -162,6 +160,8 @@ class DatabaseManager:
                                 link_documentos TEXT,
                                 faturamento_estimado REAL,
                                 duracao_contrato INTEGER,
+                                mod REAL,
+                                moi REAL,
                                 total_pessoas INTEGER,
                                 margem_contribuicao REAL,
                                 descricao_detalhada TEXT,
@@ -175,8 +175,7 @@ class DatabaseManager:
                             FOREIGN KEY (oportunidade_id) REFERENCES oportunidades(id) ON DELETE CASCADE)''')
             cursor.execute('''CREATE TABLE IF NOT EXISTS crm_bases_alocadas (id INTEGER PRIMARY KEY, oportunidade_id INTEGER NOT NULL, nome_base TEXT, equipes_alocadas TEXT,
                             FOREIGN KEY (oportunidade_id) REFERENCES oportunidades(id) ON DELETE CASCADE)''')
-            cursor.execute('DROP TABLE IF EXISTS crm_empresas_referencia')
-            cursor.execute('''CREATE TABLE crm_empresas_referencia (id INTEGER PRIMARY KEY, nome_empresa TEXT NOT NULL, tipo_servico TEXT NOT NULL, valor_mensal REAL NOT NULL, volumetria_minima REAL NOT NULL, valor_por_pessoa REAL NOT NULL, ativa INTEGER DEFAULT 1, data_criacao TEXT DEFAULT CURRENT_TIMESTAMP)''')
+            cursor.execute('''CREATE TABLE IF NOT EXISTS crm_empresas_referencia (id INTEGER PRIMARY KEY, nome_empresa TEXT NOT NULL, tipo_servico TEXT NOT NULL, valor_mensal REAL NOT NULL, volumetria_minima REAL NOT NULL, valor_por_pessoa REAL NOT NULL, ativa INTEGER DEFAULT 1, data_criacao TEXT DEFAULT CURRENT_TIMESTAMP)''')
             cursor.execute('CREATE TABLE IF NOT EXISTS crm_setores (id INTEGER PRIMARY KEY, nome TEXT UNIQUE NOT NULL)')
             cursor.execute('CREATE TABLE IF NOT EXISTS crm_segmentos (id INTEGER PRIMARY KEY, nome TEXT UNIQUE NOT NULL)')
 
@@ -236,29 +235,38 @@ class DatabaseManager:
             query = '''INSERT INTO oportunidades (titulo, valor, cliente_id, estagio_id, data_criacao,
                         tempo_contrato_meses, regional, polo, quantidade_bases, bases_nomes, servicos_data, empresa_referencia,
                         numero_edital, data_abertura, modalidade, contato_principal, link_documentos,
-                        faturamento_estimado, duracao_contrato, total_pessoas, margem_contribuicao, descricao_detalhada)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'''
+                        faturamento_estimado, duracao_contrato, mod, moi, total_pessoas, margem_contribuicao, descricao_detalhada)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'''
             params = (data['titulo'], data['valor'], data['cliente_id'], data['estagio_id'], datetime.now().date(),
                       data.get('tempo_contrato_meses'), data.get('regional'), data.get('polo'), data.get('quantidade_bases'),
                       data.get('bases_nomes'), data.get('servicos_data'), data.get('empresa_referencia'),
                       data.get('numero_edital'), data.get('data_abertura'), data.get('modalidade'), data.get('contato_principal'),
                       data.get('link_documentos'), data.get('faturamento_estimado'), data.get('duracao_contrato'),
-                      data.get('total_pessoas'), data.get('margem_contribuicao'), data.get('descricao_detalhada'))
-            conn.execute(query, params)
+                      data.get('mod'), data.get('moi'), data.get('total_pessoas'),
+                      data.get('margem_contribuicao'), data.get('descricao_detalhada'))
+
+            cursor = conn.cursor()
+            cursor.execute(query, params)
+
+            # Gerar e salvar o número único da oportunidade
+            new_id = cursor.lastrowid
+            numero_oportunidade = f"OPP-{new_id:05d}"
+            conn.execute("UPDATE oportunidades SET numero_oportunidade = ? WHERE id = ?", (numero_oportunidade, new_id))
 
     def update_opportunity(self, op_id, data):
         with self._connect() as conn:
             query = '''UPDATE oportunidades SET titulo=?, valor=?, cliente_id=?, estagio_id=?,
                         tempo_contrato_meses=?, regional=?, polo=?, quantidade_bases=?, bases_nomes=?, servicos_data=?, empresa_referencia=?,
                         numero_edital=?, data_abertura=?, modalidade=?, contato_principal=?, link_documentos=?,
-                        faturamento_estimado=?, duracao_contrato=?, total_pessoas=?, margem_contribuicao=?, descricao_detalhada=?
+                        faturamento_estimado=?, duracao_contrato=?, mod=?, moi=?, total_pessoas=?, margem_contribuicao=?, descricao_detalhada=?
                         WHERE id=?'''
             params = (data['titulo'], data['valor'], data['cliente_id'], data['estagio_id'],
                       data.get('tempo_contrato_meses'), data.get('regional'), data.get('polo'), data.get('quantidade_bases'),
                       data.get('bases_nomes'), data.get('servicos_data'), data.get('empresa_referencia'),
                       data.get('numero_edital'), data.get('data_abertura'), data.get('modalidade'), data.get('contato_principal'),
                       data.get('link_documentos'), data.get('faturamento_estimado'), data.get('duracao_contrato'),
-                      data.get('total_pessoas'), data.get('margem_contribuicao'), data.get('descricao_detalhada'),
+                      data.get('mod'), data.get('moi'), data.get('total_pessoas'),
+                      data.get('margem_contribuicao'), data.get('descricao_detalhada'),
                       op_id)
             conn.execute(query, params)
 
@@ -268,11 +276,14 @@ class DatabaseManager:
 
     def get_historico_oportunidades(self, filters=None):
         with self._connect() as conn:
-            base_query = "SELECT o.id, o.titulo, o.valor, o.data_criacao, c.nome_empresa, p.nome as estagio_nome FROM oportunidades o JOIN clientes c ON o.cliente_id = c.id JOIN pipeline_estagios p ON o.estagio_id = p.id"
+            base_query = "SELECT o.id, o.numero_oportunidade, o.titulo, o.valor, o.data_criacao, c.nome_empresa, p.nome as estagio_nome FROM oportunidades o JOIN clientes c ON o.cliente_id = c.id JOIN pipeline_estagios p ON o.estagio_id = p.id"
             conditions = []
             params = []
 
             if filters:
+                if filters.get('numero_oportunidade'):
+                    conditions.append("o.numero_oportunidade LIKE ?")
+                    params.append(f"%{filters['numero_oportunidade']}%")
                 if filters.get('cliente'):
                     conditions.append("c.nome_empresa = ?")
                     params.append(filters['cliente'])
@@ -743,13 +754,19 @@ class CRMApp:
                     ttk.Label(stage_frame, text="Nenhuma oportunidade neste estágio",
                              style='Value.White.TLabel', font=('Segoe UI', 10, 'italic')).pack(pady=20)
 
-        # Bind scroll do mouse
+        # Bind scroll do mouse de forma mais robusta
         def on_mousewheel(event):
-            # Verificar se o widget canvas ainda existe antes de usá-lo
             if canvas.winfo_exists():
                 canvas.yview_scroll(int(-1*(event.delta/120)), "units")
 
-        self.root.bind_all("<MouseWheel>", on_mousewheel)
+        def _bind_scroll(event):
+            self.root.bind_all("<MouseWheel>", on_mousewheel)
+
+        def _unbind_scroll(event):
+            self.root.unbind_all("<MouseWheel>")
+
+        main_frame.bind('<Enter>', _bind_scroll)
+        main_frame.bind('<Leave>', _unbind_scroll)
 
     def show_resultado_dialog(self, op_id, current_stage_id):
         """Mostra dialog para aprovar ou reprovar oportunidade"""
@@ -857,27 +874,32 @@ class CRMApp:
         filter_row1 = ttk.Frame(filters_frame, style='TFrame')
         filter_row1.pack(fill='x', pady=(0, 10))
 
+        # Número da Oportunidade
+        ttk.Label(filter_row1, text="Nº Oportunidade:", style='TLabel').grid(row=0, column=0, sticky='w', padx=(0, 5))
+        num_op_filter = ttk.Entry(filter_row1, width=15)
+        num_op_filter.grid(row=0, column=1, padx=(0, 20))
+
         # Cliente
-        ttk.Label(filter_row1, text="Cliente:", style='TLabel').grid(row=0, column=0, sticky='w', padx=(0, 5))
+        ttk.Label(filter_row1, text="Cliente:", style='TLabel').grid(row=0, column=2, sticky='w', padx=(0, 5))
         client_filter = ttk.Combobox(filter_row1, values=['Todos'] + [c['nome_empresa'] for c in self.db.get_all_clients()], width=20)
         client_filter.set('Todos')
-        client_filter.grid(row=0, column=1, padx=(0, 20))
+        client_filter.grid(row=0, column=3, padx=(0, 20))
 
         # Estágio
-        ttk.Label(filter_row1, text="Estágio:", style='TLabel').grid(row=0, column=2, sticky='w', padx=(0, 5))
+        ttk.Label(filter_row1, text="Estágio:", style='TLabel').grid(row=0, column=4, sticky='w', padx=(0, 5))
         stage_filter = ttk.Combobox(filter_row1, values=['Todos'] + [e['nome'] for e in self.db.get_pipeline_data()[0]], width=25)
         stage_filter.set('Todos')
-        stage_filter.grid(row=0, column=3, padx=(0, 20))
+        stage_filter.grid(row=0, column=5, padx=(0, 20))
 
         # Resultado
-        ttk.Label(filter_row1, text="Resultado:", style='TLabel').grid(row=0, column=4, sticky='w', padx=(0, 5))
+        ttk.Label(filter_row1, text="Resultado:", style='TLabel').grid(row=0, column=6, sticky='w', padx=(0, 5))
         result_filter = ttk.Combobox(filter_row1, values=['Todos', 'Aprovado', 'Reprovado'], width=15)
         result_filter.set('Todos')
-        result_filter.grid(row=0, column=5)
+        result_filter.grid(row=0, column=7)
 
         # Segunda linha de filtros
         filter_row2 = ttk.Frame(filters_frame, style='TFrame')
-        filter_row2.pack(fill='x', pady=(0, 10))
+        filter_row2.pack(fill='x', pady=(10, 10))
 
         # Período
         ttk.Label(filter_row2, text="Período:", style='TLabel').grid(row=0, column=0, sticky='w', padx=(0, 5))
@@ -892,7 +914,7 @@ class CRMApp:
 
         # Botão de busca
         search_btn = ttk.Button(filter_row2, text="🔍 Buscar", style='Primary.TButton',
-                               command=lambda: self.apply_historico_filters(client_filter, stage_filter, result_filter, period_filter, min_value_filter, results_tree))
+                               command=lambda: self.apply_historico_filters(num_op_filter, client_filter, stage_filter, result_filter, period_filter, min_value_filter, results_tree))
         search_btn.grid(row=0, column=4, padx=(20, 0))
 
         # Tabela de resultados
@@ -900,10 +922,11 @@ class CRMApp:
         results_frame.pack(fill='both', expand=True)
 
         # Treeview para mostrar oportunidades
-        columns = ('titulo', 'cliente', 'estagio', 'valor', 'data_criacao', 'ultimo_resultado')
+        columns = ('num_op', 'titulo', 'cliente', 'estagio', 'valor', 'data_criacao', 'ultimo_resultado')
         results_tree = ttk.Treeview(results_frame, columns=columns, show='headings', height=15)
 
         # Cabeçalhos
+        results_tree.heading('num_op', text='Nº Oport.')
         results_tree.heading('titulo', text='Título')
         results_tree.heading('cliente', text='Cliente')
         results_tree.heading('estagio', text='Estágio Atual')
@@ -912,7 +935,8 @@ class CRMApp:
         results_tree.heading('ultimo_resultado', text='Último Resultado')
 
         # Larguras das colunas
-        results_tree.column('titulo', width=200)
+        results_tree.column('num_op', width=100, anchor='center')
+        results_tree.column('titulo', width=250)
         results_tree.column('cliente', width=150)
         results_tree.column('estagio', width=180)
         results_tree.column('valor', width=120, anchor='center')
@@ -946,9 +970,10 @@ class CRMApp:
         # Carregar todas as oportunidades inicialmente
         self.load_historico_data(results_tree)
 
-    def apply_historico_filters(self, client_filter, stage_filter, result_filter, period_filter, min_value_filter, results_tree):
+    def apply_historico_filters(self, num_op_filter, client_filter, stage_filter, result_filter, period_filter, min_value_filter, results_tree):
         """Aplica filtros e atualiza a tabela de histórico"""
         filters = {
+            'numero_oportunidade': num_op_filter.get().strip() if num_op_filter.get().strip() else None,
             'cliente': client_filter.get() if client_filter.get() != 'Todos' else None,
             'estagio': stage_filter.get() if stage_filter.get() != 'Todos' else None,
             'resultado': result_filter.get() if result_filter.get() != 'Todos' else None,
@@ -982,6 +1007,7 @@ class CRMApp:
 
             tree.insert('', 'end',
                        values=(
+                           op['numero_oportunidade'] or '---',
                            op['titulo'],
                            op['nome_empresa'],
                            op['estagio_nome'],
@@ -1545,6 +1571,8 @@ class CRMApp:
                 data['link_documentos'] = entries['link_documentos'].get().strip()
                 data['faturamento_estimado'] = entries['faturamento_estimado'].get().strip().replace('.','').replace(',', '.') or '0'
                 data['duracao_contrato'] = entries['duracao_contrato'].get().strip()
+                data['mod'] = entries['mod'].get().strip().replace(',', '.') or '0'
+                data['moi'] = entries['moi'].get().strip().replace(',', '.') or '0'
                 data['total_pessoas'] = entries['total_pessoas'].get().strip()
                 data['margem_contribuicao'] = entries['margem_contribuicao'].get().strip().replace(',', '.') or '0'
                 data['descricao_detalhada'] = entries['descricao_detalhada'].get('1.0', 'end-1c')
@@ -1589,7 +1617,8 @@ class CRMApp:
         header_frame = ttk.Frame(details_win, padding=20, style='TFrame')
         header_frame.pack(fill='x')
 
-        ttk.Label(header_frame, text=f"Oportunidade: {op_data['titulo']}", style='Title.TLabel').pack(side='left')
+        title_text = f"{op_data['numero_oportunidade'] or 'OPP-?????'}: {op_data['titulo']}"
+        ttk.Label(header_frame, text=title_text, style='Title.TLabel').pack(side='left')
         ttk.Button(header_frame, text="Editar Detalhes", command=lambda: [details_win.destroy(), self.show_opportunity_form(op_id)], style='Primary.TButton').pack(side='right')
         ttk.Button(header_frame, text="← Voltar", command=details_win.destroy, style='TButton').pack(side='right', padx=(0, 10))
 
@@ -1619,48 +1648,13 @@ class CRMApp:
             ttk.Label(row_frame, text=label, style='Metric.White.TLabel', width=20).pack(side='left')
             ttk.Label(row_frame, text=str(value), style='Value.White.TLabel').pack(side='left', padx=(10, 0))
 
-        if op_data['link_documentos']:
-            link_frame = ttk.Frame(info_frame)
-            link_frame.pack(fill='x', pady=2)
-            ttk.Label(link_frame, text="Pasta de Documentos:", style='Metric.White.TLabel', width=20).pack(side='left')
-            link_label = ttk.Label(link_frame, text="Abrir Pasta", style='Link.White.TLabel', cursor="hand2")
-            link_label.pack(side='left', padx=(10, 0))
-            link_label.bind("<Button-1>", lambda e: open_link(op_data['link_documentos']))
-
-        # Tipos de serviço e equipes (lendo da nova estrutura JSON)
-        if op_data['servicos_data']:
-            try:
-                servicos_data = json.loads(op_data['servicos_data'])
-                if servicos_data:
-                    servicos_frame = ttk.LabelFrame(analise_tab, text="Serviços e Equipes Configurados", padding=15, style='White.TLabelframe')
-                    servicos_frame.pack(fill='x', pady=(10,0))
-
-                    for servico_info in servicos_data:
-                        servico_nome = servico_info.get("servico_nome", "N/A")
-                        equipes = servico_info.get("equipes", [])
-
-                        ttk.Label(servicos_frame, text=servico_nome, style='Metric.White.TLabel', font=('Segoe UI', 11, 'bold')).pack(anchor='w', pady=(5,2))
-
-                        if not equipes:
-                            ttk.Label(servicos_frame, text="  - Nenhuma equipe configurada", style='Value.White.TLabel').pack(anchor='w', padx=(15,0))
-                        else:
-                            for equipe in equipes:
-                                equipe_nome = equipe.get('tipo_equipe', 'N/A')
-                                qtd = equipe.get('quantidade', 'N/A')
-                                vol = equipe.get('volumetria', 'N/A')
-                                base = equipe.get('base', 'N/A')
-                                info_text = f"  - Equipe: {equipe_nome} | Qtd: {qtd} | Volumetria: {vol} | Base: {base}"
-                                ttk.Label(servicos_frame, text=info_text, style='Value.White.TLabel').pack(anchor='w', padx=(15,0))
-            except (json.JSONDecodeError, TypeError):
-                pass
-
         # Bases alocadas
         if op_data['bases_nomes']:
             try:
                 bases_nomes = json.loads(op_data['bases_nomes'])
                 if bases_nomes:
                     bases_frame = ttk.LabelFrame(analise_tab, text="Bases Alocadas", padding=15, style='White.TLabelframe')
-                    bases_frame.pack(fill='x', pady=(0, 10))
+                    bases_frame.pack(fill='x', pady=(10, 0))
 
                     for i, base in enumerate(bases_nomes, 1):
                         base_frame = ttk.Frame(bases_frame)
@@ -1690,12 +1684,22 @@ class CRMApp:
             ttk.Label(row_frame, text=label, style='Metric.White.TLabel', width=20).pack(side='left')
             ttk.Label(row_frame, text=str(value), style='Value.White.TLabel').pack(side='left', padx=(10, 0))
 
-        financeiro_frame = ttk.LabelFrame(sumario_tab, text="Informações Financeiras", padding=15, style='White.TLabelframe')
-        financeiro_frame.pack(fill='x', pady=(0, 10))
+        if op_data['link_documentos']:
+            link_frame = ttk.Frame(edital_frame)
+            link_frame.pack(fill='x', pady=2)
+            ttk.Label(link_frame, text="Pasta de Documentos:", style='Metric.White.TLabel', width=20).pack(side='left')
+            link_label = ttk.Label(link_frame, text="Abrir Pasta", style='Link.White.TLabel', cursor="hand2")
+            link_label.pack(side='left', padx=(10, 0))
+            link_label.bind("<Button-1>", lambda e: open_link(op_data['link_documentos']))
+
+        financeiro_frame = ttk.LabelFrame(sumario_tab, text="Informações Financeiras e de Pessoal", padding=15, style='White.TLabelframe')
+        financeiro_frame.pack(fill='x', pady=(10, 10))
 
         financeiro_info = [
             ("Faturamento Estimado:", format_currency(op_data['faturamento_estimado']) if op_data['faturamento_estimado'] else "---"),
             ("Duração do Contrato:", f"{op_data['duracao_contrato']} meses" if op_data['duracao_contrato'] else "---"),
+            ("MOD (Mão de Obra Direta):", op_data['mod'] or "---"),
+            ("MOI (Mão de Obra Indireta):", op_data['moi'] or "---"),
             ("Total de Pessoas:", op_data['total_pessoas'] or "---"),
             ("Margem de Contribuição:", f"{op_data['margem_contribuicao']}%" if op_data['margem_contribuicao'] else "---")
         ]
@@ -1703,14 +1707,41 @@ class CRMApp:
         for label, value in financeiro_info:
             row_frame = ttk.Frame(financeiro_frame)
             row_frame.pack(fill='x', pady=2)
-            ttk.Label(row_frame, text=label, style='Metric.White.TLabel', width=20).pack(side='left')
+            ttk.Label(row_frame, text=label, style='Metric.White.TLabel', width=25).pack(side='left')
             ttk.Label(row_frame, text=str(value), style='Value.White.TLabel').pack(side='left', padx=(10, 0))
+
+        # Tipos de serviço e equipes (lendo da nova estrutura JSON)
+        if op_data['servicos_data']:
+            try:
+                servicos_data = json.loads(op_data['servicos_data'])
+                if servicos_data:
+                    servicos_frame = ttk.LabelFrame(sumario_tab, text="Serviços e Equipes Configurados", padding=15, style='White.TLabelframe')
+                    servicos_frame.pack(fill='x', pady=(10,0))
+
+                    for servico_info in servicos_data:
+                        servico_nome = servico_info.get("servico_nome", "N/A")
+                        equipes = servico_info.get("equipes", [])
+
+                        ttk.Label(servicos_frame, text=servico_nome, style='Metric.White.TLabel', font=('Segoe UI', 11, 'bold')).pack(anchor='w', pady=(5,2))
+
+                        if not equipes:
+                            ttk.Label(servicos_frame, text="  - Nenhuma equipe configurada", style='Value.White.TLabel').pack(anchor='w', padx=(15,0))
+                        else:
+                            for equipe in equipes:
+                                equipe_nome = equipe.get('tipo_equipe', 'N/A')
+                                qtd = equipe.get('quantidade', 'N/A')
+                                vol = equipe.get('volumetria', 'N/A')
+                                base = equipe.get('base', 'N/A')
+                                info_text = f"  - Equipe: {equipe_nome} | Qtd: {qtd} | Volumetria: {vol} | Base: {base}"
+                                ttk.Label(servicos_frame, text=info_text, style='Value.White.TLabel').pack(anchor='w', padx=(15,0))
+            except (json.JSONDecodeError, TypeError):
+                pass
 
         if op_data['descricao_detalhada']:
             desc_frame = ttk.LabelFrame(sumario_tab, text="Descrição Detalhada", padding=15, style='White.TLabelframe')
-            desc_frame.pack(fill='both', expand=True, pady=(0, 10))
+            desc_frame.pack(fill='both', expand=True, pady=(10, 0))
 
-            desc_text = tk.Text(desc_frame, height=8, wrap='word', bg='white', font=('Segoe UI', 10), state='disabled')
+            desc_text = tk.Text(desc_frame, height=5, wrap='word', bg='white', font=('Segoe UI', 10), state='disabled')
             desc_scrollbar = ttk.Scrollbar(desc_frame, orient="vertical", command=desc_text.yview)
             desc_text.configure(yscrollcommand=desc_scrollbar.set)
             desc_text.pack(side="left", fill="both", expand=True)
