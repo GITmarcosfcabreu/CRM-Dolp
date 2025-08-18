@@ -737,7 +737,7 @@ class CRMApp:
 
         # Define o padding (margem) mínimo e máximo para criar o efeito de funil
         # O padding é aplicado em ambos os lados, então o encolhimento visual é o dobro do padding
-        min_padx = 100
+        min_padx = 150
         # A largura máxima do conteúdo será a largura do container - 2*min_padx
         # A largura mínima será a largura do container - 2*max_padx
         max_padx = (self.content_frame.winfo_width() * 0.6) # Deixa a última etapa com 40% da largura
@@ -812,7 +812,7 @@ class CRMApp:
                         op_card.grid(row=row, column=col, padx=10, pady=5, sticky='ew')
 
                         # Título da oportunidade
-                        title_label = ttk.Label(op_card, text=oportunidade['titulo'], style='Card.Title.TLabel')
+                        title_label = ttk.Label(op_card, text=oportunidade['titulo'], style='Card.Title.TLabel', wraplength=250, justify='left')
                         title_label.pack(anchor='w')
 
                         # Cliente
