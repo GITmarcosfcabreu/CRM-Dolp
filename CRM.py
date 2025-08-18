@@ -2163,8 +2163,16 @@ class CRMApp:
                 form_win.destroy()
                 self.show_clients_view()
 
+            except sqlite3.IntegrityError as e:
+                error_message = str(e).lower()
+                if 'clientes.cnpj' in error_message:
+                    messagebox.showerror("Erro de Duplicidade", "O CNPJ informado já está cadastrado para outro cliente.", parent=form_win)
+                elif 'clientes.nome_empresa' in error_message:
+                    messagebox.showerror("Erro de Duplicidade", "O Nome da Empresa informado já está cadastrado para outro cliente.", parent=form_win)
+                else:
+                    messagebox.showerror("Erro de Banco de Dados", f"Erro de integridade ao salvar: {str(e)}", parent=form_win)
             except Exception as e:
-                messagebox.showerror("Erro de Banco de Dados", f"Erro ao salvar: {str(e)}", parent=form_win)
+                messagebox.showerror("Erro Inesperado", f"Ocorreu um erro inesperado ao salvar: {str(e)}", parent=form_win)
 
         ttk.Button(buttons_frame, text="Salvar", command=save_client, style='Success.TButton').pack(side='right')
         ttk.Button(buttons_frame, text="Cancelar", command=form_win.destroy, style='TButton').pack(side='right', padx=(0, 10))
