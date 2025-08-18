@@ -1363,10 +1363,13 @@ class CRMApp:
                 if op_data['descricao_detalhada']:
                     entries['descricao_detalhada'].insert('1.0', op_data['descricao_detalhada'])
 
+                # Forçar a atualização da UI para garantir que os widgets estáticos existam
+                form_win.update_idletasks()
+
                 # 2. Carregar dados das bases
                 if op_data.get('quantidade_bases') is not None:
                     bases_spinbox.set(op_data['quantidade_bases'])
-                    _update_base_fields_ui() # Cria os widgets de entrada de base
+                    _update_base_fields_ui()
                     if op_data.get('bases_nomes'):
                         try:
                             bases_nomes_data = json.loads(op_data['bases_nomes'])
@@ -1375,22 +1378,23 @@ class CRMApp:
                                 if i < len(base_widgets): base_widgets[i].insert(0, nome)
                         except (json.JSONDecodeError, TypeError): pass
 
+                # Forçar a atualização da UI para que as bases estejam disponíveis para os combos
+                form_win.update_idletasks()
+
                 # 3. Carregar dados de serviços e equipes
                 if op_data.get('servicos_data'):
                     try:
                         servicos_data_json = json.loads(op_data['servicos_data'])
                         tipos_servico_vars = entries.get('tipos_servico_vars', {})
 
-                        # Primeiro, marcar todos os checkboxes de serviços relevantes
                         for servico_info in servicos_data_json:
                             servico_nome = servico_info.get('servico_nome')
                             if servico_nome in tipos_servico_vars:
                                 tipos_servico_vars[servico_nome].set(True)
 
-                        # Forçar a criação dos frames de serviço
                         _update_servicos_ui()
+                        form_win.update_idletasks()
 
-                        # Agora, popular as linhas de equipe dentro dos frames corretos
                         for servico_info in servicos_data_json:
                             servico_nome = servico_info.get('servico_nome')
                             equipes_data = servico_info.get('equipes', [])
@@ -1399,10 +1403,7 @@ class CRMApp:
                                 container = servico_frames[servico_nome].winfo_children()[0]
                                 for equipe_info in equipes_data:
                                     _add_equipe_row(servico_id, servico_nome, container)
-                                    # Acessar a última linha de widgets adicionada
                                     new_row_widgets = servico_equipes_data[servico_nome][-1]
-
-                                    # Preencher os widgets com os dados salvos
                                     new_row_widgets['tipo_combo'].set(equipe_info.get('tipo_equipe', ''))
                                     new_row_widgets['qtd_entry'].insert(0, equipe_info.get('quantidade', ''))
                                     new_row_widgets['vol_entry'].insert(0, equipe_info.get('volumetria', ''))
@@ -1475,14 +1476,15 @@ class CRMApp:
 
                 if op_id:
                     self.db.update_opportunity(op_id, data)
-                    messagebox.showinfo("Sucesso", "Oportunidade atualizada com sucesso!", parent=form_win)
+                    messagebox.showinfo("Sucesso", "Oportunidade atualizada com sucesso! A janela permanecerá aberta.", parent=form_win)
                 else:
                     self.db.add_opportunity(data)
-                    messagebox.showinfo("Sucesso", "Oportunidade criada com sucesso!", parent=form_win)
+                    messagebox.showinfo("Sucesso", "Oportunidade criada com sucesso! A janela permanecerá aberta.", parent=form_win)
 
                 # Atualiza a visão principal para refletir as mudanças
                 self.show_kanban_view()
                 # A janela não é mais destruída, permitindo mais edições.
+                # form_win.destroy() # Linha removida
 
             except sqlite3.Error as e:
                  messagebox.showerror("Erro de Banco de Dados", f"Erro ao salvar: {str(e)}", parent=form_win)
