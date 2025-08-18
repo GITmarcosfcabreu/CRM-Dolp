@@ -613,37 +613,40 @@ class CRMApp:
         estagios, oportunidades = self.db.get_pipeline_data()
         clients = self.db.get_all_clients()
 
-        # Container centralizado para o funil
+        # Container para o funil, que se expande para preencher o espaço
         funil_container = ttk.Frame(scrollable_frame, style='TFrame')
-        funil_container.pack(pady=20, expand=True)
+        funil_container.pack(fill='x', expand=True, pady=20)
 
         # --- Lógica do Funil Visual ---
-        self.root.update_idletasks() # Garante que temos as dimensões da janela
+        self.root.update_idletasks() # Garante que as dimensões da janela estão atualizadas
         num_stages = len(estagios)
 
-        # Define a largura máxima como 90% da largura do frame de conteúdo e uma largura mínima
-        max_width = self.content_frame.winfo_width() * 0.9
-        min_width = self.content_frame.winfo_width() * 0.5
+        # Define o padding (margem) mínimo e máximo para criar o efeito de funil
+        # O padding é aplicado em ambos os lados, então o encolhimento visual é o dobro do padding
+        min_padx = 20
+        # A largura máxima do conteúdo será a largura do container - 2*min_padx
+        # A largura mínima será a largura do container - 2*max_padx
+        max_padx = (self.content_frame.winfo_width() * 0.4) # Deixa a última etapa com 20% da largura
 
-        # Calcula o quanto a largura deve diminuir a cada passo
         if num_stages > 1:
-            width_step = (max_width - min_width) / (num_stages - 1)
+            padx_step = (max_padx - min_padx) / (num_stages - 1)
         else:
-            width_step = 0
+            padx_step = 0
         # -----------------------------
 
         # Criar estágios do funil verticalmente
         for i, estagio in enumerate(estagios):
-            # Calcula a largura para o estágio atual
-            current_width = int(max_width - (i * width_step))
+            # Calcula o padding para o estágio atual
+            current_padx = int(min_padx + (i * padx_step))
 
-            # Frame para cada estágio com a largura calculada
-            stage_frame = ttk.Frame(funil_container, style='White.TLabelframe', padding=15, width=current_width)
-            stage_frame.pack(pady=5) # pady reduzido para um visual mais compacto
+            # Frame para cada estágio
+            stage_frame = ttk.Frame(funil_container, style='White.TLabelframe', padding=15)
+            # Usa fill='x' e o padx dinâmico para criar o efeito de funil centrado
+            stage_frame.pack(fill='x', pady=5, padx=current_padx)
 
             # Cabeçalho do estágio
             header_frame = ttk.Frame(stage_frame, style='TFrame')
-            header_frame.pack(fill='x', pady=(0, 10))
+            header_frame.pack(fill='x', pady=(0, 15))
 
             stage_title = ttk.Label(header_frame, text=estagio['nome'], style='Title.TLabel',
                                   font=('Segoe UI', 14, 'bold'), foreground=DOLP_COLORS['primary_blue'])
