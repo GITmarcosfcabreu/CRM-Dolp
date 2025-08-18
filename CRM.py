@@ -765,7 +765,7 @@ class CRMApp:
                 clients_frame.configure(style='TLabelframe') # Fundo branco
 
                 # Grid para organizar clientes em colunas
-                col_count = 3
+                col_count = 2
                 if clients:
                     for idx, client in enumerate(clients):
                         row = idx // col_count
