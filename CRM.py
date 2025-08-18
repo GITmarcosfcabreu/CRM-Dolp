@@ -31,9 +31,9 @@ LOGO_URL = "https://mcusercontent.com/cfa43b95eeae85d65cf1366fb/images/a68e98a6-
 DOLP_COLORS = {
     'primary_blue': '#004b87', 'secondary_blue': "#4887ec", 'light_blue': '#eff6ff',
     'success_green': '#10b981', 'warning_orange': "#d02a2e", 'danger_red': '#ef4444',
-    'white': '#ffffff', 'light_gray': '#ffffff', 'medium_gray': '#64748b',
-    'dark_gray': '#1e293b', 'very_light_gray': '#f8fafc', 'dolp_cyan': '#06b6d4',
-    'gradient_start': '#1e40af', 'gradient_end': '#3b82f6', 'shadow_color': '#00000020', 'border_color': '#e2e8f0'
+    'white': '#ffffff', 'light_gray': '#ffffff', 'medium_gray': '#004b87',
+    'dark_gray': '#004b87', 'very_light_gray': '#ffffff', 'dolp_cyan': '#06b6d4',
+    'gradient_start': '#1e40af', 'gradient_end': '#3b82f6', 'border_color': '#4887ec'
 }
 
 ESTAGIOS_PIPELINE_DOLP = [
@@ -615,16 +615,33 @@ class CRMApp:
 
         # Container centralizado para o funil
         funil_container = ttk.Frame(scrollable_frame, style='TFrame')
-        funil_container.pack(expand=True, pady=20)
+        funil_container.pack(pady=20, expand=True) # Centraliza o container do funil
+
+        # --- Lógica do Funil Visual ---
+        num_stages = len(estagios)
+        # Define a largura máxima como 90% da largura da janela e uma largura mínima
+        max_width = self.root.winfo_width() * 0.85
+        min_width = self.root.winfo_width() * 0.4
+
+        # Calcula o quanto a largura deve diminuir a cada passo
+        if num_stages > 1:
+            width_step = (max_width - min_width) / (num_stages - 1)
+        else:
+            width_step = 0
+        # -----------------------------
 
         # Criar estágios do funil verticalmente
         for i, estagio in enumerate(estagios):
-            # Frame para cada estágio
-            stage_frame = ttk.Frame(funil_container, style='White.TLabelframe', padding=15)
-            stage_frame.pack(fill='x', pady=10, padx=50)
+            # Calcula a largura para o estágio atual
+            current_width = int(max_width - (i * width_step))
+
+            # Frame para cada estágio com a largura calculada
+            stage_frame = ttk.Frame(funil_container, style='White.TLabelframe', padding=15, width=current_width)
+            stage_frame.pack(pady=10) # Centraliza por padrão dentro do funil_container
+            stage_frame.pack_propagate(False) # Impede que os widgets filhos alterem o tamanho do frame
 
             # Cabeçalho do estágio
-            header_frame = ttk.Frame(stage_frame, style='TFrame')
+            header_frame = ttk.Frame(stage_frame, style='TFrame', width=current_width)
             header_frame.pack(fill='x', pady=(0, 15))
 
             stage_title = ttk.Label(header_frame, text=estagio['nome'], style='Title.TLabel',
