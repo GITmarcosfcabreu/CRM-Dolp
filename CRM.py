@@ -1484,8 +1484,12 @@ class CRMApp:
 
         # Carregar dados se editando oportunidade existente
         if op_id:
-            op_data = self.db.get_opportunity_details(op_id)
-            if op_data:
+            try:
+                op_data = self.db.get_opportunity_details(op_id)
+                if not op_data:
+                    messagebox.showerror("Erro", f"Não foi possível encontrar os dados para a oportunidade com ID {op_id}.", parent=form_win)
+                    return
+
                 op_keys = op_data.keys()
                 # --- Início da Lógica de Carregamento Robusta ---
 
@@ -1586,6 +1590,14 @@ class CRMApp:
                         messagebox.showwarning("Alerta de Carregamento",
                                                "Não foi possível carregar os detalhes de serviços e equipes. Os dados podem estar corrompidos.",
                                                parent=form_win)
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                messagebox.showerror("Erro Crítico ao Carregar Dados",
+                                     f"Ocorreu um erro inesperado ao carregar os dados da oportunidade.\n\n"
+                                     f"Erro: {str(e)}\n\n"
+                                     "O formulário pode não exibir todos os dados corretamente.",
+                                     parent=form_win)
 
 
         # Pré-preenchimento se criando nova oportunidade
