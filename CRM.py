@@ -91,6 +91,7 @@ class DatabaseManager:
     def __init__(self, db_name):
         self.db_name = db_name
         self._initialize_database()
+        self._run_migrations()
 
     def _connect(self):
         conn = sqlite3.connect(self.db_name)
@@ -181,35 +182,37 @@ class DatabaseManager:
 
             self._populate_initial_data(cursor)
 
-            # Executar migrações para garantir a compatibilidade do schema
-            self._run_migrations(cursor)
+    def _run_migrations(self):
+        """
+        Aplica migrações de schema de forma robusta no banco de dados existente.
+        Usa uma conexão separada para evitar problemas de transação com ALTER TABLE.
+        """
+        with self._connect() as conn:
+            cursor = conn.cursor()
 
-    def _run_migrations(self, cursor):
-        """Aplica migrações de schema de forma robusta no banco de dados existente."""
-
-        # Migração 1: Adicionar a coluna 'numero_oportunidade' de forma segura
-        try:
-            # Tenta selecionar a coluna. Se falhar, ela não existe.
-            cursor.execute("SELECT numero_oportunidade FROM oportunidades LIMIT 1")
-        except sqlite3.OperationalError:
-            print("Aplicando migração: Adicionando coluna 'numero_oportunidade'...")
+            # Migração 1: Adicionar a coluna 'numero_oportunidade' de forma segura
             try:
-                cursor.execute("ALTER TABLE oportunidades ADD COLUMN numero_oportunidade TEXT UNIQUE")
-                print("Migração (Adicionar Coluna) concluída.")
-            except Exception as e:
-                print(f"Erro CRÍTICO ao tentar adicionar a coluna 'numero_oportunidade': {e}")
+                # Tenta selecionar a coluna. Se falhar, ela não existe.
+                cursor.execute("SELECT numero_oportunidade FROM oportunidades LIMIT 1")
+            except sqlite3.OperationalError:
+                print("Aplicando migração: Adicionando coluna 'numero_oportunidade'...")
+                try:
+                    cursor.execute("ALTER TABLE oportunidades ADD COLUMN numero_oportunidade TEXT UNIQUE")
+                    print("Migração (Adicionar Coluna) concluída.")
+                except Exception as e:
+                    print(f"Erro CRÍTICO ao tentar adicionar a coluna 'numero_oportunidade': {e}")
 
-        # Migração 2: Preencher 'numero_oportunidade' para registros existentes
-        try:
-            ops_to_update = cursor.execute("SELECT id FROM oportunidades WHERE numero_oportunidade IS NULL").fetchall()
-            if ops_to_update:
-                print(f"Aplicando migração: Preenchendo {len(ops_to_update)} IDs de oportunidade...")
-                for op in ops_to_update:
-                    new_op_id = f"OPP-{op['id']:05d}"
-                    cursor.execute("UPDATE oportunidades SET numero_oportunidade = ? WHERE id = ?", (new_op_id, op['id']))
-                print("Preenchimento de IDs concluído.")
-        except Exception as e:
-            print(f"Erro ao preencher IDs de oportunidade existentes: {e}")
+            # Migração 2: Preencher 'numero_oportunidade' para registros existentes
+            try:
+                ops_to_update = cursor.execute("SELECT id FROM oportunidades WHERE numero_oportunidade IS NULL").fetchall()
+                if ops_to_update:
+                    print(f"Aplicando migração: Preenchendo {len(ops_to_update)} IDs de oportunidade...")
+                    for op in ops_to_update:
+                        new_op_id = f"OPP-{op['id']:05d}"
+                        cursor.execute("UPDATE oportunidades SET numero_oportunidade = ? WHERE id = ?", (new_op_id, op['id']))
+                    print("Preenchimento de IDs concluído.")
+            except Exception as e:
+                print(f"Erro ao preencher IDs de oportunidade existentes: {e}")
 
 
     def _populate_initial_data(self, cursor):
@@ -290,7 +293,7 @@ class DatabaseManager:
                         tempo_contrato_meses=?, regional=?, polo=?, quantidade_bases=?, bases_nomes=?, servicos_data=?, empresa_referencia=?,
                         numero_edital=?, data_abertura=?, modalidade=?, contato_principal=?, link_documentos=?,
                         faturamento_estimado=?, duracao_contrato=?, mod=?, moi=?, total_pessoas=?, margem_contribuicao=?, descricao_detalhada=?
-                        WHERE id=?'''
+                         WHERE id=?'''
             params = (data['titulo'], data['valor'], data['cliente_id'], data['estagio_id'],
                       data.get('tempo_contrato_meses'), data.get('regional'), data.get('polo'), data.get('quantidade_bases'),
                       data.get('bases_nomes'), data.get('servicos_data'), data.get('empresa_referencia'),
