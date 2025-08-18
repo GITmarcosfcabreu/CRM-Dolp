@@ -184,27 +184,38 @@ class DatabaseManager:
 
     def _run_migrations(self):
         """
-        Aplica migrações de schema de forma robusta no banco de dados existente.
+        Aplica migrações de schema de forma robusta no banco de dados existente,
+        adicionando colunas faltantes para garantir retrocompatibilidade.
         """
-        # --- Migração: Adicionar e popular a coluna 'numero_oportunidade' ---
-
-        # Usar uma conexão para toda a migração para garantir a atomicidade
         conn = self._connect()
         cursor = conn.cursor()
 
         try:
-            # 1. Verificar se a coluna já existe de forma mais segura
+            # Etapa 1: Garantir que todas as colunas da tabela 'oportunidades' existam
             cursor.execute("PRAGMA table_info(oportunidades)")
-            columns = [row['name'] for row in cursor.fetchall()]
+            existing_columns = [row['name'] for row in cursor.fetchall()]
 
-            if 'numero_oportunidade' not in columns:
-                print("Aplicando migração: Adicionando coluna 'numero_oportunidade'...")
-                # 2. Adicionar a coluna sem a restrição UNIQUE, que é a causa do erro
-                cursor.execute("ALTER TABLE oportunidades ADD COLUMN numero_oportunidade TEXT")
-                conn.commit() # É crucial commitar o ALTER TABLE antes de manipular os dados
-                print("Coluna 'numero_oportunidade' adicionada.")
+            required_columns = {
+                "numero_oportunidade": "TEXT",
+                "tempo_contrato_meses": "INTEGER", "regional": "TEXT", "polo": "TEXT",
+                "quantidade_bases": "INTEGER", "bases_nomes": "TEXT", "servicos_data": "TEXT",
+                "empresa_referencia": "TEXT", "numero_edital": "TEXT", "data_abertura": "TEXT",
+                "modalidade": "TEXT", "contato_principal": "TEXT", "link_documentos": "TEXT",
+                "faturamento_estimado": "REAL", "duracao_contrato": "INTEGER", "mod": "REAL",
+                "moi": "REAL", "total_pessoas": "INTEGER", "margem_contribuicao": "REAL",
+                "descricao_detalhada": "TEXT"
+            }
 
-            # 3. Preencher 'numero_oportunidade' para todos os registros existentes que são NULL
+            for col_name, col_type in required_columns.items():
+                if col_name not in existing_columns:
+                    print(f"Aplicando migração: Adicionando coluna '{col_name}'...")
+                    cursor.execute(f"ALTER TABLE oportunidades ADD COLUMN {col_name} {col_type}")
+                    print(f"Coluna '{col_name}' adicionada.")
+
+            # Commit das alterações de schema antes de manipular os dados
+            conn.commit()
+
+            # Etapa 2: Preencher 'numero_oportunidade' e criar índice UNIQUE
             ops_to_update = cursor.execute("SELECT id FROM oportunidades WHERE numero_oportunidade IS NULL").fetchall()
             if ops_to_update:
                 print(f"Aplicando migração: Preenchendo {len(ops_to_update)} IDs de oportunidade...")
@@ -213,18 +224,16 @@ class DatabaseManager:
                     cursor.execute("UPDATE oportunidades SET numero_oportunidade = ? WHERE id = ?", (new_op_id, op['id']))
                 print("Preenchimento de IDs concluído.")
 
-            # 4. Criar um índice UNIQUE. Esta é a maneira correta de aplicar a restrição
-            # de unicidade em uma coluna com dados existentes no SQLite.
+            # A criação do índice UNIQUE deve vir após o preenchimento para evitar erros
             cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_numero_oportunidade ON oportunidades(numero_oportunidade)")
 
-            conn.commit() # Commita todas as mudanças de dados e a criação do índice
+            # Commit final de todas as alterações de dados e índice
+            conn.commit()
 
         except sqlite3.Error as e:
             print(f"Erro CRÍTICO durante a migração do banco de dados: {e}")
-            # Em caso de erro, reverter a transação para manter a consistência
             conn.rollback()
         finally:
-            # Garantir que a conexão seja sempre fechada
             conn.close()
 
 
@@ -1076,9 +1085,8 @@ class CRMApp:
         notebook.pack(fill='both', expand=True, padx=10, pady=(10, 0))
 
         # Botões de Ação (sempre visíveis na parte inferior)
-        buttons_frame = ttk.Frame(form_win, padding=(20, 10, 20, 20))
+        buttons_frame = ttk.Frame(form_win, padding=(10, 15, 10, 15))
         buttons_frame.pack(side='bottom', fill='x')
-        buttons_frame.columnconfigure(0, weight=1) # Spacer para empurrar botões para a direita
 
         # --- Criação das Abas com Rolagem ---
         analise_frame = self._create_scrollable_tab(notebook, '  Análise Prévia de Viabilidade  ')
@@ -1666,8 +1674,9 @@ class CRMApp:
         notebook.bind("<<NotebookTabChanged>>", on_tab_changed)
 
         # Botões de Ação
-        ttk.Button(buttons_frame, text="Salvar Alterações" if op_id else "Criar Oportunidade", command=on_save, style='Success.TButton').grid(row=0, column=2)
-        ttk.Button(buttons_frame, text="Cancelar", command=form_win.destroy, style='TButton').grid(row=0, column=1, padx=10)
+        # Usar .pack() é mais robusto aqui. Os botões são empacotados da direita para a esquerda.
+        ttk.Button(buttons_frame, text="Salvar Alterações" if op_id else "Criar Oportunidade", command=on_save, style='Success.TButton').pack(side='right')
+        ttk.Button(buttons_frame, text="Cancelar", command=form_win.destroy, style='TButton').pack(side='right', padx=(0, 10))
 
     def show_opportunity_details(self, op_id):
         details_win = Toplevel(self.root)
