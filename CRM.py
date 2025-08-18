@@ -185,34 +185,47 @@ class DatabaseManager:
     def _run_migrations(self):
         """
         Aplica migrações de schema de forma robusta no banco de dados existente.
-        Usa uma conexão separada para evitar problemas de transação com ALTER TABLE.
         """
-        with self._connect() as conn:
-            cursor = conn.cursor()
+        # --- Migração: Adicionar e popular a coluna 'numero_oportunidade' ---
 
-            # Migração 1: Adicionar a coluna 'numero_oportunidade' de forma segura
-            try:
-                # Tenta selecionar a coluna. Se falhar, ela não existe.
-                cursor.execute("SELECT numero_oportunidade FROM oportunidades LIMIT 1")
-            except sqlite3.OperationalError:
+        # Usar uma conexão para toda a migração para garantir a atomicidade
+        conn = self._connect()
+        cursor = conn.cursor()
+
+        try:
+            # 1. Verificar se a coluna já existe de forma mais segura
+            cursor.execute("PRAGMA table_info(oportunidades)")
+            columns = [row['name'] for row in cursor.fetchall()]
+
+            if 'numero_oportunidade' not in columns:
                 print("Aplicando migração: Adicionando coluna 'numero_oportunidade'...")
-                try:
-                    cursor.execute("ALTER TABLE oportunidades ADD COLUMN numero_oportunidade TEXT UNIQUE")
-                    print("Migração (Adicionar Coluna) concluída.")
-                except Exception as e:
-                    print(f"Erro CRÍTICO ao tentar adicionar a coluna 'numero_oportunidade': {e}")
+                # 2. Adicionar a coluna sem a restrição UNIQUE, que é a causa do erro
+                cursor.execute("ALTER TABLE oportunidades ADD COLUMN numero_oportunidade TEXT")
+                conn.commit() # É crucial commitar o ALTER TABLE antes de manipular os dados
+                print("Coluna 'numero_oportunidade' adicionada.")
 
-            # Migração 2: Preencher 'numero_oportunidade' para registros existentes
-            try:
-                ops_to_update = cursor.execute("SELECT id FROM oportunidades WHERE numero_oportunidade IS NULL").fetchall()
-                if ops_to_update:
-                    print(f"Aplicando migração: Preenchendo {len(ops_to_update)} IDs de oportunidade...")
-                    for op in ops_to_update:
-                        new_op_id = f"OPP-{op['id']:05d}"
-                        cursor.execute("UPDATE oportunidades SET numero_oportunidade = ? WHERE id = ?", (new_op_id, op['id']))
-                    print("Preenchimento de IDs concluído.")
-            except Exception as e:
-                print(f"Erro ao preencher IDs de oportunidade existentes: {e}")
+            # 3. Preencher 'numero_oportunidade' para todos os registros existentes que são NULL
+            ops_to_update = cursor.execute("SELECT id FROM oportunidades WHERE numero_oportunidade IS NULL").fetchall()
+            if ops_to_update:
+                print(f"Aplicando migração: Preenchendo {len(ops_to_update)} IDs de oportunidade...")
+                for op in ops_to_update:
+                    new_op_id = f"OPP-{op['id']:05d}"
+                    cursor.execute("UPDATE oportunidades SET numero_oportunidade = ? WHERE id = ?", (new_op_id, op['id']))
+                print("Preenchimento de IDs concluído.")
+
+            # 4. Criar um índice UNIQUE. Esta é a maneira correta de aplicar a restrição
+            # de unicidade em uma coluna com dados existentes no SQLite.
+            cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_numero_oportunidade ON oportunidades(numero_oportunidade)")
+
+            conn.commit() # Commita todas as mudanças de dados e a criação do índice
+
+        except sqlite3.Error as e:
+            print(f"Erro CRÍTICO durante a migração do banco de dados: {e}")
+            # Em caso de erro, reverter a transação para manter a consistência
+            conn.rollback()
+        finally:
+            # Garantir que a conexão seja sempre fechada
+            conn.close()
 
 
     def _populate_initial_data(self, cursor):
@@ -1465,118 +1478,105 @@ class CRMApp:
         if op_id:
             op_data = self.db.get_opportunity_details(op_id)
             if op_data:
+                op_keys = op_data.keys()
                 # --- Início da Lógica de Carregamento Robusta ---
 
-                # 1. Carregar todos os dados estáticos primeiro, usando .get() para segurança
-                entries['titulo'].insert(0, op_data.get('titulo', ''))
-                entries['valor'].insert(0, op_data.get('valor', ''))
+                # 1. Carregar todos os dados estáticos primeiro, usando a verificação de chaves
+                entries['titulo'].insert(0, op_data['titulo'] if 'titulo' in op_keys else '')
+                entries['valor'].insert(0, op_data['valor'] if 'valor' in op_keys else '')
 
-                # Safely set comboboxes by value
-                cliente_id_val = op_data.get('cliente_id')
+                cliente_id_val = op_data['cliente_id'] if 'cliente_id' in op_keys else None
                 for client in clients:
                     if client['id'] == cliente_id_val:
                         entries['cliente_id'].set(client['nome_empresa'])
                         break
 
-                estagio_id_val = op_data.get('estagio_id')
+                estagio_id_val = op_data['estagio_id'] if 'estagio_id' in op_keys else None
                 for estagio in estagios:
                     if estagio['id'] == estagio_id_val:
                         entries['estagio_id'].set(estagio['nome'])
                         break
 
-                entries['tempo_contrato_meses'].insert(0, op_data.get('tempo_contrato_meses', ''))
-                entries['regional'].insert(0, op_data.get('regional', ''))
-                entries['polo'].insert(0, op_data.get('polo', ''))
-                entries['empresa_referencia'].set(op_data.get('empresa_referencia', ''))
-                entries['numero_edital'].insert(0, op_data.get('numero_edital', ''))
+                entries['tempo_contrato_meses'].insert(0, op_data['tempo_contrato_meses'] if 'tempo_contrato_meses' in op_keys else '')
+                entries['regional'].insert(0, op_data['regional'] if 'regional' in op_keys else '')
+                entries['polo'].insert(0, op_data['polo'] if 'polo' in op_keys else '')
+                entries['empresa_referencia'].set(op_data['empresa_referencia'] if 'empresa_referencia' in op_keys else '')
+                entries['numero_edital'].insert(0, op_data['numero_edital'] if 'numero_edital' in op_keys else '')
 
-                data_abertura_str = op_data.get('data_abertura')
+                data_abertura_str = op_data['data_abertura'] if 'data_abertura' in op_keys else None
                 if data_abertura_str:
                     try:
                         date_obj = datetime.strptime(data_abertura_str, '%d/%m/%Y').date()
                         entries['data_abertura'].set_date(date_obj)
-                    except (ValueError, TypeError):
-                        # Se o formato for inválido, não faz nada ou loga um erro.
-                        # Não impede a UI de carregar.
-                        pass
+                    except (ValueError, TypeError): pass
 
-                entries['modalidade'].insert(0, op_data.get('modalidade', ''))
-                entries['contato_principal'].insert(0, op_data.get('contato_principal', ''))
-                entries['link_documentos'].insert(0, op_data.get('link_documentos', ''))
-                entries['faturamento_estimado'].insert(0, op_data.get('faturamento_estimado', ''))
-                entries['duracao_contrato'].insert(0, op_data.get('duracao_contrato', ''))
-                entries['mod'].insert(0, op_data.get('mod', ''))
-                entries['moi'].insert(0, op_data.get('moi', ''))
-                entries['total_pessoas'].insert(0, op_data.get('total_pessoas', ''))
-                entries['margem_contribuicao'].insert(0, op_data.get('margem_contribuicao', ''))
+                entries['modalidade'].insert(0, op_data['modalidade'] if 'modalidade' in op_keys else '')
+                entries['contato_principal'].insert(0, op_data['contato_principal'] if 'contato_principal' in op_keys else '')
+                entries['link_documentos'].insert(0, op_data['link_documentos'] if 'link_documentos' in op_keys else '')
+                entries['faturamento_estimado'].insert(0, op_data['faturamento_estimado'] if 'faturamento_estimado' in op_keys else '')
+                entries['duracao_contrato'].insert(0, op_data['duracao_contrato'] if 'duracao_contrato' in op_keys else '')
+                entries['mod'].insert(0, op_data['mod'] if 'mod' in op_keys else '')
+                entries['moi'].insert(0, op_data['moi'] if 'moi' in op_keys else '')
+                entries['total_pessoas'].insert(0, op_data['total_pessoas'] if 'total_pessoas' in op_keys else '')
+                entries['margem_contribuicao'].insert(0, op_data['margem_contribuicao'] if 'margem_contribuicao' in op_keys else '')
 
-                descricao_detalhada = op_data.get('descricao_detalhada')
+                descricao_detalhada = op_data['descricao_detalhada'] if 'descricao_detalhada' in op_keys else None
                 if descricao_detalhada:
                     entries['descricao_detalhada'].insert('1.0', descricao_detalhada)
 
-                # Forçar a atualização da UI para garantir que os widgets estáticos existam
                 form_win.update_idletasks()
 
                 # 2. Carregar dados das bases
-                num_bases = op_data.get('quantidade_bases')
+                num_bases = op_data['quantidade_bases'] if 'quantidade_bases' in op_keys else None
                 if num_bases is not None:
                     bases_spinbox.set(num_bases)
                     _update_base_fields_ui()
 
-                    bases_nomes_json = op_data.get('bases_nomes')
+                    bases_nomes_json = op_data['bases_nomes'] if 'bases_nomes' in op_keys else None
                     if bases_nomes_json:
                         try:
                             bases_nomes_data = json.loads(bases_nomes_json)
                             base_widgets = entries.get('bases_nomes_widgets', [])
                             for i, nome in enumerate(bases_nomes_data):
-                                if i < len(base_widgets):
-                                    base_widgets[i].insert(0, nome)
+                                if i < len(base_widgets): base_widgets[i].insert(0, nome)
                         except (json.JSONDecodeError, TypeError):
-                             # Log do erro ou ignora, não trava a UI
                             print(f"Alerta: Falha ao carregar nomes de bases: {bases_nomes_json}")
 
-                # Forçar a atualização da UI para que as bases estejam disponíveis para os combos
                 form_win.update_idletasks()
 
                 # 3. Carregar dados de serviços e equipes
-                servicos_data_json_str = op_data.get('servicos_data')
+                servicos_data_json_str = op_data['servicos_data'] if 'servicos_data' in op_keys else None
                 if servicos_data_json_str:
                     try:
                         servicos_data_json = json.loads(servicos_data_json_str)
                         tipos_servico_vars = entries.get('tipos_servico_vars', {})
 
-                        # Primeiro, marque todas as checkboxes
                         for servico_info in servicos_data_json:
                             servico_nome = servico_info.get('servico_nome')
                             if servico_nome in tipos_servico_vars:
                                 tipos_servico_vars[servico_nome].set(True)
 
-                        # Agora, atualize a UI para criar todos os frames de uma vez
                         _update_servicos_ui()
                         form_win.update_idletasks()
 
-                        # Finalmente, popule os dados nas UIs recém-criadas
                         for servico_info in servicos_data_json:
                             servico_nome = servico_info.get('servico_nome')
                             equipes_data = servico_info.get('equipes', [])
                             if servico_nome in servico_frames:
                                 servico_id = servico_map.get(servico_nome)
-                                # Acha o container dentro do LabelFrame
                                 container = next((w for w in servico_frames[servico_nome].winfo_children() if isinstance(w, ttk.Frame)), None)
                                 if container and servico_id:
                                     for equipe_info in equipes_data:
                                         _add_equipe_row(servico_id, servico_nome, container)
-                                        # Pega a última linha de widgets adicionada
                                         new_row_widgets = servico_equipes_data[servico_nome][-1]
                                         new_row_widgets['tipo_combo'].set(equipe_info.get('tipo_equipe', ''))
                                         new_row_widgets['qtd_entry'].insert(0, equipe_info.get('quantidade', ''))
                                         new_row_widgets['vol_entry'].insert(0, equipe_info.get('volumetria', ''))
                                         new_row_widgets['base_combo'].set(equipe_info.get('base', ''))
-
                     except (json.JSONDecodeError, TypeError) as e:
-                        print(f"Erro CRÍTICO ao carregar dados de serviços: {e}")
+                        print(f"Erro ao carregar dados de serviços: {e}")
                         messagebox.showwarning("Alerta de Carregamento",
-                                               "Não foi possível carregar os detalhes de serviços e equipes para esta oportunidade. Os dados podem estar corrompidos. Por favor, reconfigure-os e salve novamente.",
+                                               "Não foi possível carregar os detalhes de serviços e equipes. Os dados podem estar corrompidos.",
                                                parent=form_win)
 
 
@@ -1681,10 +1681,12 @@ class CRMApp:
             details_win.destroy()
             return
 
+        op_keys = op_data.keys()
+
         header_frame = ttk.Frame(details_win, padding=20, style='TFrame')
         header_frame.pack(fill='x')
 
-        title_text = f"{op_data.get('numero_oportunidade', 'OPP-?????')}: {op_data.get('titulo', 'Sem Título')}"
+        title_text = f"{op_data['numero_oportunidade'] if 'numero_oportunidade' in op_keys else 'OPP-?????'}: {op_data['titulo'] if 'titulo' in op_keys else 'Sem Título'}"
         ttk.Label(header_frame, text=title_text, style='Title.TLabel').pack(side='left')
         ttk.Button(header_frame, text="Editar Detalhes", command=lambda: [details_win.destroy(), self.show_opportunity_form(op_id)], style='Primary.TButton').pack(side='right')
         ttk.Button(header_frame, text="← Voltar", command=details_win.destroy, style='TButton').pack(side='right', padx=(0, 10))
@@ -1700,13 +1702,13 @@ class CRMApp:
         info_frame.pack(fill='x', pady=(0, 10))
 
         basic_info = [
-            ("Cliente:", op_data.get('nome_empresa', '---')),
-            ("Estágio:", op_data.get('estagio_nome', '---')),
-            ("Valor Estimado:", format_currency(op_data.get('valor'))),
-            ("Tempo de Contrato:", f"{op_data.get('tempo_contrato_meses')} meses" if op_data.get('tempo_contrato_meses') else "---"),
-            ("Regional:", op_data.get('regional', '---')),
-            ("Polo:", op_data.get('polo', '---')),
-            ("Empresa Referência:", op_data.get('empresa_referencia', '---'))
+            ("Cliente:", op_data['nome_empresa'] if 'nome_empresa' in op_keys else '---'),
+            ("Estágio:", op_data['estagio_nome'] if 'estagio_nome' in op_keys else '---'),
+            ("Valor Estimado:", format_currency(op_data['valor'] if 'valor' in op_keys else 0)),
+            ("Tempo de Contrato:", f"{op_data['tempo_contrato_meses']} meses" if 'tempo_contrato_meses' in op_keys and op_data['tempo_contrato_meses'] else "---"),
+            ("Regional:", op_data['regional'] if 'regional' in op_keys else '---'),
+            ("Polo:", op_data['polo'] if 'polo' in op_keys else '---'),
+            ("Empresa Referência:", op_data['empresa_referencia'] if 'empresa_referencia' in op_keys else '---')
         ]
 
         for i, (label, value) in enumerate(basic_info):
@@ -1716,7 +1718,7 @@ class CRMApp:
             ttk.Label(row_frame, text=str(value), style='Value.White.TLabel').pack(side='left', padx=(10, 0))
 
         # Bases alocadas
-        bases_nomes_json = op_data.get('bases_nomes')
+        bases_nomes_json = op_data['bases_nomes'] if 'bases_nomes' in op_keys else None
         if bases_nomes_json:
             try:
                 bases_nomes = json.loads(bases_nomes_json)
@@ -1741,10 +1743,10 @@ class CRMApp:
         edital_frame.pack(fill='x', pady=(0, 10))
 
         edital_info = [
-            ("Número do Edital:", op_data.get('numero_edital', '---')),
-            ("Data de Abertura:", op_data.get('data_abertura', '---')),
-            ("Modalidade:", op_data.get('modalidade', '---')),
-            ("Contato Principal:", op_data.get('contato_principal', '---'))
+            ("Número do Edital:", op_data['numero_edital'] if 'numero_edital' in op_keys else '---'),
+            ("Data de Abertura:", op_data['data_abertura'] if 'data_abertura' in op_keys else '---'),
+            ("Modalidade:", op_data['modalidade'] if 'modalidade' in op_keys else '---'),
+            ("Contato Principal:", op_data['contato_principal'] if 'contato_principal' in op_keys else '---')
         ]
 
         for label, value in edital_info:
@@ -1753,7 +1755,7 @@ class CRMApp:
             ttk.Label(row_frame, text=label, style='Metric.White.TLabel', width=20).pack(side='left')
             ttk.Label(row_frame, text=str(value), style='Value.White.TLabel').pack(side='left', padx=(10, 0))
 
-        link_docs = op_data.get('link_documentos')
+        link_docs = op_data['link_documentos'] if 'link_documentos' in op_keys else None
         if link_docs:
             link_frame = ttk.Frame(edital_frame)
             link_frame.pack(fill='x', pady=2)
@@ -1766,12 +1768,12 @@ class CRMApp:
         financeiro_frame.pack(fill='x', pady=(10, 10))
 
         financeiro_info = [
-            ("Faturamento Estimado:", format_currency(op_data.get('faturamento_estimado'))),
-            ("Duração do Contrato:", f"{op_data.get('duracao_contrato')} meses" if op_data.get('duracao_contrato') else "---"),
-            ("MOD (Mão de Obra Direta):", op_data.get('mod', '---')),
-            ("MOI (Mão de Obra Indireta):", op_data.get('moi', '---')),
-            ("Total de Pessoas:", op_data.get('total_pessoas', '---')),
-            ("Margem de Contribuição:", f"{op_data.get('margem_contribuicao')}%" if op_data.get('margem_contribuicao') else "---")
+            ("Faturamento Estimado:", format_currency(op_data['faturamento_estimado'] if 'faturamento_estimado' in op_keys else 0)),
+            ("Duração do Contrato:", f"{op_data['duracao_contrato']} meses" if 'duracao_contrato' in op_keys and op_data['duracao_contrato'] else "---"),
+            ("MOD (Mão de Obra Direta):", op_data['mod'] if 'mod' in op_keys else '---'),
+            ("MOI (Mão de Obra Indireta):", op_data['moi'] if 'moi' in op_keys else '---'),
+            ("Total de Pessoas:", op_data['total_pessoas'] if 'total_pessoas' in op_keys else '---'),
+            ("Margem de Contribuição:", f"{op_data['margem_contribuicao']}%" if 'margem_contribuicao' in op_keys and op_data['margem_contribuicao'] else "---")
         ]
 
         for label, value in financeiro_info:
@@ -1781,7 +1783,7 @@ class CRMApp:
             ttk.Label(row_frame, text=str(value), style='Value.White.TLabel').pack(side='left', padx=(10, 0))
 
         # Tipos de serviço e equipes (lendo da nova estrutura JSON)
-        servicos_data_json_str = op_data.get('servicos_data')
+        servicos_data_json_str = op_data['servicos_data'] if 'servicos_data' in op_keys else None
         if servicos_data_json_str:
             try:
                 servicos_data = json.loads(servicos_data_json_str)
@@ -1808,7 +1810,7 @@ class CRMApp:
             except (json.JSONDecodeError, TypeError):
                 print(f"Alerta: Falha ao carregar dados de serviço na tela de detalhes: {servicos_data_json_str}")
 
-        descricao_detalhada = op_data.get('descricao_detalhada')
+        descricao_detalhada = op_data['descricao_detalhada'] if 'descricao_detalhada' in op_keys else None
         if descricao_detalhada:
             desc_frame = ttk.LabelFrame(sumario_tab, text="Descrição Detalhada", padding=15, style='White.TLabelframe')
             desc_frame.pack(fill='both', expand=True, pady=(10, 0))
