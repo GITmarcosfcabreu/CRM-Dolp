@@ -552,7 +552,7 @@ class CRMApp:
         # ------------------------------------
 
         self.root.title("CRM Dolp Engenharia")
-        self.root.geometry("1600x900")
+        self.root.state('zoomed') # Abre a janela maximizada
         self.root.minsize(1280, 720)
         self.logo_image = load_logo_image()
         self._configure_styles()
@@ -750,10 +750,10 @@ class CRMApp:
 
         # Define o padding (margem) mínimo e máximo para criar o efeito de funil
         # O padding é aplicado em ambos os lados, então o encolhimento visual é o dobro do padding
-        min_padx = 150
+        min_padx = 100
         # A largura máxima do conteúdo será a largura do container - 2*min_padx
         # A largura mínima será a largura do container - 2*max_padx
-        max_padx = (self.content_frame.winfo_width() * 0.5) # Deixa a última etapa com 40% da largura
+        max_padx = (self.content_frame.winfo_width() * 0.43) # Deixa a última etapa com 40% da largura
 
         if num_stages > 1:
             padx_step = (max_padx - min_padx) / (num_stages - 1)
