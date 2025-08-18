@@ -31,9 +31,7 @@ LOGO_URL = "https://mcusercontent.com/cfa43b95eeae85d65cf1366fb/images/a68e98a6-
 DOLP_COLORS = {
     'primary_blue': '#004b87', 'secondary_blue': "#4887ec", 'light_blue': '#eff6ff',
     'success_green': '#10b981', 'warning_orange': "#d02a2e", 'danger_red': '#ef4444',
-    'white': '#ffffff', 'light_gray': '#ffffff', 'medium_gray': '#004b87',
-    'dark_gray': '#004b87', 'very_light_gray': '#ffffff', 'dolp_cyan': '#06b6d4',
-    'gradient_start': '#1e40af', 'gradient_end': '#3b82f6', 'border_color': '#4887ec'
+
 }
 
 ESTAGIOS_PIPELINE_DOLP = [
@@ -91,7 +89,7 @@ class DatabaseManager:
     def __init__(self, db_name):
         self.db_name = db_name
         self._initialize_database()
-        self._run_migrations()
+
 
     def _connect(self):
         conn = sqlite3.connect(self.db_name)
@@ -104,31 +102,12 @@ class DatabaseManager:
             cursor = conn.cursor()
             # Unificando colunas na criação da tabela para evitar múltiplos ALTERs
             cursor.execute('''CREATE TABLE IF NOT EXISTS clientes (
-                                id INTEGER PRIMARY KEY,
-                                nome_empresa TEXT UNIQUE NOT NULL,
-                                cnpj TEXT UNIQUE,
-                                cidade TEXT,
-                                estado TEXT,
-                                setor_atuacao TEXT,
-                                segmento_atuacao TEXT,
-                                data_atualizacao TEXT,
-                                link_portal TEXT,
+
                                 status TEXT
                            )''')
 
             cursor.execute('CREATE TABLE IF NOT EXISTS pipeline_estagios (id INTEGER PRIMARY KEY, nome TEXT UNIQUE NOT NULL, ordem INTEGER)')
 
-            # Tabela para Tipos de Serviço
-            cursor.execute('''CREATE TABLE IF NOT EXISTS crm_servicos (
-                                id INTEGER PRIMARY KEY,
-                                nome TEXT UNIQUE NOT NULL,
-                                descricao TEXT,
-                                categoria TEXT,
-                                ativa INTEGER DEFAULT 1
-                           )''')
-
-            # Nova tabela para Tipos de Equipe
-            cursor.execute('''CREATE TABLE IF NOT EXISTS crm_tipos_equipe (
                                 id INTEGER PRIMARY KEY,
                                 nome TEXT NOT NULL,
                                 servico_id INTEGER NOT NULL,
@@ -137,9 +116,7 @@ class DatabaseManager:
                            )''')
 
             # Tabela de Oportunidades Refatorada
-            cursor.execute('''CREATE TABLE IF NOT EXISTS oportunidades (
-                                id INTEGER PRIMARY KEY,
-                                numero_oportunidade TEXT UNIQUE,
+
                                 titulo TEXT NOT NULL,
                                 valor REAL DEFAULT 0,
                                 cliente_id INTEGER NOT NULL,
@@ -150,8 +127,7 @@ class DatabaseManager:
                                 regional TEXT,
                                 polo TEXT,
                                 quantidade_bases INTEGER,
-                                bases_nomes TEXT,
-                                servicos_data TEXT,
+
                                 empresa_referencia TEXT,
                                 -- Campos do Sumário Executivo
                                 numero_edital TEXT,
@@ -161,8 +137,7 @@ class DatabaseManager:
                                 link_documentos TEXT,
                                 faturamento_estimado REAL,
                                 duracao_contrato INTEGER,
-                                mod REAL,
-                                moi REAL,
+
                                 total_pessoas INTEGER,
                                 margem_contribuicao REAL,
                                 descricao_detalhada TEXT,
@@ -176,43 +151,11 @@ class DatabaseManager:
                             FOREIGN KEY (oportunidade_id) REFERENCES oportunidades(id) ON DELETE CASCADE)''')
             cursor.execute('''CREATE TABLE IF NOT EXISTS crm_bases_alocadas (id INTEGER PRIMARY KEY, oportunidade_id INTEGER NOT NULL, nome_base TEXT, equipes_alocadas TEXT,
                             FOREIGN KEY (oportunidade_id) REFERENCES oportunidades(id) ON DELETE CASCADE)''')
-            cursor.execute('''CREATE TABLE IF NOT EXISTS crm_empresas_referencia (id INTEGER PRIMARY KEY, nome_empresa TEXT NOT NULL, tipo_servico TEXT NOT NULL, valor_mensal REAL NOT NULL, volumetria_minima REAL NOT NULL, valor_por_pessoa REAL NOT NULL, ativa INTEGER DEFAULT 1, data_criacao TEXT DEFAULT CURRENT_TIMESTAMP)''')
+
             cursor.execute('CREATE TABLE IF NOT EXISTS crm_setores (id INTEGER PRIMARY KEY, nome TEXT UNIQUE NOT NULL)')
             cursor.execute('CREATE TABLE IF NOT EXISTS crm_segmentos (id INTEGER PRIMARY KEY, nome TEXT UNIQUE NOT NULL)')
 
             self._populate_initial_data(cursor)
-
-    def _run_migrations(self):
-        """
-        Aplica migrações de schema de forma robusta no banco de dados existente.
-        Usa uma conexão separada para evitar problemas de transação com ALTER TABLE.
-        """
-        with self._connect() as conn:
-            cursor = conn.cursor()
-
-            # Migração 1: Adicionar a coluna 'numero_oportunidade' de forma segura
-            try:
-                # Tenta selecionar a coluna. Se falhar, ela não existe.
-                cursor.execute("SELECT numero_oportunidade FROM oportunidades LIMIT 1")
-            except sqlite3.OperationalError:
-                print("Aplicando migração: Adicionando coluna 'numero_oportunidade'...")
-                try:
-                    cursor.execute("ALTER TABLE oportunidades ADD COLUMN numero_oportunidade TEXT UNIQUE")
-                    print("Migração (Adicionar Coluna) concluída.")
-                except Exception as e:
-                    print(f"Erro CRÍTICO ao tentar adicionar a coluna 'numero_oportunidade': {e}")
-
-            # Migração 2: Preencher 'numero_oportunidade' para registros existentes
-            try:
-                ops_to_update = cursor.execute("SELECT id FROM oportunidades WHERE numero_oportunidade IS NULL").fetchall()
-                if ops_to_update:
-                    print(f"Aplicando migração: Preenchendo {len(ops_to_update)} IDs de oportunidade...")
-                    for op in ops_to_update:
-                        new_op_id = f"OPP-{op['id']:05d}"
-                        cursor.execute("UPDATE oportunidades SET numero_oportunidade = ? WHERE id = ?", (new_op_id, op['id']))
-                    print("Preenchimento de IDs concluído.")
-            except Exception as e:
-                print(f"Erro ao preencher IDs de oportunidade existentes: {e}")
 
 
     def _populate_initial_data(self, cursor):
@@ -266,41 +209,19 @@ class DatabaseManager:
 
     def add_opportunity(self, data):
         with self._connect() as conn:
-            query = '''INSERT INTO oportunidades (titulo, valor, cliente_id, estagio_id, data_criacao,
-                        tempo_contrato_meses, regional, polo, quantidade_bases, bases_nomes, servicos_data, empresa_referencia,
-                        numero_edital, data_abertura, modalidade, contato_principal, link_documentos,
-                        faturamento_estimado, duracao_contrato, mod, moi, total_pessoas, margem_contribuicao, descricao_detalhada)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'''
+
             params = (data['titulo'], data['valor'], data['cliente_id'], data['estagio_id'], datetime.now().date(),
                       data.get('tempo_contrato_meses'), data.get('regional'), data.get('polo'), data.get('quantidade_bases'),
                       data.get('bases_nomes'), data.get('servicos_data'), data.get('empresa_referencia'),
                       data.get('numero_edital'), data.get('data_abertura'), data.get('modalidade'), data.get('contato_principal'),
                       data.get('link_documentos'), data.get('faturamento_estimado'), data.get('duracao_contrato'),
-                      data.get('mod'), data.get('moi'), data.get('total_pessoas'),
-                      data.get('margem_contribuicao'), data.get('descricao_detalhada'))
 
-            cursor = conn.cursor()
-            cursor.execute(query, params)
-
-            # Gerar e salvar o número único da oportunidade
-            new_id = cursor.lastrowid
-            numero_oportunidade = f"OPP-{new_id:05d}"
-            conn.execute("UPDATE oportunidades SET numero_oportunidade = ? WHERE id = ?", (numero_oportunidade, new_id))
-
-    def update_opportunity(self, op_id, data):
-        with self._connect() as conn:
-            query = '''UPDATE oportunidades SET titulo=?, valor=?, cliente_id=?, estagio_id=?,
-                        tempo_contrato_meses=?, regional=?, polo=?, quantidade_bases=?, bases_nomes=?, servicos_data=?, empresa_referencia=?,
-                        numero_edital=?, data_abertura=?, modalidade=?, contato_principal=?, link_documentos=?,
-                        faturamento_estimado=?, duracao_contrato=?, mod=?, moi=?, total_pessoas=?, margem_contribuicao=?, descricao_detalhada=?
-                         WHERE id=?'''
             params = (data['titulo'], data['valor'], data['cliente_id'], data['estagio_id'],
                       data.get('tempo_contrato_meses'), data.get('regional'), data.get('polo'), data.get('quantidade_bases'),
                       data.get('bases_nomes'), data.get('servicos_data'), data.get('empresa_referencia'),
                       data.get('numero_edital'), data.get('data_abertura'), data.get('modalidade'), data.get('contato_principal'),
                       data.get('link_documentos'), data.get('faturamento_estimado'), data.get('duracao_contrato'),
-                      data.get('mod'), data.get('moi'), data.get('total_pessoas'),
-                      data.get('margem_contribuicao'), data.get('descricao_detalhada'),
+
                       op_id)
             conn.execute(query, params)
 
@@ -310,14 +231,12 @@ class DatabaseManager:
 
     def get_historico_oportunidades(self, filters=None):
         with self._connect() as conn:
-            base_query = "SELECT o.id, o.numero_oportunidade, o.titulo, o.valor, o.data_criacao, c.nome_empresa, p.nome as estagio_nome FROM oportunidades o JOIN clientes c ON o.cliente_id = c.id JOIN pipeline_estagios p ON o.estagio_id = p.id"
+
             conditions = []
             params = []
 
             if filters:
-                if filters.get('numero_oportunidade'):
-                    conditions.append("o.numero_oportunidade LIKE ?")
-                    params.append(f"%{filters['numero_oportunidade']}%")
+
                 if filters.get('cliente'):
                     conditions.append("c.nome_empresa = ?")
                     params.append(filters['cliente'])
@@ -566,36 +485,6 @@ class CRMApp:
         self.content_frame = ttk.Frame(self.main_container, style='TFrame')
         self.content_frame.pack(fill='both', expand=True, padx=20, pady=(0, 20))
 
-    def _create_scrollable_tab(self, parent_notebook, tab_text):
-        tab_main_frame = ttk.Frame(parent_notebook)
-        parent_notebook.add(tab_main_frame, text=tab_text)
-
-        canvas = tk.Canvas(tab_main_frame, bg=DOLP_COLORS['white'], highlightthickness=0)
-        scrollbar = ttk.Scrollbar(tab_main_frame, orient="vertical", command=canvas.yview)
-        scrollable_frame = ttk.Frame(canvas, style='TFrame', padding=20)
-
-        scrollable_frame.bind(
-            "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
-        )
-
-        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar.set)
-
-        def _on_mousewheel(event):
-            canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
-
-        def _on_mousewheel(event):
-            canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
-
-        # This binding is more robust. It activates when the mouse enters the tab area.
-        tab_main_frame.bind('<Enter>', lambda e: self.root.bind_all("<MouseWheel>", _on_mousewheel))
-        tab_main_frame.bind('<Leave>', lambda e: self.root.unbind_all("<MouseWheel>"))
-
-        canvas.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
-
-        return scrollable_frame
 
     def clear_content(self):
         # Limpar quaisquer eventos globais para evitar erros de widgets destruídos
@@ -658,36 +547,6 @@ class CRMApp:
         estagios, oportunidades = self.db.get_pipeline_data()
         clients = self.db.get_all_clients()
 
-        # Container para o funil, que se expande para preencher o espaço
-        funil_container = ttk.Frame(scrollable_frame, style='TFrame')
-        funil_container.pack(fill='x', expand=True, pady=20)
-
-        # --- Lógica do Funil Visual ---
-        self.root.update_idletasks() # Garante que as dimensões da janela estão atualizadas
-        num_stages = len(estagios)
-
-        # Define o padding (margem) mínimo e máximo para criar o efeito de funil
-        # O padding é aplicado em ambos os lados, então o encolhimento visual é o dobro do padding
-        min_padx = 20
-        # A largura máxima do conteúdo será a largura do container - 2*min_padx
-        # A largura mínima será a largura do container - 2*max_padx
-        max_padx = (self.content_frame.winfo_width() * 0.4) # Deixa a última etapa com 20% da largura
-
-        if num_stages > 1:
-            padx_step = (max_padx - min_padx) / (num_stages - 1)
-        else:
-            padx_step = 0
-        # -----------------------------
-
-        # Criar estágios do funil verticalmente
-        for i, estagio in enumerate(estagios):
-            # Calcula o padding para o estágio atual
-            current_padx = int(min_padx + (i * padx_step))
-
-            # Frame para cada estágio
-            stage_frame = ttk.Frame(funil_container, style='White.TLabelframe', padding=15)
-            # Usa fill='x' e o padx dinâmico para criar o efeito de funil centrado
-            stage_frame.pack(fill='x', pady=5, padx=current_padx)
 
             # Cabeçalho do estágio
             header_frame = ttk.Frame(stage_frame, style='TFrame')
@@ -743,18 +602,6 @@ class CRMApp:
                         row = idx // col_count
                         col = idx % col_count
 
-                        # --- ALTERAÇÃO APLICADA AQUI ---
-                        op_card = ttk.Frame(ops_frame, style='Card.TFrame', padding=15)
-                        op_card.grid(row=row, column=col, padx=10, pady=5, sticky='ew')
-
-                        # Título da oportunidade (usando novo estilo)
-                        title_label = ttk.Label(op_card, text=oportunidade['titulo'], style='Card.Title.TLabel')
-                        title_label.pack(anchor='w')
-
-                        # Cliente (usando novo estilo)
-                        client_label = ttk.Label(op_card, text=f"Cliente: {oportunidade['nome_empresa']}", style='Card.TLabel')
-                        client_label.pack(anchor='w')
-
                         # Valor (usando novo estilo)
                         valor_label = ttk.Label(op_card, text=f"Valor: {format_currency(oportunidade['valor'])}", style='Card.TLabel')
                         valor_label.pack(anchor='w')
@@ -788,19 +635,7 @@ class CRMApp:
                     ttk.Label(stage_frame, text="Nenhuma oportunidade neste estágio",
                              style='Value.White.TLabel', font=('Segoe UI', 10, 'italic')).pack(pady=20)
 
-        # Bind scroll do mouse de forma mais robusta
-        def on_mousewheel(event):
-            if canvas.winfo_exists():
-                canvas.yview_scroll(int(-1*(event.delta/120)), "units")
 
-        def _bind_scroll(event):
-            self.root.bind_all("<MouseWheel>", on_mousewheel)
-
-        def _unbind_scroll(event):
-            self.root.unbind_all("<MouseWheel>")
-
-        main_frame.bind('<Enter>', _bind_scroll)
-        main_frame.bind('<Leave>', _unbind_scroll)
 
     def show_resultado_dialog(self, op_id, current_stage_id):
         """Mostra dialog para aprovar ou reprovar oportunidade"""
@@ -908,32 +743,7 @@ class CRMApp:
         filter_row1 = ttk.Frame(filters_frame, style='TFrame')
         filter_row1.pack(fill='x', pady=(0, 10))
 
-        # Número da Oportunidade
-        ttk.Label(filter_row1, text="Nº Oportunidade:", style='TLabel').grid(row=0, column=0, sticky='w', padx=(0, 5))
-        num_op_filter = ttk.Entry(filter_row1, width=15)
-        num_op_filter.grid(row=0, column=1, padx=(0, 20))
 
-        # Cliente
-        ttk.Label(filter_row1, text="Cliente:", style='TLabel').grid(row=0, column=2, sticky='w', padx=(0, 5))
-        client_filter = ttk.Combobox(filter_row1, values=['Todos'] + [c['nome_empresa'] for c in self.db.get_all_clients()], width=20)
-        client_filter.set('Todos')
-        client_filter.grid(row=0, column=3, padx=(0, 20))
-
-        # Estágio
-        ttk.Label(filter_row1, text="Estágio:", style='TLabel').grid(row=0, column=4, sticky='w', padx=(0, 5))
-        stage_filter = ttk.Combobox(filter_row1, values=['Todos'] + [e['nome'] for e in self.db.get_pipeline_data()[0]], width=25)
-        stage_filter.set('Todos')
-        stage_filter.grid(row=0, column=5, padx=(0, 20))
-
-        # Resultado
-        ttk.Label(filter_row1, text="Resultado:", style='TLabel').grid(row=0, column=6, sticky='w', padx=(0, 5))
-        result_filter = ttk.Combobox(filter_row1, values=['Todos', 'Aprovado', 'Reprovado'], width=15)
-        result_filter.set('Todos')
-        result_filter.grid(row=0, column=7)
-
-        # Segunda linha de filtros
-        filter_row2 = ttk.Frame(filters_frame, style='TFrame')
-        filter_row2.pack(fill='x', pady=(10, 10))
 
         # Período
         ttk.Label(filter_row2, text="Período:", style='TLabel').grid(row=0, column=0, sticky='w', padx=(0, 5))
@@ -948,7 +758,7 @@ class CRMApp:
 
         # Botão de busca
         search_btn = ttk.Button(filter_row2, text="🔍 Buscar", style='Primary.TButton',
-                               command=lambda: self.apply_historico_filters(num_op_filter, client_filter, stage_filter, result_filter, period_filter, min_value_filter, results_tree))
+
         search_btn.grid(row=0, column=4, padx=(20, 0))
 
         # Tabela de resultados
@@ -956,11 +766,7 @@ class CRMApp:
         results_frame.pack(fill='both', expand=True)
 
         # Treeview para mostrar oportunidades
-        columns = ('num_op', 'titulo', 'cliente', 'estagio', 'valor', 'data_criacao', 'ultimo_resultado')
-        results_tree = ttk.Treeview(results_frame, columns=columns, show='headings', height=15)
 
-        # Cabeçalhos
-        results_tree.heading('num_op', text='Nº Oport.')
         results_tree.heading('titulo', text='Título')
         results_tree.heading('cliente', text='Cliente')
         results_tree.heading('estagio', text='Estágio Atual')
@@ -969,8 +775,7 @@ class CRMApp:
         results_tree.heading('ultimo_resultado', text='Último Resultado')
 
         # Larguras das colunas
-        results_tree.column('num_op', width=100, anchor='center')
-        results_tree.column('titulo', width=250)
+
         results_tree.column('cliente', width=150)
         results_tree.column('estagio', width=180)
         results_tree.column('valor', width=120, anchor='center')
@@ -1004,10 +809,7 @@ class CRMApp:
         # Carregar todas as oportunidades inicialmente
         self.load_historico_data(results_tree)
 
-    def apply_historico_filters(self, num_op_filter, client_filter, stage_filter, result_filter, period_filter, min_value_filter, results_tree):
-        """Aplica filtros e atualiza a tabela de histórico"""
-        filters = {
-            'numero_oportunidade': num_op_filter.get().strip() if num_op_filter.get().strip() else None,
+
             'cliente': client_filter.get() if client_filter.get() != 'Todos' else None,
             'estagio': stage_filter.get() if stage_filter.get() != 'Todos' else None,
             'resultado': result_filter.get() if result_filter.get() != 'Todos' else None,
@@ -1041,7 +843,7 @@ class CRMApp:
 
             tree.insert('', 'end',
                        values=(
-                           op.get('numero_oportunidade') or '---',
+
                            op['titulo'],
                            op['nome_empresa'],
                            op['estagio_nome'],
@@ -1054,22 +856,7 @@ class CRMApp:
     def show_opportunity_form(self, op_id=None, client_to_prefill=None):
         form_win = Toplevel(self.root)
         form_win.title("Nova Oportunidade" if not op_id else "Editar Oportunidade")
-        form_win.geometry("1100x800") # Aumentado para melhor visualização
-        form_win.configure(bg=DOLP_COLORS['white'])
 
-        # --- Estrutura Principal da Janela ---
-        # Notebook para as abas (ocupa a maior parte da janela)
-        notebook = ttk.Notebook(form_win)
-        notebook.pack(fill='both', expand=True, padx=10, pady=(10, 0))
-
-        # Botões de Ação (sempre visíveis na parte inferior)
-        buttons_frame = ttk.Frame(form_win, padding=(20, 10, 20, 20))
-        buttons_frame.pack(side='bottom', fill='x')
-        buttons_frame.columnconfigure(0, weight=1) # Spacer para empurrar botões para a direita
-
-        # --- Criação das Abas com Rolagem ---
-        analise_frame = self._create_scrollable_tab(notebook, '  Análise Prévia de Viabilidade  ')
-        sumario_frame = self._create_scrollable_tab(notebook, '  Sumário Executivo  ')
 
         # Preparar dados
         clients = self.db.get_all_clients()
@@ -1082,7 +869,7 @@ class CRMApp:
 
         entries = {}
 
-        # === ANÁLISE PRÉVIA DE VIABILIDADE (CONTEÚDO DENTRO DA ABA DE ROLAGEM) ===
+
         analise_frame.columnconfigure(1, weight=1)
 
         # Informações Básicas
@@ -1175,17 +962,6 @@ class CRMApp:
                     if servico_nome not in servico_frames:
                         servico_id = servico_map[servico_nome]
 
-                        frame = ttk.LabelFrame(servicos_config_frame, text=f"Configuração para: {servico_nome}", padding=10)
-                        frame.pack(fill='x', expand=True, pady=5, padx=5)
-                        servico_frames[servico_nome] = frame
-
-                        equipes_container = ttk.Frame(frame)
-                        equipes_container.pack(fill='x', expand=True)
-
-                        add_button = ttk.Button(frame, text="Adicionar Equipe", style='Success.TButton',
-                                                command=lambda s_id=servico_id, s_nome=servico_nome, c=equipes_container: _add_equipe_row(s_id, s_nome, c))
-                        add_button.pack(pady=5, anchor='w')
-
                         servico_equipes_data[servico_nome] = []
                 else:
                     if servico_nome in servico_frames:
@@ -1193,8 +969,6 @@ class CRMApp:
                         del servico_frames[servico_nome]
                         if servico_nome in servico_equipes_data:
                             del servico_equipes_data[servico_nome]
-
-        # --- Início da UI do Checklist ---
 
         # Tipos de Serviço (Checkboxes)
         ttk.Label(checklist_frame, text="Tipos de Serviço:", font=('Segoe UI', 10, 'bold')).grid(row=0, column=0, sticky='nw', pady=5, padx=5)
@@ -1276,7 +1050,7 @@ class CRMApp:
         entries['quantidade_bases'] = bases_spinbox
 
 
-        # === SUMÁRIO EXECUTIVO (CONTEÚDO DENTRO DA ABA DE ROLAGEM) ===
+
         sumario_frame.columnconfigure(1, weight=1)
 
         # Informações do Edital
@@ -1368,65 +1142,7 @@ class CRMApp:
         entries['servicos_tree'] = servicos_tree
 
         def calcular_precos_automaticos():
-            # 1. Obter empresa de referência
-            empresa_nome = entries['empresa_referencia'].get()
-            if not empresa_nome:
-                messagebox.showwarning("Aviso", "Por favor, selecione uma Empresa Referência na aba 'Análise Prévia' primeiro.", parent=form_win)
-                return
 
-            # 2. Limpar a árvore de resultados e resetar o faturamento
-            for item in servicos_tree.get_children():
-                servicos_tree.delete(item)
-
-            faturamento_total = 0.0
-
-            # 3. Iterar sobre os serviços configurados no formulário
-            servico_equipes_data = entries.get('servicos_data', {})
-            tipos_servico_vars = entries.get('tipos_servico_vars', {})
-
-            for servico_nome, equipe_rows in servico_equipes_data.items():
-                # Verificar se o serviço está ativo (checkbox marcado)
-                if not (tipos_servico_vars.get(servico_nome) and tipos_servico_vars[servico_nome].get()):
-                    continue
-
-                # 4. Obter dados de referência para o serviço
-                ref_data = self.db.get_empresa_referencia_by_nome_e_tipo(empresa_nome, servico_nome)
-                if not ref_data:
-                    servicos_tree.insert('', 'end', values=(servico_nome, '---', '---', 'N/A', 'Ref. não encontrada'))
-                    continue
-
-                preco_unitario = ref_data['valor_mensal']
-
-                # 5. Calcular totais para o serviço
-                total_qtd_equipes = 0
-                total_volumetria = 0.0
-
-                for row_widgets in equipe_rows:
-                    try:
-                        total_qtd_equipes += int(row_widgets['qtd_entry'].get() or 0)
-                        total_volumetria += float(row_widgets['vol_entry'].get().replace(',', '.') or 0)
-                    except (ValueError, TypeError):
-                        messagebox.showerror("Erro de Formato", f"Verifique os valores de Quantidade e Volumetria para o serviço '{servico_nome}'. Devem ser números.", parent=form_win)
-                        return
-
-                # 6. Calcular preço total e adicionar ao faturamento
-                preco_total_servico = total_qtd_equipes * preco_unitario
-                faturamento_total += preco_total_servico
-
-                # 7. Inserir na árvore
-                servicos_tree.insert('', 'end', values=(
-                    servico_nome,
-                    total_qtd_equipes,
-                    f"{total_volumetria:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
-                    format_currency(preco_unitario),
-                    format_currency(preco_total_servico)
-                ))
-
-            # 8. Atualizar campo de faturamento estimado
-            entries['faturamento_estimado'].delete(0, 'end')
-            faturamento_estimado_str = f"{faturamento_total:.2f}".replace('.', ',')
-            entries['faturamento_estimado'].insert(0, faturamento_estimado_str)
-            messagebox.showinfo("Sucesso", "Cálculo de preços concluído e Faturamento Estimado atualizado.", parent=form_win)
 
 
         # Descrição Detalhada
@@ -1465,86 +1181,27 @@ class CRMApp:
         if op_id:
             op_data = self.db.get_opportunity_details(op_id)
             if op_data:
-                # --- Início da Lógica de Carregamento ---
 
-                # 1. Carregar todos os dados estáticos primeiro
-                entries['titulo'].insert(0, op_data['titulo'] or '')
-                entries['valor'].insert(0, op_data['valor'] or '')
                 for client in clients:
                     if client['id'] == op_data['cliente_id']:
                         entries['cliente_id'].set(client['nome_empresa'])
                         break
+
                 for estagio in estagios:
                     if estagio['id'] == op_data['estagio_id']:
                         entries['estagio_id'].set(estagio['nome'])
                         break
-                entries['tempo_contrato_meses'].insert(0, op_data['tempo_contrato_meses'] or '')
-                entries['regional'].insert(0, op_data['regional'] or '')
-                entries['polo'].insert(0, op_data['polo'] or '')
-                entries['empresa_referencia'].set(op_data['empresa_referencia'] or '')
-                entries['numero_edital'].insert(0, op_data['numero_edital'] or '')
-                if op_data['data_abertura']:
-                    try:
-                        date_obj = datetime.strptime(op_data['data_abertura'], '%d/%m/%Y').date()
-                        entries['data_abertura'].set_date(date_obj)
-                    except (ValueError, TypeError): pass
-                entries['modalidade'].insert(0, op_data['modalidade'] or '')
-                entries['contato_principal'].insert(0, op_data['contato_principal'] or '')
-                entries['link_documentos'].insert(0, op_data['link_documentos'] or '')
+
                 entries['faturamento_estimado'].insert(0, op_data['faturamento_estimado'] or '')
                 entries['duracao_contrato'].insert(0, op_data['duracao_contrato'] or '')
                 entries['total_pessoas'].insert(0, op_data['total_pessoas'] or '')
                 entries['margem_contribuicao'].insert(0, op_data['margem_contribuicao'] or '')
-                if op_data['descricao_detalhada']:
-                    entries['descricao_detalhada'].insert('1.0', op_data['descricao_detalhada'])
 
-                # Forçar a atualização da UI para garantir que os widgets estáticos existam
-                form_win.update_idletasks()
-
-                # 2. Carregar dados das bases
-                if op_data['quantidade_bases'] is not None:
-                    bases_spinbox.set(op_data['quantidade_bases'])
-                    _update_base_fields_ui()
-                    if op_data['bases_nomes']:
                         try:
                             bases_nomes_data = json.loads(op_data['bases_nomes'])
                             base_widgets = entries.get('bases_nomes_widgets', [])
                             for i, nome in enumerate(bases_nomes_data):
-                                if i < len(base_widgets): base_widgets[i].insert(0, nome)
-                        except (json.JSONDecodeError, TypeError): pass
 
-                # Forçar a atualização da UI para que as bases estejam disponíveis para os combos
-                form_win.update_idletasks()
-
-                # 3. Carregar dados de serviços e equipes
-                if op_data['servicos_data']:
-                    try:
-                        servicos_data_json = json.loads(op_data['servicos_data'])
-                        tipos_servico_vars = entries.get('tipos_servico_vars', {})
-
-                        for servico_info in servicos_data_json:
-                            servico_nome = servico_info.get('servico_nome')
-                            if servico_nome in tipos_servico_vars:
-                                tipos_servico_vars[servico_nome].set(True)
-
-                        _update_servicos_ui()
-                        form_win.update_idletasks()
-
-                        for servico_info in servicos_data_json:
-                            servico_nome = servico_info.get('servico_nome')
-                            equipes_data = servico_info.get('equipes', [])
-                            if servico_nome in servico_frames:
-                                servico_id = servico_map[servico_nome]
-                                container = servico_frames[servico_nome].winfo_children()[0]
-                                for equipe_info in equipes_data:
-                                    _add_equipe_row(servico_id, servico_nome, container)
-                                    new_row_widgets = servico_equipes_data[servico_nome][-1]
-                                    new_row_widgets['tipo_combo'].set(equipe_info.get('tipo_equipe', ''))
-                                    new_row_widgets['qtd_entry'].insert(0, equipe_info.get('quantidade', ''))
-                                    new_row_widgets['vol_entry'].insert(0, equipe_info.get('volumetria', ''))
-                                    new_row_widgets['base_combo'].set(equipe_info.get('base', ''))
-                    except (json.JSONDecodeError, TypeError) as e:
-                        print(f"Erro ao carregar dados de serviços: {e}")
 
 
         # Pré-preenchimento se criando nova oportunidade
@@ -1592,9 +1249,6 @@ class CRMApp:
                             }
                             equipes_to_save.append(equipe_data)
 
-                        servico_entry = { "servico_nome": servico_nome, "equipes": equipes_to_save }
-                        servicos_data_to_save.append(servico_entry)
-
                 data['servicos_data'] = json.dumps(servicos_data_to_save)
 
                 # Dados do sumário executivo
@@ -1605,23 +1259,14 @@ class CRMApp:
                 data['link_documentos'] = entries['link_documentos'].get().strip()
                 data['faturamento_estimado'] = entries['faturamento_estimado'].get().strip().replace('.','').replace(',', '.') or '0'
                 data['duracao_contrato'] = entries['duracao_contrato'].get().strip()
-                data['mod'] = entries['mod'].get().strip().replace(',', '.') or '0'
-                data['moi'] = entries['moi'].get().strip().replace(',', '.') or '0'
+
                 data['total_pessoas'] = entries['total_pessoas'].get().strip()
                 data['margem_contribuicao'] = entries['margem_contribuicao'].get().strip().replace(',', '.') or '0'
                 data['descricao_detalhada'] = entries['descricao_detalhada'].get('1.0', 'end-1c')
 
                 if op_id:
                     self.db.update_opportunity(op_id, data)
-                    messagebox.showinfo("Sucesso", "Oportunidade atualizada com sucesso! A janela permanecerá aberta.", parent=form_win)
-                else:
-                    self.db.add_opportunity(data)
-                    messagebox.showinfo("Sucesso", "Oportunidade criada com sucesso! A janela permanecerá aberta.", parent=form_win)
 
-                # Atualiza a visão principal para refletir as mudanças
-                self.show_kanban_view()
-                # A janela não é mais destruída, permitindo mais edições.
-                # form_win.destroy() # Linha removida
 
             except sqlite3.Error as e:
                  messagebox.showerror("Erro de Banco de Dados", f"Erro ao salvar: {str(e)}", parent=form_win)
@@ -1633,6 +1278,7 @@ class CRMApp:
         notebook.bind("<<NotebookTabChanged>>", on_tab_changed)
 
         # Botões de Ação
+
         ttk.Button(buttons_frame, text="Salvar Alterações" if op_id else "Criar Oportunidade", command=on_save, style='Success.TButton').grid(row=0, column=2)
         ttk.Button(buttons_frame, text="Cancelar", command=form_win.destroy, style='TButton').grid(row=0, column=1, padx=10)
 
@@ -1651,8 +1297,7 @@ class CRMApp:
         header_frame = ttk.Frame(details_win, padding=20, style='TFrame')
         header_frame.pack(fill='x')
 
-        title_text = f"{op_data.get('numero_oportunidade') or 'OPP-?????'}: {op_data['titulo']}"
-        ttk.Label(header_frame, text=title_text, style='Title.TLabel').pack(side='left')
+
         ttk.Button(header_frame, text="Editar Detalhes", command=lambda: [details_win.destroy(), self.show_opportunity_form(op_id)], style='Primary.TButton').pack(side='right')
         ttk.Button(header_frame, text="← Voltar", command=details_win.destroy, style='TButton').pack(side='right', padx=(0, 10))
 
@@ -1682,13 +1327,14 @@ class CRMApp:
             ttk.Label(row_frame, text=label, style='Metric.White.TLabel', width=20).pack(side='left')
             ttk.Label(row_frame, text=str(value), style='Value.White.TLabel').pack(side='left', padx=(10, 0))
 
+
         # Bases alocadas
         if op_data['bases_nomes']:
             try:
                 bases_nomes = json.loads(op_data['bases_nomes'])
                 if bases_nomes:
                     bases_frame = ttk.LabelFrame(analise_tab, text="Bases Alocadas", padding=15, style='White.TLabelframe')
-                    bases_frame.pack(fill='x', pady=(10, 0))
+
 
                     for i, base in enumerate(bases_nomes, 1):
                         base_frame = ttk.Frame(bases_frame)
@@ -1718,64 +1364,13 @@ class CRMApp:
             ttk.Label(row_frame, text=label, style='Metric.White.TLabel', width=20).pack(side='left')
             ttk.Label(row_frame, text=str(value), style='Value.White.TLabel').pack(side='left', padx=(10, 0))
 
-        if op_data['link_documentos']:
-            link_frame = ttk.Frame(edital_frame)
-            link_frame.pack(fill='x', pady=2)
-            ttk.Label(link_frame, text="Pasta de Documentos:", style='Metric.White.TLabel', width=20).pack(side='left')
-            link_label = ttk.Label(link_frame, text="Abrir Pasta", style='Link.White.TLabel', cursor="hand2")
-            link_label.pack(side='left', padx=(10, 0))
-            link_label.bind("<Button-1>", lambda e: open_link(op_data['link_documentos']))
 
-        financeiro_frame = ttk.LabelFrame(sumario_tab, text="Informações Financeiras e de Pessoal", padding=15, style='White.TLabelframe')
-        financeiro_frame.pack(fill='x', pady=(10, 10))
-
-        financeiro_info = [
-            ("Faturamento Estimado:", format_currency(op_data['faturamento_estimado']) if 'faturamento_estimado' in op_data.keys() and op_data['faturamento_estimado'] else "---"),
-            ("Duração do Contrato:", f"{op_data['duracao_contrato']} meses" if 'duracao_contrato' in op_data.keys() and op_data['duracao_contrato'] else "---"),
-            ("MOD (Mão de Obra Direta):", op_data['mod'] if 'mod' in op_data.keys() and op_data['mod'] else "---"),
-            ("MOI (Mão de Obra Indireta):", op_data['moi'] if 'moi' in op_data.keys() and op_data['moi'] else "---"),
-            ("Total de Pessoas:", op_data['total_pessoas'] if 'total_pessoas' in op_data.keys() and op_data['total_pessoas'] else "---"),
-            ("Margem de Contribuição:", f"{op_data['margem_contribuicao']}%" if 'margem_contribuicao' in op_data.keys() and op_data['margem_contribuicao'] else "---")
         ]
 
         for label, value in financeiro_info:
             row_frame = ttk.Frame(financeiro_frame)
             row_frame.pack(fill='x', pady=2)
-            ttk.Label(row_frame, text=label, style='Metric.White.TLabel', width=25).pack(side='left')
-            ttk.Label(row_frame, text=str(value), style='Value.White.TLabel').pack(side='left', padx=(10, 0))
 
-        # Tipos de serviço e equipes (lendo da nova estrutura JSON)
-        if op_data['servicos_data']:
-            try:
-                servicos_data = json.loads(op_data['servicos_data'])
-                if servicos_data:
-                    servicos_frame = ttk.LabelFrame(sumario_tab, text="Serviços e Equipes Configurados", padding=15, style='White.TLabelframe')
-                    servicos_frame.pack(fill='x', pady=(10,0))
-
-                    for servico_info in servicos_data:
-                        servico_nome = servico_info.get("servico_nome", "N/A")
-                        equipes = servico_info.get("equipes", [])
-
-                        ttk.Label(servicos_frame, text=servico_nome, style='Metric.White.TLabel', font=('Segoe UI', 11, 'bold')).pack(anchor='w', pady=(5,2))
-
-                        if not equipes:
-                            ttk.Label(servicos_frame, text="  - Nenhuma equipe configurada", style='Value.White.TLabel').pack(anchor='w', padx=(15,0))
-                        else:
-                            for equipe in equipes:
-                                equipe_nome = equipe.get('tipo_equipe', 'N/A')
-                                qtd = equipe.get('quantidade', 'N/A')
-                                vol = equipe.get('volumetria', 'N/A')
-                                base = equipe.get('base', 'N/A')
-                                info_text = f"  - Equipe: {equipe_nome} | Qtd: {qtd} | Volumetria: {vol} | Base: {base}"
-                                ttk.Label(servicos_frame, text=info_text, style='Value.White.TLabel').pack(anchor='w', padx=(15,0))
-            except (json.JSONDecodeError, TypeError):
-                pass
-
-        if op_data['descricao_detalhada']:
-            desc_frame = ttk.LabelFrame(sumario_tab, text="Descrição Detalhada", padding=15, style='White.TLabelframe')
-            desc_frame.pack(fill='both', expand=True, pady=(10, 0))
-
-            desc_text = tk.Text(desc_frame, height=5, wrap='word', bg='white', font=('Segoe UI', 10), state='disabled')
             desc_scrollbar = ttk.Scrollbar(desc_frame, orient="vertical", command=desc_text.yview)
             desc_text.configure(yscrollcommand=desc_scrollbar.set)
             desc_text.pack(side="left", fill="both", expand=True)
@@ -2416,8 +2011,7 @@ class CRMApp:
         ttk.Label(main_frame, text="Nova Empresa Referência" if not empresa_id else "Editar Empresa Referência", style='Title.TLabel').pack(pady=(0, 20))
 
         entries = {}
-        servicos = self.db.get_all_servicos()
-        service_names = [s['nome'] for s in servicos if s['ativa']]
+
 
         fields = [
             ("Nome da Empresa:*", "nome_empresa", "entry"),
