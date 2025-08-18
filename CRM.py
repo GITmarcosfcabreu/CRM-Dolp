@@ -615,13 +615,15 @@ class CRMApp:
 
         # Container centralizado para o funil
         funil_container = ttk.Frame(scrollable_frame, style='TFrame')
-        funil_container.pack(pady=20, expand=True) # Centraliza o container do funil
+        funil_container.pack(pady=20, expand=True)
 
         # --- Lógica do Funil Visual ---
+        self.root.update_idletasks() # Garante que temos as dimensões da janela
         num_stages = len(estagios)
-        # Define a largura máxima como 90% da largura da janela e uma largura mínima
-        max_width = self.root.winfo_width() * 0.85
-        min_width = self.root.winfo_width() * 0.4
+
+        # Define a largura máxima como 90% da largura do frame de conteúdo e uma largura mínima
+        max_width = self.content_frame.winfo_width() * 0.9
+        min_width = self.content_frame.winfo_width() * 0.5
 
         # Calcula o quanto a largura deve diminuir a cada passo
         if num_stages > 1:
@@ -637,12 +639,11 @@ class CRMApp:
 
             # Frame para cada estágio com a largura calculada
             stage_frame = ttk.Frame(funil_container, style='White.TLabelframe', padding=15, width=current_width)
-            stage_frame.pack(pady=10) # Centraliza por padrão dentro do funil_container
-            stage_frame.pack_propagate(False) # Impede que os widgets filhos alterem o tamanho do frame
+            stage_frame.pack(pady=5) # pady reduzido para um visual mais compacto
 
             # Cabeçalho do estágio
-            header_frame = ttk.Frame(stage_frame, style='TFrame', width=current_width)
-            header_frame.pack(fill='x', pady=(0, 15))
+            header_frame = ttk.Frame(stage_frame, style='TFrame')
+            header_frame.pack(fill='x', pady=(0, 10))
 
             stage_title = ttk.Label(header_frame, text=estagio['nome'], style='Title.TLabel',
                                   font=('Segoe UI', 14, 'bold'), foreground=DOLP_COLORS['primary_blue'])
