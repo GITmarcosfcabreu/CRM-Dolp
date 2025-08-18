@@ -181,6 +181,36 @@ class DatabaseManager:
 
             self._populate_initial_data(cursor)
 
+            # Executar migrações para garantir a compatibilidade do schema
+            self._run_migrations(cursor)
+
+    def _run_migrations(self, cursor):
+        """Aplica migrações de schema no banco de dados existente."""
+
+        # Migração 1: Adicionar a coluna 'numero_oportunidade' se não existir
+        try:
+            cursor.execute("PRAGMA table_info(oportunidades)")
+            columns = [info['name'] for info in cursor.fetchall()]
+            if 'numero_oportunidade' not in columns:
+                print("Aplicando migração: Adicionando coluna 'numero_oportunidade'...")
+                cursor.execute("ALTER TABLE oportunidades ADD COLUMN numero_oportunidade TEXT UNIQUE")
+                print("Migração concluída.")
+        except Exception as e:
+            print(f"Erro ao aplicar migração da coluna 'numero_oportunidade': {e}")
+
+        # Migração 2: Preencher 'numero_oportunidade' para registros existentes
+        try:
+            ops_to_update = cursor.execute("SELECT id FROM oportunidades WHERE numero_oportunidade IS NULL").fetchall()
+            if ops_to_update:
+                print(f"Aplicando migração: Preenchendo {len(ops_to_update)} IDs de oportunidade...")
+                for op in ops_to_update:
+                    new_op_id = f"OPP-{op['id']:05d}"
+                    cursor.execute("UPDATE oportunidades SET numero_oportunidade = ? WHERE id = ?", (new_op_id, op['id']))
+                print("Preenchimento de IDs concluído.")
+        except Exception as e:
+            print(f"Erro ao preencher IDs de oportunidade existentes: {e}")
+
+
     def _populate_initial_data(self, cursor):
         if cursor.execute("SELECT count(*) FROM pipeline_estagios").fetchone()[0] != len(ESTAGIOS_PIPELINE_DOLP):
             cursor.execute("PRAGMA foreign_keys = OFF;")
