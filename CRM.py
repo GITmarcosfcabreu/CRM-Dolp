@@ -1287,11 +1287,65 @@ class CRMApp:
         entries['servicos_tree'] = servicos_tree
 
         def calcular_precos_automaticos():
-            # TODO: Refatorar esta função para usar a nova estrutura de `servicos_data`.
-            # A lógica atual está quebrada devido à refatoração do formulário.
-            messagebox.showinfo("Em Desenvolvimento",
-                                "O cálculo automático de preços está sendo reformulado para a nova estrutura de dados.",
-                                parent=form_win)
+            # 1. Obter empresa de referência
+            empresa_nome = entries['empresa_referencia'].get()
+            if not empresa_nome:
+                messagebox.showwarning("Aviso", "Por favor, selecione uma Empresa Referência na aba 'Análise Prévia' primeiro.", parent=form_win)
+                return
+
+            # 2. Limpar a árvore de resultados e resetar o faturamento
+            for item in servicos_tree.get_children():
+                servicos_tree.delete(item)
+
+            faturamento_total = 0.0
+
+            # 3. Iterar sobre os serviços configurados no formulário
+            servico_equipes_data = entries.get('servicos_data', {})
+            tipos_servico_vars = entries.get('tipos_servico_vars', {})
+
+            for servico_nome, equipe_rows in servico_equipes_data.items():
+                # Verificar se o serviço está ativo (checkbox marcado)
+                if not (tipos_servico_vars.get(servico_nome) and tipos_servico_vars[servico_nome].get()):
+                    continue
+
+                # 4. Obter dados de referência para o serviço
+                ref_data = self.db.get_empresa_referencia_by_nome_e_tipo(empresa_nome, servico_nome)
+                if not ref_data:
+                    servicos_tree.insert('', 'end', values=(servico_nome, '---', '---', 'N/A', 'Ref. não encontrada'))
+                    continue
+
+                preco_unitario = ref_data['valor_mensal']
+
+                # 5. Calcular totais para o serviço
+                total_qtd_equipes = 0
+                total_volumetria = 0.0
+
+                for row_widgets in equipe_rows:
+                    try:
+                        total_qtd_equipes += int(row_widgets['qtd_entry'].get() or 0)
+                        total_volumetria += float(row_widgets['vol_entry'].get().replace(',', '.') or 0)
+                    except (ValueError, TypeError):
+                        messagebox.showerror("Erro de Formato", f"Verifique os valores de Quantidade e Volumetria para o serviço '{servico_nome}'. Devem ser números.", parent=form_win)
+                        return
+
+                # 6. Calcular preço total e adicionar ao faturamento
+                preco_total_servico = total_qtd_equipes * preco_unitario
+                faturamento_total += preco_total_servico
+
+                # 7. Inserir na árvore
+                servicos_tree.insert('', 'end', values=(
+                    servico_nome,
+                    total_qtd_equipes,
+                    f"{total_volumetria:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
+                    format_currency(preco_unitario),
+                    format_currency(preco_total_servico)
+                ))
+
+            # 8. Atualizar campo de faturamento estimado
+            entries['faturamento_estimado'].delete(0, 'end')
+            faturamento_estimado_str = f"{faturamento_total:.2f}".replace('.', ',')
+            entries['faturamento_estimado'].insert(0, faturamento_estimado_str)
+            messagebox.showinfo("Sucesso", "Cálculo de preços concluído e Faturamento Estimado atualizado.", parent=form_win)
 
 
         # Descrição Detalhada
@@ -1367,10 +1421,10 @@ class CRMApp:
                 form_win.update_idletasks()
 
                 # 2. Carregar dados das bases
-                if op_data.get('quantidade_bases') is not None:
+                if op_data['quantidade_bases'] is not None:
                     bases_spinbox.set(op_data['quantidade_bases'])
                     _update_base_fields_ui()
-                    if op_data.get('bases_nomes'):
+                    if op_data['bases_nomes']:
                         try:
                             bases_nomes_data = json.loads(op_data['bases_nomes'])
                             base_widgets = entries.get('bases_nomes_widgets', [])
@@ -1382,7 +1436,7 @@ class CRMApp:
                 form_win.update_idletasks()
 
                 # 3. Carregar dados de serviços e equipes
-                if op_data.get('servicos_data'):
+                if op_data['servicos_data']:
                     try:
                         servicos_data_json = json.loads(op_data['servicos_data'])
                         tipos_servico_vars = entries.get('tipos_servico_vars', {})
