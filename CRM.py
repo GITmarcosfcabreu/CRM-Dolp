@@ -1743,7 +1743,7 @@ class CRMApp:
         notebook.pack(fill='both', expand=True, padx=20, pady=(0, 20))
 
         # Aba 1: Análise Prévia de Viabilidade
-        analise_tab = ttk.Frame(notebook, padding=20)
+        analise_tab = ttk.Frame(notebook, padding=20, style='TFrame')
         notebook.add(analise_tab, text='  Análise Prévia de Viabilidade  ')
 
         info_frame = ttk.LabelFrame(analise_tab, text="Informações Básicas", padding=15, style='White.TLabelframe')
@@ -1783,7 +1783,7 @@ class CRMApp:
 
 
         # Aba 2: Sumário Executivo
-        sumario_tab = ttk.Frame(notebook, padding=20)
+        sumario_tab = ttk.Frame(notebook, padding=20, style='TFrame')
         notebook.add(sumario_tab, text='  Sumário Executivo  ')
 
         edital_frame = ttk.LabelFrame(sumario_tab, text="Informações do Edital", padding=15, style='White.TLabelframe')
@@ -1870,7 +1870,7 @@ class CRMApp:
             desc_text.config(state='disabled')
 
         # Aba 3: Histórico de Interações
-        interacoes_tab = ttk.Frame(notebook, padding=20)
+        interacoes_tab = ttk.Frame(notebook, padding=20, style='TFrame')
         notebook.add(interacoes_tab, text='  Histórico de Interações  ')
 
         ttk.Button(interacoes_tab, text="Nova Interação", command=lambda: self.add_interaction_dialog(op_id, details_win), style='Success.TButton').pack(anchor='ne', pady=(0, 10))
@@ -1887,7 +1887,7 @@ class CRMApp:
             ttk.Label(interacoes_tab, text="Nenhuma interação registrada.", style='Value.White.TLabel').pack(pady=20)
 
         # Aba 4: Tarefas
-        tarefas_tab = ttk.Frame(notebook, padding=20)
+        tarefas_tab = ttk.Frame(notebook, padding=20, style='TFrame')
         notebook.add(tarefas_tab, text='  Tarefas  ')
 
         ttk.Button(tarefas_tab, text="Nova Tarefa", command=lambda: self.add_task_dialog(op_id, details_win), style='Success.TButton').pack(anchor='ne', pady=(0, 10))
