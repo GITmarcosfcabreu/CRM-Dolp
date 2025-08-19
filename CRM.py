@@ -583,16 +583,7 @@ class CRMApp:
         style.configure('Primary.TButton', background=primary_color, foreground=white_color, font=(self.primary_font, 10, 'bold'))
         style.map('Primary.TButton', background=[('active', DOLP_COLORS['gradient_start']), ('pressed', DOLP_COLORS['gradient_end'])])
 
-        style.configure('Success.TButton', background=DOLP_COLORS['success_green'], foreground=white_color, font=(self.primary_font, 10, 'bold'))
-        style.map('Success.TButton', background=[('active', '#2ecc71')])
 
-        style.configure('Danger.TButton', background=DOLP_COLORS['primary_red'], foreground=white_color, font=(self.primary_font, 10, 'bold'))
-        style.map('Danger.TButton', background=[('active', '#e74c3c')])
-
-        # --- Labels ---
-        style.configure('TLabel', background=bg_color, foreground=text_color, font=(self.primary_font, 10))
-        style.configure('Header.TLabel', background=white_color, foreground=primary_color, font=(self.primary_font, 18, 'bold'))
-        style.configure('Title.TLabel', background=bg_color, foreground=text_color, font=(self.primary_font, 16, 'bold'))
 
         # --- LabelFrames (usados como contêineres de seção) ---
         style.configure('TLabelframe', background=white_color, borderwidth=1, relief='solid', bordercolor=DOLP_COLORS['border_color'])
@@ -610,20 +601,6 @@ class CRMApp:
         style.configure('TCombobox', fieldbackground=white_color, borderwidth=1, relief='solid', bordercolor=DOLP_COLORS['border_color'], padding=5, font=(self.primary_font, 10))
         style.configure('TSpinbox', fieldbackground=white_color, borderwidth=1, relief='solid', bordercolor=DOLP_COLORS['border_color'], padding=5, font=(self.primary_font, 10))
 
-
-        # --- Notebook (Abas) ---
-        style.configure('TNotebook', background=bg_color, borderwidth=0)
-        style.configure('TNotebook.Tab', background=DOLP_COLORS['disabled_bg'], foreground=DOLP_COLORS['light_text'], padding=(15, 8), font=(self.primary_font, 10))
-        style.map('TNotebook.Tab',
-                  background=[('selected', primary_color), ('active', DOLP_COLORS['gradient_start'])],
-                  foreground=[('selected', white_color), ('active', white_color)])
-
-        # --- Treeview (Tabelas) ---
-        style.configure('Treeview', background=white_color, foreground=text_color, font=(self.primary_font, 10), rowheight=28, fieldbackground=white_color)
-        style.configure('Treeview.Heading', background=primary_color, foreground=white_color, font=(self.primary_font, 10, 'bold'), padding=8)
-        style.map('Treeview',
-                  background=[('selected', DOLP_COLORS['gradient_start'])],
-                  foreground=[('selected', white_color)])
 
     def _create_main_container(self):
         # Container principal
