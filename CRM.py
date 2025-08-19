@@ -1699,8 +1699,9 @@ class CRMApp:
 
                 # Atualiza a visão principal para refletir as mudanças
                 self.show_kanban_view()
-                # A janela não é mais destruída, permitindo mais edições.
-                # form_win.destroy() # Linha removida
+                # É crucial destruir a janela após salvar para evitar vazamento de estado
+                # entre formulários, que estava causando a corrupção de dados.
+                form_win.destroy()
 
             except sqlite3.Error as e:
                  messagebox.showerror("Erro de Banco de Dados", f"Erro ao salvar: {str(e)}", parent=form_win)
