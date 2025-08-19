@@ -28,13 +28,25 @@ DB_NAME = 'dolp_crm_final.db'
 LOGO_PATH = "dolp_logo.png"
 LOGO_URL = "https://mcusercontent.com/cfa43b95eeae85d65cf1366fb/images/a68e98a6-1595-5add-0b79-2e541e7faefa.png"
 
+# --- 1. CONFIGURAÇÕES GERAIS ---
+# ... (outras configurações)
+
+# Paleta de Cores Inspirada na Identidade Visual da Dolp
 DOLP_COLORS = {
-    'primary_blue': '#004b87', 'secondary_blue': "#4887ec", 'light_blue': '#eff6ff',
-    'success_green': '#10b981', 'warning_orange': "#d02a2e", 'danger_red': '#ef4444',
-    'white': '#ffffff', 'light_gray': '#ffffff', 'medium_gray': '#004b87',
-    'dark_gray': '#004b87', 'very_light_gray': '#ffffff', 'dolp_cyan': '#06b6d4',
-    'gradient_start': '#1e40af', 'gradient_end': '#3b82f6', 'border_color': '#4887ec'
+    'primary_blue': '#0d4a8f',      # Azul principal do logo
+    'primary_red': '#d02a2e',       # Vermelho do logo
+    'light_blue_bg': '#f0f4f8',     # Fundo principal muito claro
+    'white': '#ffffff',            # Branco para cards e áreas de destaque
+    'dark_text': '#2c3e50',         # Cor de texto principal (quase preto)
+    'light_text': '#7f8c8d',        # Cor de texto secundária
+    'success_green': '#27ae60',      # Verde para ações de sucesso
+    'warning_orange': '#f39c12',     # Laranja para alertas
+    'border_color': '#bdc3c7',       # Cor de borda sutil
+    'disabled_bg': '#ecf0f1',       # Fundo para elementos desabilitados
+    'gradient_start': '#1a5dab',   # Gradiente para botões (início)
+    'gradient_end': '#0d4a8f',     # Gradiente para botões (fim)
 }
+
 
 ESTAGIOS_PIPELINE_DOLP = [
     "Clientes e Segmentos definidos (Playbook)",
@@ -526,10 +538,22 @@ class CRMApp:
     def __init__(self, root):
         self.root = root
         self.db = DatabaseManager(DB_NAME)
+
+        # --- FONT CHECKING LOGIC ---
+        self.primary_font = "Roboto"
+        try:
+            import tkinter.font as tkfont
+            # A verificação de fontes precisa de um root window, que já temos aqui.
+            if self.primary_font not in tkfont.families(root):
+                self.primary_font = "Segoe UI" # Fallback para Windows
+        except (ImportError, tk.TclError):
+             # tk.TclError pode ocorrer em alguns sistemas sem ambiente gráfico completo
+            self.primary_font = "Helvetica" # Fallback genérico
+        # ------------------------------------
+
         self.root.title("CRM Dolp Engenharia")
-        self.root.geometry("1600x900")
+        self.root.state('zoomed') # Abre a janela maximizada
         self.root.minsize(1280, 720)
-        self.root.configure(bg=DOLP_COLORS['white'])
         self.logo_image = load_logo_image()
         self._configure_styles()
         self._create_main_container()
@@ -539,58 +563,44 @@ class CRMApp:
         style = ttk.Style(self.root)
         style.theme_use('clam')
 
-        # Estilos base modernos
-        style.configure('TFrame', background=DOLP_COLORS['white'])
-        style.configure('Header.TFrame', background=DOLP_COLORS['white'], relief='flat', borderwidth=0)
+        # --- Configurações Globais de Estilo ---
+        bg_color = DOLP_COLORS['light_blue_bg']
+        text_color = DOLP_COLORS['dark_text']
+        primary_color = DOLP_COLORS['primary_blue']
+        white_color = DOLP_COLORS['white']
 
-        # Botões modernos com gradiente visual
-        style.configure('TButton', font=('Segoe UI', 11, 'normal'), padding=(15, 8), relief='flat', borderwidth=0)
-        style.configure('Primary.TButton', background=DOLP_COLORS['primary_blue'], foreground='white', font=('Segoe UI', 11, 'bold'))
-        style.map('Primary.TButton', background=[('active', DOLP_COLORS['secondary_blue']), ('pressed', DOLP_COLORS['gradient_start'])])
+        self.root.configure(bg=bg_color)
 
-        style.configure('Success.TButton', background=DOLP_COLORS['success_green'], foreground='white', font=('Segoe UI', 11, 'bold'))
-        style.map('Success.TButton', background=[('active', '#059669'), ('pressed', '#047857')])
+        # --- Frames ---
+        style.configure('TFrame', background=bg_color)
+        style.configure('Header.TFrame', background=white_color, relief='flat', borderwidth=0)
+        style.configure('Card.TFrame', background=white_color, relief='solid', borderwidth=1, bordercolor=DOLP_COLORS['border_color'])
 
-        style.configure('Warning.TButton', background=DOLP_COLORS['warning_orange'], foreground='white', font=('Segoe UI', 11, 'bold'))
-        style.map('Warning.TButton', background=[('active', '#d97706'), ('pressed', '#b45309')])
+        # --- Botões ---
+        style.configure('TButton', font=(self.primary_font, 10), padding=(12, 6), relief='flat', borderwidth=0, foreground=text_color)
+        style.map('TButton', background=[('active', DOLP_COLORS['disabled_bg'])])
 
-        style.configure('Danger.TButton', background=DOLP_COLORS['danger_red'], foreground='white', font=('Segoe UI', 11, 'bold'))
-        style.map('Danger.TButton', background=[('active', '#dc2626'), ('pressed', '#b91c1c')])
+        style.configure('Primary.TButton', background=primary_color, foreground=white_color, font=(self.primary_font, 10, 'bold'))
+        style.map('Primary.TButton', background=[('active', DOLP_COLORS['gradient_start']), ('pressed', DOLP_COLORS['gradient_end'])])
 
-        # Labels e outros elementos
-        style.configure('TLabel', foreground=DOLP_COLORS['dark_gray'], font=('Segoe UI', 10))
-        style.configure('Header.TLabel', foreground=DOLP_COLORS['primary_blue'], font=('Segoe UI', 16, 'bold'))
-        style.configure('Title.TLabel', foreground=DOLP_COLORS['dark_gray'], font=('Segoe UI', 14, 'bold'))
 
-        # Estilos para LabelFrames
-        style.configure('White.TLabelframe', background=DOLP_COLORS['white'], borderwidth=1, relief='solid')
-        style.configure('White.TLabelframe.Label', foreground=DOLP_COLORS['primary_blue'], font=('Segoe UI', 11, 'bold'))
 
-        # Estilos para Labels específicos
-        style.configure('Metric.White.TLabel', foreground=DOLP_COLORS['primary_blue'], font=('Segoe UI', 12, 'bold'))
-        style.configure('Value.White.TLabel', foreground=DOLP_COLORS['dark_gray'], font=('Segoe UI', 11))
-        style.configure('Link.White.TLabel', foreground=DOLP_COLORS['secondary_blue'], font=('Segoe UI', 10, 'underline'))
+        # --- LabelFrames (usados como contêineres de seção) ---
+        style.configure('TLabelframe', background=white_color, borderwidth=1, relief='solid', bordercolor=DOLP_COLORS['border_color'])
+        style.configure('TLabelframe.Label', background=white_color, foreground=primary_color, font=(self.primary_font, 11, 'bold'))
 
-        # Entry e Combobox
-        style.configure('TEntry', fieldbackground='white', borderwidth=1, relief='solid')
-        style.configure('TCombobox', fieldbackground='white', borderwidth=1, relief='solid')
+        # --- Estilos para Labels dentro de Cards/Frames Brancos ---
+        style.configure('Card.TLabel', background=white_color, foreground=text_color, font=(self.primary_font, 10))
+        style.configure('Card.Title.TLabel', background=white_color, foreground=primary_color, font=(self.primary_font, 12, 'bold'))
+        style.configure('Metric.TLabel', background=white_color, foreground=text_color, font=(self.primary_font, 10, 'bold'))
+        style.configure('Value.TLabel', background=white_color, foreground=DOLP_COLORS['light_text'], font=(self.primary_font, 10))
+        style.configure('Link.TLabel', background=white_color, foreground=primary_color, font=(self.primary_font, 10, 'underline'))
 
-        # Notebook (abas)
-        style.configure('TNotebook', background=DOLP_COLORS['white'], borderwidth=0)
-        style.configure('TNotebook.Tab', background=DOLP_COLORS['light_blue'], foreground=DOLP_COLORS['primary_blue'], padding=(20, 10), font=('Segoe UI', 11))
-        style.map('TNotebook.Tab', background=[('selected', DOLP_COLORS['primary_blue']), ('active', DOLP_COLORS['secondary_blue'])], foreground=[('selected', 'white'), ('active', 'white')])
+        # --- Entry, Combobox e Spinbox ---
+        style.configure('TEntry', fieldbackground=white_color, borderwidth=1, relief='solid', bordercolor=DOLP_COLORS['border_color'], padding=5, font=(self.primary_font, 10))
+        style.configure('TCombobox', fieldbackground=white_color, borderwidth=1, relief='solid', bordercolor=DOLP_COLORS['border_color'], padding=5, font=(self.primary_font, 10))
+        style.configure('TSpinbox', fieldbackground=white_color, borderwidth=1, relief='solid', bordercolor=DOLP_COLORS['border_color'], padding=5, font=(self.primary_font, 10))
 
-        # Treeview
-        style.configure('Treeview', background='white', foreground=DOLP_COLORS['dark_gray'], font=('Segoe UI', 10), rowheight=25)
-        style.configure('Treeview.Heading', background=DOLP_COLORS['primary_blue'], foreground='white', font=('Segoe UI', 10, 'bold'))
-        style.map('Treeview', background=[('selected', DOLP_COLORS['light_blue'])])
-
-        # --- NOVA SEÇÃO DE ESTILOS ADICIONADA ---
-        # Estilos para os Cards de Oportunidade no Funil
-        style.configure('Card.TFrame', background=DOLP_COLORS['light_blue'], relief='solid', borderwidth=2)
-        style.configure('Card.TLabel', foreground=DOLP_COLORS['dark_gray'], font=('Segoe UI', 10))
-        style.configure('Card.Title.TLabel', foreground=DOLP_COLORS['dark_gray'], font=('Segoe UI', 11, 'bold'))
-        # ----------------------------------------
 
     def _create_main_container(self):
         # Container principal
@@ -598,20 +608,21 @@ class CRMApp:
         self.main_container.pack(fill='both', expand=True)
 
         # Cabeçalho moderno
-        header_frame = ttk.Frame(self.main_container, style='Header.TFrame', padding=(20, 15))
-        header_frame.pack(fill='x', side='top')
+        header_frame = ttk.Frame(self.main_container, style='Header.TFrame', padding=(20, 10))
+        header_frame.pack(fill='x', side='top', pady=(0, 10))
+
 
         # Logo e título
         if self.logo_image:
-            logo_label = ttk.Label(header_frame, image=self.logo_image, style='TLabel')
+            logo_label = ttk.Label(header_frame, image=self.logo_image, background=DOLP_COLORS['white'])
             logo_label.pack(side='left', padx=(0, 20))
 
         title_label = ttk.Label(header_frame, text="CRM Dolp Engenharia", style='Header.TLabel')
         title_label.pack(side='left')
 
         # Área de conteúdo
-        self.content_frame = ttk.Frame(self.main_container, style='TFrame')
-        self.content_frame.pack(fill='both', expand=True, padx=20, pady=(0, 20))
+        self.content_frame = ttk.Frame(self.main_container, style='TFrame', padding=(20, 10))
+        self.content_frame.pack(fill='both', expand=True)
 
     def _create_scrollable_tab(self, parent_notebook, tab_text):
         tab_main_frame = ttk.Frame(parent_notebook)
@@ -716,10 +727,10 @@ class CRMApp:
 
         # Define o padding (margem) mínimo e máximo para criar o efeito de funil
         # O padding é aplicado em ambos os lados, então o encolhimento visual é o dobro do padding
-        min_padx = 20
+        min_padx = 100
         # A largura máxima do conteúdo será a largura do container - 2*min_padx
         # A largura mínima será a largura do container - 2*max_padx
-        max_padx = (self.content_frame.winfo_width() * 0.4) # Deixa a última etapa com 20% da largura
+        max_padx = (self.content_frame.winfo_width() * 0.43) # Deixa a última etapa com 40% da largura
 
         if num_stages > 1:
             padx_step = (max_padx - min_padx) / (num_stages - 1)
@@ -732,46 +743,40 @@ class CRMApp:
             # Calcula o padding para o estágio atual
             current_padx = int(min_padx + (i * padx_step))
 
-            # Frame para cada estágio
-            stage_frame = ttk.Frame(funil_container, style='White.TLabelframe', padding=15)
-            # Usa fill='x' e o padx dinâmico para criar o efeito de funil centrado
-            stage_frame.pack(fill='x', pady=5, padx=current_padx)
-
-            # Cabeçalho do estágio
-            header_frame = ttk.Frame(stage_frame, style='TFrame')
-            header_frame.pack(fill='x', pady=(0, 15))
-
-            stage_title = ttk.Label(header_frame, text=estagio['nome'], style='Title.TLabel',
-                                  font=('Segoe UI', 14, 'bold'), foreground=DOLP_COLORS['primary_blue'])
-            stage_title.pack()
+            # Frame para cada estágio (agora usando LabelFrame para o título)
+            stage_frame = ttk.LabelFrame(funil_container, text=estagio['nome'], style='TLabelframe', padding=15)
+            stage_frame.pack(fill='x', pady=8, padx=current_padx)
 
             # Tratamento especial para "Clientes e Segmentos definidos (Playbook)"
             if estagio['nome'] == "Clientes e Segmentos definidos (Playbook)":
                 # Mostrar todos os clientes cadastrados
-                clients_frame = ttk.Frame(stage_frame, style='TFrame')
-                clients_frame.pack(fill='x')
+                clients_frame = ttk.Frame(stage_frame) # Frame interno para o grid
+                clients_frame.pack(fill='x', expand=True, pady=5, padx=5)
+                clients_frame.configure(style='TLabelframe') # Fundo branco
 
                 # Grid para organizar clientes em colunas
                 col_count = 3
-                for idx, client in enumerate(clients):
-                    row = idx // col_count
-                    col = idx % col_count
+                if clients:
+                    for idx, client in enumerate(clients):
+                        row = idx // col_count
+                        col = idx % col_count
 
-                    client_card = ttk.Frame(clients_frame, style='TFrame', padding=10)
-                    client_card.grid(row=row, column=col, padx=5, pady=5, sticky='ew')
-                    client_card.configure(relief='solid', borderwidth=1)
+                        client_card = ttk.Frame(clients_frame, style='Card.TFrame', padding=10)
+                        client_card.grid(row=row, column=col, padx=5, pady=5, sticky='ew')
 
-                    # Nome da empresa
-                    ttk.Label(client_card, text=client['nome_empresa'], style='Value.White.TLabel',
-                             font=('Segoe UI', 10, 'bold')).pack(anchor='w')
+                        # Nome da empresa
+                        ttk.Label(client_card, text=client['nome_empresa'], style='Card.Title.TLabel', wraplength=220, justify='left').pack(anchor='w')
 
-                    # Status
-                    status = client['status'] or 'Não cadastrado'
-                    ttk.Label(client_card, text=f"Status: {status}", style='Value.White.TLabel').pack(anchor='w')
+                        # Status
+                        status = client['status'] or 'Não cadastrado'
+                        ttk.Label(client_card, text=f"Status: {status}", style='Card.TLabel').pack(anchor='w')
 
-                    # Setor
-                    if client['setor_atuacao']:
-                        ttk.Label(client_card, text=f"Setor: {client['setor_atuacao']}", style='Value.White.TLabel').pack(anchor='w')
+                        # Setor
+                        if client['setor_atuacao']:
+                            ttk.Label(client_card, text=f"Setor: {client['setor_atuacao']}", style='Card.TLabel').pack(anchor='w')
+                else:
+                    ttk.Label(clients_frame, text="Nenhum cliente cadastrado.", style='Card.TLabel', font=(PRIMARY_FONT, 10, 'italic')).pack(pady=20)
+
 
                 # Configurar colunas para expandir igualmente
                 for col in range(col_count):
@@ -783,34 +788,34 @@ class CRMApp:
 
                 if oportunidades_estagio:
                     # Grid para organizar oportunidades em colunas
-                    ops_frame = ttk.Frame(stage_frame, style='TFrame')
-                    ops_frame.pack(fill='x')
+                    ops_frame = ttk.Frame(stage_frame) # Frame interno
+                    ops_frame.pack(fill='x', expand=True)
+                    ops_frame.configure(style='TLabelframe') # Fundo branco
+
 
                     col_count = 2
                     for idx, oportunidade in enumerate(oportunidades_estagio):
                         row = idx // col_count
                         col = idx % col_count
 
-                        # --- ALTERAÇÃO APLICADA AQUI ---
                         op_card = ttk.Frame(ops_frame, style='Card.TFrame', padding=15)
                         op_card.grid(row=row, column=col, padx=10, pady=5, sticky='ew')
 
-                        # Título da oportunidade (usando novo estilo)
-                        title_label = ttk.Label(op_card, text=oportunidade['titulo'], style='Card.Title.TLabel')
+                        # Título da oportunidade
+                        title_label = ttk.Label(op_card, text=oportunidade['titulo'], style='Card.Title.TLabel', wraplength=250, justify='left')
                         title_label.pack(anchor='w')
 
-                        # Cliente (usando novo estilo)
+                        # Cliente
                         client_label = ttk.Label(op_card, text=f"Cliente: {oportunidade['nome_empresa']}", style='Card.TLabel')
                         client_label.pack(anchor='w')
 
-                        # Valor (usando novo estilo)
+                        # Valor
                         valor_label = ttk.Label(op_card, text=f"Valor: {format_currency(oportunidade['valor'])}", style='Card.TLabel')
                         valor_label.pack(anchor='w')
 
-                        # Frame para botões (usando novo estilo)
+                        # Frame para botões
                         buttons_frame = ttk.Frame(op_card, style='Card.TFrame')
                         buttons_frame.pack(fill='x', pady=(10, 0))
-                        # --------------------------------
 
                         # Botão Resultado (principal)
                         if estagio['nome'] != "Histórico":
@@ -833,8 +838,9 @@ class CRMApp:
                         ops_frame.columnconfigure(col, weight=1)
                 else:
                     # Mensagem quando não há oportunidades
-                    ttk.Label(stage_frame, text="Nenhuma oportunidade neste estágio",
-                             style='Value.White.TLabel', font=('Segoe UI', 10, 'italic')).pack(pady=20)
+                    no_ops_label = ttk.Label(stage_frame, text="Nenhuma oportunidade neste estágio", style='Value.TLabel', font=(self.primary_font, 10, 'italic'))
+                    no_ops_label.pack(pady=20)
+                    no_ops_label.configure(background=DOLP_COLORS['white']) # Garantir fundo branco
 
         # Bind scroll do mouse de forma mais robusta
         def on_mousewheel(event):
@@ -854,28 +860,28 @@ class CRMApp:
         """Mostra dialog para aprovar ou reprovar oportunidade"""
         dialog = Toplevel(self.root)
         dialog.title("Resultado da Avaliação")
-        dialog.geometry("400x200")
-        dialog.configure(bg=DOLP_COLORS['white'])
+        dialog.geometry("450x250")
+        dialog.configure(bg=DOLP_COLORS['light_blue_bg'])
         dialog.transient(self.root)
         dialog.grab_set()
 
         # Centralizar dialog
-        dialog.geometry("+%d+%d" % (self.root.winfo_rootx() + 50, self.root.winfo_rooty() + 50))
+        dialog.geometry(f"+{self.root.winfo_rootx()+50}+{self.root.winfo_rooty()+50}")
 
-        main_frame = ttk.Frame(dialog, padding=20, style='TFrame')
+        main_frame = ttk.Frame(dialog, padding=20)
         main_frame.pack(fill='both', expand=True)
 
         # Obter dados da oportunidade
         op_data = self.db.get_opportunity_details(op_id)
 
-        ttk.Label(main_frame, text=f"Oportunidade: {op_data['titulo']}", style='Title.TLabel').pack(pady=(0, 10))
-        ttk.Label(main_frame, text=f"Estágio Atual: {op_data['estagio_nome']}", style='Value.White.TLabel').pack(pady=(0, 20))
+        ttk.Label(main_frame, text=op_data['titulo'], style='Title.TLabel', wraplength=400).pack(pady=(0, 10))
+        ttk.Label(main_frame, text=f"Estágio Atual: {op_data['estagio_nome']}", style='TLabel').pack(pady=(0, 20))
 
-        ttk.Label(main_frame, text="Qual o resultado desta avaliação?", style='TLabel').pack(pady=(0, 20))
+        ttk.Label(main_frame, text="Qual o resultado desta avaliação?", style='TLabel', font=(self.primary_font, 11)).pack(pady=(0, 20))
 
         # Botões de resultado
-        buttons_frame = ttk.Frame(main_frame, style='TFrame')
-        buttons_frame.pack(fill='x')
+        buttons_frame = ttk.Frame(main_frame)
+        buttons_frame.pack(fill='x', expand=True)
 
         def aprovar():
             # Mover para próximo estágio
@@ -949,11 +955,11 @@ class CRMApp:
         ttk.Button(title_frame, text="← Voltar", command=self.show_kanban_view, style='TButton').pack(side='right')
 
         # Frame de filtros
-        filters_frame = ttk.LabelFrame(self.content_frame, text="Filtros de Busca", padding=15, style='White.TLabelframe')
+        filters_frame = ttk.LabelFrame(self.content_frame, text="Filtros de Busca", padding=15, style='TLabelframe')
         filters_frame.pack(fill='x', pady=(0, 20))
 
         # Primeira linha de filtros
-        filter_row1 = ttk.Frame(filters_frame, style='TFrame')
+        filter_row1 = ttk.Frame(filters_frame, style='TLabelframe')
         filter_row1.pack(fill='x', pady=(0, 10))
 
         # Número da Oportunidade
@@ -1103,7 +1109,8 @@ class CRMApp:
         form_win = Toplevel(self.root)
         form_win.title("Nova Oportunidade" if not op_id else "Editar Oportunidade")
         form_win.geometry("1100x800") # Aumentado para melhor visualização
-        form_win.configure(bg=DOLP_COLORS['white'])
+        form_win.configure(bg=DOLP_COLORS['light_blue_bg'])
+
 
         # --- Estrutura Principal da Janela ---
         # Notebook para as abas (ocupa a maior parte da janela)
@@ -1111,7 +1118,7 @@ class CRMApp:
         notebook.pack(fill='both', expand=True, padx=10, pady=(10, 0))
 
         # Botões de Ação (sempre visíveis na parte inferior)
-        buttons_frame = ttk.Frame(form_win, padding=(10, 15, 10, 15))
+        buttons_frame = ttk.Frame(form_win, padding=(10, 15, 10, 15), style='TFrame')
         buttons_frame.pack(side='bottom', fill='x')
 
         # --- Criação das Abas com Rolagem ---
@@ -1133,7 +1140,7 @@ class CRMApp:
         analise_frame.columnconfigure(1, weight=1)
 
         # Informações Básicas
-        info_basicas = ttk.LabelFrame(analise_frame, text="Informações Básicas", padding=15, style='White.TLabelframe')
+        info_basicas = ttk.LabelFrame(analise_frame, text="Informações Básicas", padding=15, style='TLabelframe')
         info_basicas.pack(fill='x', pady=(0, 10))
         info_basicas.columnconfigure(1, weight=1)
 
@@ -1159,7 +1166,7 @@ class CRMApp:
             entries[key] = widget
 
         # Checklist de Qualificação de Oportunidade
-        checklist_frame = ttk.LabelFrame(analise_frame, text="Checklist de Qualificação de Oportunidade", padding=15, style='White.TLabelframe')
+        checklist_frame = ttk.LabelFrame(analise_frame, text="Checklist de Qualificação de Oportunidade", padding=15, style='TLabelframe')
         checklist_frame.pack(fill='x', pady=(0, 10))
         checklist_frame.columnconfigure(1, weight=1)
 
@@ -1244,8 +1251,8 @@ class CRMApp:
         # --- Início da UI do Checklist ---
 
         # Tipos de Serviço (Checkboxes)
-        ttk.Label(checklist_frame, text="Tipos de Serviço:", font=('Segoe UI', 10, 'bold')).grid(row=0, column=0, sticky='nw', pady=5, padx=5)
-        tipos_frame = ttk.Frame(checklist_frame)
+        ttk.Label(checklist_frame, text="Tipos de Serviço:", font=(self.primary_font, 10, 'bold')).grid(row=0, column=0, sticky='nw', pady=5, padx=5)
+        tipos_frame = ttk.Frame(checklist_frame, style='TLabelframe')
         tipos_frame.grid(row=0, column=1, sticky='ew', pady=5, padx=5)
         tipos_vars = {}
         col_count = 3
@@ -1273,7 +1280,7 @@ class CRMApp:
 
         # Empresa Referência
         empresa_row = start_row_after_services + len(checklist_fields)
-        ttk.Label(checklist_frame, text="Empresa Referência:", font=('Segoe UI', 10, 'bold')).grid(row=empresa_row, column=0, sticky='w', pady=5, padx=5)
+        ttk.Label(checklist_frame, text="Empresa Referência:", font=(self.primary_font, 10, 'bold')).grid(row=empresa_row, column=0, sticky='w', pady=5, padx=5)
         empresas_ref = self.db.get_all_empresas_referencia()
         empresa_names = sorted(list(set([emp['nome_empresa'] for emp in empresas_ref])))
         empresa_combo = ttk.Combobox(checklist_frame, values=empresa_names, state='readonly')
@@ -1282,8 +1289,8 @@ class CRMApp:
 
         # Quantidade de Bases
         bases_row = empresa_row + 1
-        ttk.Label(checklist_frame, text="Quantidade de Bases:", font=('Segoe UI', 10, 'bold')).grid(row=bases_row, column=0, sticky='w', pady=5, padx=5)
-        bases_input_frame = ttk.Frame(checklist_frame)
+        ttk.Label(checklist_frame, text="Quantidade de Bases:", font=(self.primary_font, 10, 'bold')).grid(row=bases_row, column=0, sticky='w', pady=5, padx=5)
+        bases_input_frame = ttk.Frame(checklist_frame, style='TLabelframe')
         bases_input_frame.grid(row=bases_row, column=1, sticky='ew', pady=5, padx=5)
         bases_fields_frame = ttk.Frame(checklist_frame)
         bases_fields_frame.grid(row=bases_row + 1, column=0, columnspan=2, sticky='ew', pady=5, padx=5)
@@ -1327,7 +1334,7 @@ class CRMApp:
         sumario_frame.columnconfigure(1, weight=1)
 
         # Informações do Edital
-        edital_frame = ttk.LabelFrame(sumario_frame, text="Informações do Edital", padding=15, style='White.TLabelframe')
+        edital_frame = ttk.LabelFrame(sumario_frame, text="Informações do Edital", padding=15, style='TLabelframe')
         edital_frame.pack(fill='x', pady=(0, 10))
         edital_frame.columnconfigure(1, weight=1)
 
@@ -1349,7 +1356,7 @@ class CRMApp:
             entries[key] = entry
 
         # Informações de Cotação
-        cotacao_frame = ttk.LabelFrame(sumario_frame, text="Informações de Cotação", padding=15, style='White.TLabelframe')
+        cotacao_frame = ttk.LabelFrame(sumario_frame, text="Informações de Cotação", padding=15, style='TLabelframe')
         cotacao_frame.pack(fill='x', pady=(0, 10))
         cotacao_frame.columnconfigure(1, weight=1)
 
@@ -1387,12 +1394,13 @@ class CRMApp:
             entries[key] = entry
 
         # Detalhes dos Serviços e Preços (Automático baseado na Análise Prévia)
-        servicos_frame = ttk.LabelFrame(sumario_frame, text="Detalhes dos Serviços e Preços (Calculado Automaticamente)", padding=15, style='White.TLabelframe')
+        servicos_frame = ttk.LabelFrame(sumario_frame, text="Detalhes dos Serviços e Preços (Calculado Automaticamente)", padding=15, style='TLabelframe')
         servicos_frame.pack(fill='x', pady=(0, 10))
 
         # Informações sobre cálculo
-        info_calculo = ttk.Label(servicos_frame, text="Os preços são calculados com base na Análise Prévia. Clique no botão para recalcular.", font=('Segoe UI', 9, 'italic'), foreground=DOLP_COLORS['medium_gray'])
+        info_calculo = ttk.Label(servicos_frame, text="Os preços são calculados com base na Análise Prévia. Clique no botão para recalcular.", font=(self.primary_font, 9, 'italic'), foreground=DOLP_COLORS['light_text'])
         info_calculo.pack(pady=(0, 10))
+        info_calculo.configure(background=DOLP_COLORS['white'])
 
         # Botão para calcular preços
         calculo_frame = ttk.Frame(servicos_frame)
@@ -1477,10 +1485,10 @@ class CRMApp:
 
 
         # Descrição Detalhada
-        desc_frame = ttk.LabelFrame(sumario_frame, text="Descrição Detalhada", padding=15, style='White.TLabelframe')
+        desc_frame = ttk.LabelFrame(sumario_frame, text="Descrição Detalhada", padding=15, style='TLabelframe')
         desc_frame.pack(fill='both', expand=True, pady=(0, 10))
 
-        desc_text = tk.Text(desc_frame, height=8, wrap='word', bg='white', font=('Segoe UI', 10))
+        desc_text = tk.Text(desc_frame, height=8, wrap='word', bg=DOLP_COLORS['white'], font=(self.primary_font, 10), relief='flat', highlightthickness=1, highlightbackground=DOLP_COLORS['border_color'])
         desc_scrollbar = ttk.Scrollbar(desc_frame, orient="vertical", command=desc_text.yview)
         desc_text.configure(yscrollcommand=desc_scrollbar.set)
         desc_text.pack(side="left", fill="both", expand=True)
@@ -1721,7 +1729,7 @@ class CRMApp:
         details_win = Toplevel(self.root)
         details_win.title("Detalhes da Oportunidade")
         details_win.geometry("900x700")
-        details_win.configure(bg=DOLP_COLORS['white'])
+        details_win.configure(bg=DOLP_COLORS['light_blue_bg'])
 
         op_data = self.db.get_opportunity_details(op_id)
         if not op_data:
@@ -1746,7 +1754,7 @@ class CRMApp:
         analise_tab = ttk.Frame(notebook, padding=20)
         notebook.add(analise_tab, text='  Análise Prévia de Viabilidade  ')
 
-        info_frame = ttk.LabelFrame(analise_tab, text="Informações Básicas", padding=15, style='White.TLabelframe')
+        info_frame = ttk.LabelFrame(analise_tab, text="Informações Básicas", padding=15, style='TLabelframe')
         info_frame.pack(fill='x', pady=(0, 10))
 
         basic_info = [
@@ -1760,10 +1768,10 @@ class CRMApp:
         ]
 
         for i, (label, value) in enumerate(basic_info):
-            row_frame = ttk.Frame(info_frame)
+            row_frame = ttk.Frame(info_frame, style='TLabelframe')
             row_frame.pack(fill='x', pady=2)
-            ttk.Label(row_frame, text=label, style='Metric.White.TLabel', width=20).pack(side='left')
-            ttk.Label(row_frame, text=str(value), style='Value.White.TLabel').pack(side='left', padx=(10, 0))
+            ttk.Label(row_frame, text=label, style='Metric.TLabel', width=20).pack(side='left')
+            ttk.Label(row_frame, text=str(value), style='Value.TLabel').pack(side='left', padx=(10, 0))
 
         # Bases alocadas
         bases_nomes_json = op_data['bases_nomes'] if 'bases_nomes' in op_keys else None
@@ -1771,14 +1779,14 @@ class CRMApp:
             try:
                 bases_nomes = json.loads(bases_nomes_json)
                 if bases_nomes:
-                    bases_frame = ttk.LabelFrame(analise_tab, text="Bases Alocadas", padding=15, style='White.TLabelframe')
+                    bases_frame = ttk.LabelFrame(analise_tab, text="Bases Alocadas", padding=15, style='TLabelframe')
                     bases_frame.pack(fill='x', pady=(10, 0))
 
                     for i, base in enumerate(bases_nomes, 1):
-                        base_frame = ttk.Frame(bases_frame)
+                        base_frame = ttk.Frame(bases_frame, style='TLabelframe')
                         base_frame.pack(fill='x', pady=2)
-                        ttk.Label(base_frame, text=f"Base {i}:", style='Metric.White.TLabel', width=10).pack(side='left')
-                        ttk.Label(base_frame, text=base, style='Value.White.TLabel').pack(side='left', padx=(10, 0))
+                        ttk.Label(base_frame, text=f"Base {i}:", style='Metric.TLabel', width=10).pack(side='left')
+                        ttk.Label(base_frame, text=base, style='Value.TLabel').pack(side='left', padx=(10, 0))
             except (json.JSONDecodeError, TypeError):
                 print(f"Alerta: Falha ao carregar nomes de bases na tela de detalhes: {bases_nomes_json}")
 
@@ -1787,7 +1795,7 @@ class CRMApp:
         sumario_tab = ttk.Frame(notebook, padding=20)
         notebook.add(sumario_tab, text='  Sumário Executivo  ')
 
-        edital_frame = ttk.LabelFrame(sumario_tab, text="Informações do Edital", padding=15, style='White.TLabelframe')
+        edital_frame = ttk.LabelFrame(sumario_tab, text="Informações do Edital", padding=15, style='TLabelframe')
         edital_frame.pack(fill='x', pady=(0, 10))
 
         edital_info = [
@@ -1798,21 +1806,21 @@ class CRMApp:
         ]
 
         for label, value in edital_info:
-            row_frame = ttk.Frame(edital_frame)
+            row_frame = ttk.Frame(edital_frame, style='TLabelframe')
             row_frame.pack(fill='x', pady=2)
-            ttk.Label(row_frame, text=label, style='Metric.White.TLabel', width=20).pack(side='left')
-            ttk.Label(row_frame, text=str(value), style='Value.White.TLabel').pack(side='left', padx=(10, 0))
+            ttk.Label(row_frame, text=label, style='Metric.TLabel', width=20).pack(side='left')
+            ttk.Label(row_frame, text=str(value), style='Value.TLabel').pack(side='left', padx=(10, 0))
 
         link_docs = op_data['link_documentos'] if 'link_documentos' in op_keys else None
         if link_docs:
-            link_frame = ttk.Frame(edital_frame)
+            link_frame = ttk.Frame(edital_frame, style='TLabelframe')
             link_frame.pack(fill='x', pady=2)
-            ttk.Label(link_frame, text="Pasta de Documentos:", style='Metric.White.TLabel', width=20).pack(side='left')
-            link_label = ttk.Label(link_frame, text="Abrir Pasta", style='Link.White.TLabel', cursor="hand2")
+            ttk.Label(link_frame, text="Pasta de Documentos:", style='Metric.TLabel', width=20).pack(side='left')
+            link_label = ttk.Label(link_frame, text="Abrir Pasta", style='Link.TLabel', cursor="hand2")
             link_label.pack(side='left', padx=(10, 0))
             link_label.bind("<Button-1>", lambda e, url=link_docs: open_link(url))
 
-        financeiro_frame = ttk.LabelFrame(sumario_tab, text="Informações Financeiras e de Pessoal", padding=15, style='White.TLabelframe')
+        financeiro_frame = ttk.LabelFrame(sumario_tab, text="Informações Financeiras e de Pessoal", padding=15, style='TLabelframe')
         financeiro_frame.pack(fill='x', pady=(10, 10))
 
         financeiro_info = [
@@ -1825,10 +1833,10 @@ class CRMApp:
         ]
 
         for label, value in financeiro_info:
-            row_frame = ttk.Frame(financeiro_frame)
+            row_frame = ttk.Frame(financeiro_frame, style='TLabelframe')
             row_frame.pack(fill='x', pady=2)
-            ttk.Label(row_frame, text=label, style='Metric.White.TLabel', width=25).pack(side='left')
-            ttk.Label(row_frame, text=str(value), style='Value.White.TLabel').pack(side='left', padx=(10, 0))
+            ttk.Label(row_frame, text=label, style='Metric.TLabel', width=25).pack(side='left')
+            ttk.Label(row_frame, text=str(value), style='Value.TLabel').pack(side='left', padx=(10, 0))
 
         # Tipos de serviço e equipes (lendo da nova estrutura JSON)
         servicos_data_json_str = op_data['servicos_data'] if 'servicos_data' in op_keys else None
@@ -1836,17 +1844,17 @@ class CRMApp:
             try:
                 servicos_data = json.loads(servicos_data_json_str)
                 if servicos_data:
-                    servicos_frame = ttk.LabelFrame(sumario_tab, text="Serviços e Equipes Configurados", padding=15, style='White.TLabelframe')
+                    servicos_frame = ttk.LabelFrame(sumario_tab, text="Serviços e Equipes Configurados", padding=15, style='TLabelframe')
                     servicos_frame.pack(fill='x', pady=(10,0))
 
                     for servico_info in servicos_data:
                         servico_nome = servico_info.get("servico_nome", "N/A")
                         equipes = servico_info.get("equipes", [])
 
-                        ttk.Label(servicos_frame, text=servico_nome, style='Metric.White.TLabel', font=('Segoe UI', 11, 'bold')).pack(anchor='w', pady=(5,2))
+                        ttk.Label(servicos_frame, text=servico_nome, style='Metric.TLabel', font=(self.primary_font, 11, 'bold')).pack(anchor='w', pady=(5,2))
 
                         if not equipes:
-                            ttk.Label(servicos_frame, text="  - Nenhuma equipe configurada", style='Value.White.TLabel').pack(anchor='w', padx=(15,0))
+                            ttk.Label(servicos_frame, text="  - Nenhuma equipe configurada", style='Value.TLabel').pack(anchor='w', padx=(15,0))
                         else:
                             for equipe in equipes:
                                 equipe_nome = equipe.get('tipo_equipe', 'N/A')
@@ -1854,16 +1862,16 @@ class CRMApp:
                                 vol = equipe.get('volumetria', 'N/A')
                                 base = equipe.get('base', 'N/A')
                                 info_text = f"  - Equipe: {equipe_nome} | Qtd: {qtd} | Volumetria: {vol} | Base: {base}"
-                                ttk.Label(servicos_frame, text=info_text, style='Value.White.TLabel').pack(anchor='w', padx=(15,0))
+                                ttk.Label(servicos_frame, text=info_text, style='Value.TLabel').pack(anchor='w', padx=(15,0))
             except (json.JSONDecodeError, TypeError):
                 print(f"Alerta: Falha ao carregar dados de serviço na tela de detalhes: {servicos_data_json_str}")
 
         descricao_detalhada = op_data['descricao_detalhada'] if 'descricao_detalhada' in op_keys else None
         if descricao_detalhada:
-            desc_frame = ttk.LabelFrame(sumario_tab, text="Descrição Detalhada", padding=15, style='White.TLabelframe')
+            desc_frame = ttk.LabelFrame(sumario_tab, text="Descrição Detalhada", padding=15, style='TLabelframe')
             desc_frame.pack(fill='both', expand=True, pady=(10, 0))
 
-            desc_text = tk.Text(desc_frame, height=5, wrap='word', bg='white', font=('Segoe UI', 10), state='disabled')
+            desc_text = tk.Text(desc_frame, height=5, wrap='word', bg=DOLP_COLORS['white'], font=(self.primary_font, 10), state='disabled', relief='flat', highlightthickness=1, highlightbackground=DOLP_COLORS['border_color'])
             desc_scrollbar = ttk.Scrollbar(desc_frame, orient="vertical", command=desc_text.yview)
             desc_text.configure(yscrollcommand=desc_scrollbar.set)
             desc_text.pack(side="left", fill="both", expand=True)
@@ -1882,13 +1890,13 @@ class CRMApp:
         interacoes = self.db.get_interactions_for_opportunity(op_id)
         if interacoes:
             for interacao in interacoes:
-                int_frame = ttk.LabelFrame(interacoes_tab, text=f"{interacao['tipo']} - {interacao['data_interacao']}", padding=10, style='White.TLabelframe')
+                int_frame = ttk.LabelFrame(interacoes_tab, text=f"{interacao['tipo']} - {interacao['data_interacao']}", padding=10, style='TLabelframe')
                 int_frame.pack(fill='x', pady=5)
 
-                ttk.Label(int_frame, text=f"Usuário: {interacao['usuario']}", style='Metric.White.TLabel').pack(anchor='w')
-                ttk.Label(int_frame, text=interacao['resumo'], style='Value.White.TLabel', wraplength=800).pack(anchor='w', pady=(5, 0))
+                ttk.Label(int_frame, text=f"Usuário: {interacao['usuario']}", style='Metric.TLabel').pack(anchor='w')
+                ttk.Label(int_frame, text=interacao['resumo'], style='Value.TLabel', wraplength=800).pack(anchor='w', pady=(5, 0))
         else:
-            ttk.Label(interacoes_tab, text="Nenhuma interação registrada.", style='Value.White.TLabel').pack(pady=20)
+            ttk.Label(interacoes_tab, text="Nenhuma interação registrada.", style='Value.TLabel').pack(pady=20)
 
         # Aba 4: Tarefas
         tarefas_tab = ttk.Frame(notebook, padding=20)
@@ -1899,40 +1907,43 @@ class CRMApp:
         tarefas = self.db.get_tasks_for_opportunity(op_id)
         if tarefas:
             for tarefa in tarefas:
-                task_frame = ttk.LabelFrame(tarefas_tab, text=f"Tarefa - {tarefa['status']}", padding=10, style='White.TLabelframe')
+                task_frame = ttk.LabelFrame(tarefas_tab, text=f"Tarefa - {tarefa['status']}", padding=10, style='TLabelframe')
                 task_frame.pack(fill='x', pady=5)
 
-                ttk.Label(task_frame, text=tarefa['descricao'], style='Value.White.TLabel', wraplength=800).pack(anchor='w')
+                ttk.Label(task_frame, text=tarefa['descricao'], style='Value.TLabel', wraplength=800).pack(anchor='w')
 
-                info_frame = ttk.Frame(task_frame)
+                info_frame = ttk.Frame(task_frame, style='TLabelframe')
                 info_frame.pack(fill='x', pady=(5, 0))
-                ttk.Label(info_frame, text=f"Responsável: {tarefa['responsavel']}", style='Metric.White.TLabel').pack(side='left')
-                ttk.Label(info_frame, text=f"Vencimento: {tarefa['data_vencimento']}", style='Metric.White.TLabel').pack(side='right')
+                ttk.Label(info_frame, text=f"Responsável: {tarefa['responsavel']}", style='Metric.TLabel').pack(side='left')
+                ttk.Label(info_frame, text=f"Vencimento: {tarefa['data_vencimento']}", style='Metric.TLabel').pack(side='right')
 
                 if tarefa['status'] != 'Concluída':
                     ttk.Button(task_frame, text="Marcar como Concluída",
                              command=lambda t_id=tarefa['id'], op_id=op_id: self.complete_task(t_id, op_id, details_win),
                              style='Success.TButton').pack(anchor='e', pady=(5, 0))
         else:
-            ttk.Label(tarefas_tab, text="Nenhuma tarefa registrada.", style='Value.White.TLabel').pack(pady=20)
+            ttk.Label(tarefas_tab, text="Nenhuma tarefa registrada.", style='Value.TLabel').pack(pady=20)
 
     def add_interaction_dialog(self, op_id, parent_win):
         dialog = Toplevel(parent_win)
         dialog.title("Nova Interação")
         dialog.geometry("500x400")
-        dialog.configure(bg=DOLP_COLORS['white'])
+        dialog.configure(bg=DOLP_COLORS['light_blue_bg'])
 
-        ttk.Label(dialog, text="Tipo de Interação:", style='TLabel').pack(pady=5)
-        tipo_combo = ttk.Combobox(dialog, values=["Reunião", "Ligação", "E-mail", "Proposta", "Negociação", "Outro"], state='readonly')
-        tipo_combo.pack(pady=5, padx=20, fill='x')
+        main_frame = ttk.Frame(dialog, padding=20)
+        main_frame.pack(fill='both', expand=True)
 
-        ttk.Label(dialog, text="Usuário:", style='TLabel').pack(pady=5)
-        usuario_entry = ttk.Entry(dialog)
-        usuario_entry.pack(pady=5, padx=20, fill='x')
+        ttk.Label(main_frame, text="Tipo de Interação:").pack(pady=5, anchor='w')
+        tipo_combo = ttk.Combobox(main_frame, values=["Reunião", "Ligação", "E-mail", "Proposta", "Negociação", "Outro"], state='readonly')
+        tipo_combo.pack(pady=5, fill='x')
 
-        ttk.Label(dialog, text="Resumo:", style='TLabel').pack(pady=5)
-        resumo_text = tk.Text(dialog, height=8, wrap='word', bg='white')
-        resumo_text.pack(pady=5, padx=20, fill='both', expand=True)
+        ttk.Label(main_frame, text="Usuário:").pack(pady=5, anchor='w')
+        usuario_entry = ttk.Entry(main_frame)
+        usuario_entry.pack(pady=5, fill='x')
+
+        ttk.Label(main_frame, text="Resumo:").pack(pady=5, anchor='w')
+        resumo_text = tk.Text(main_frame, height=8, wrap='word', bg=DOLP_COLORS['white'], relief='flat', highlightthickness=1, highlightbackground=DOLP_COLORS['border_color'])
+        resumo_text.pack(pady=5, fill='both', expand=True)
 
         def save_interaction():
             data = {
@@ -1960,19 +1971,23 @@ class CRMApp:
         dialog = Toplevel(parent_win)
         dialog.title("Nova Tarefa")
         dialog.geometry("500x350")
-        dialog.configure(bg=DOLP_COLORS['white'])
+        dialog.configure(bg=DOLP_COLORS['light_blue_bg'])
 
-        ttk.Label(dialog, text="Descrição:", style='TLabel').pack(pady=5)
-        desc_text = tk.Text(dialog, height=6, wrap='word', bg='white')
-        desc_text.pack(pady=5, padx=20, fill='both', expand=True)
+        main_frame = ttk.Frame(dialog, padding=20)
+        main_frame.pack(fill='both', expand=True)
 
-        ttk.Label(dialog, text="Responsável:", style='TLabel').pack(pady=5)
-        responsavel_entry = ttk.Entry(dialog)
-        responsavel_entry.pack(pady=5, padx=20, fill='x')
 
-        ttk.Label(dialog, text="Data de Vencimento:", style='TLabel').pack(pady=5)
-        vencimento_date = DateEntry(dialog, date_pattern='dd/mm/yyyy')
-        vencimento_date.pack(pady=5, padx=20)
+        ttk.Label(main_frame, text="Descrição:").pack(pady=5, anchor='w')
+        desc_text = tk.Text(main_frame, height=6, wrap='word', bg=DOLP_COLORS['white'], relief='flat', highlightthickness=1, highlightbackground=DOLP_COLORS['border_color'])
+        desc_text.pack(pady=5, fill='both', expand=True)
+
+        ttk.Label(main_frame, text="Responsável:").pack(pady=5, anchor='w')
+        responsavel_entry = ttk.Entry(main_frame)
+        responsavel_entry.pack(pady=5, fill='x')
+
+        ttk.Label(main_frame, text="Data de Vencimento:").pack(pady=5, anchor='w')
+        vencimento_date = DateEntry(main_frame, date_pattern='dd/mm/yyyy')
+        vencimento_date.pack(pady=5, fill='x')
 
         def save_task():
             data = {
@@ -2082,9 +2097,9 @@ class CRMApp:
         form_win = Toplevel(self.root)
         form_win.title("Novo Cliente" if not client_id else "Editar Cliente")
         form_win.geometry("600x500")
-        form_win.configure(bg=DOLP_COLORS['white'])
+        form_win.configure(bg=DOLP_COLORS['light_blue_bg'])
 
-        main_frame = ttk.Frame(form_win, padding=20, style='TFrame')
+        main_frame = ttk.Frame(form_win, padding=20)
         main_frame.pack(fill='both', expand=True)
 
         ttk.Label(main_frame, text="Novo Cliente" if not client_id else "Editar Cliente", style='Title.TLabel').pack(pady=(0, 20))
@@ -2256,9 +2271,9 @@ class CRMApp:
         form_win = Toplevel(self.root)
         form_win.title("Novo Tipo de Serviço" if not servico_id else "Editar Tipo de Serviço")
         form_win.geometry("500x400")
-        form_win.configure(bg=DOLP_COLORS['white'])
+        form_win.configure(bg=DOLP_COLORS['light_blue_bg'])
 
-        main_frame = ttk.Frame(form_win, padding=20, style='TFrame')
+        main_frame = ttk.Frame(form_win, padding=20)
         main_frame.pack(fill='both', expand=True)
 
         ttk.Label(main_frame, text="Novo Tipo de Serviço" if not servico_id else "Editar Tipo de Serviço", style='Title.TLabel').pack(pady=(0, 20))
@@ -2372,8 +2387,8 @@ class CRMApp:
         form_win = Toplevel(self.root)
         form_win.title("Novo Tipo de Equipe" if not team_id else "Editar Tipo de Equipe")
         form_win.geometry("500x300")
-        form_win.configure(bg=DOLP_COLORS['white'])
-        main_frame = ttk.Frame(form_win, padding=20, style='TFrame')
+        form_win.configure(bg=DOLP_COLORS['light_blue_bg'])
+        main_frame = ttk.Frame(form_win, padding=20)
         main_frame.pack(fill='both', expand=True)
         ttk.Label(main_frame, text="Novo Tipo de Equipe" if not team_id else "Editar Tipo de Equipe", style='Title.TLabel').pack(pady=(0, 20))
 
@@ -2512,9 +2527,9 @@ class CRMApp:
         form_win = Toplevel(self.root)
         form_win.title("Nova Empresa Referência" if not empresa_id else "Editar Empresa Referência")
         form_win.geometry("600x500")
-        form_win.configure(bg=DOLP_COLORS['white'])
+        form_win.configure(bg=DOLP_COLORS['light_blue_bg'])
 
-        main_frame = ttk.Frame(form_win, padding=20, style='TFrame')
+        main_frame = ttk.Frame(form_win, padding=20)
         main_frame.pack(fill='both', expand=True)
 
         ttk.Label(main_frame, text="Nova Empresa Referência" if not empresa_id else "Editar Empresa Referência", style='Title.TLabel').pack(pady=(0, 20))
@@ -2604,17 +2619,17 @@ class CRMApp:
         manager_win = Toplevel(self.root)
         manager_win.title(f"Gerenciar {title}")
         manager_win.geometry("500x400")
-        manager_win.configure(bg=DOLP_COLORS['white'])
+        manager_win.configure(bg=DOLP_COLORS['light_blue_bg'])
 
-        main_frame = ttk.Frame(manager_win, padding=20, style='TFrame')
+        main_frame = ttk.Frame(manager_win, padding=20)
         main_frame.pack(fill='both', expand=True)
 
         ttk.Label(main_frame, text=f"Gerenciar {title}", style='Title.TLabel').pack(pady=(0, 20))
 
-        list_frame = ttk.Frame(main_frame, style='TFrame')
+        list_frame = ttk.Frame(main_frame)
         list_frame.pack(fill='both', expand=True, pady=(0, 10))
 
-        listbox = tk.Listbox(list_frame, bg='white', font=('Segoe UI', 10))
+        listbox = tk.Listbox(list_frame, bg=DOLP_COLORS['white'], font=(self.primary_font, 10), relief='flat', highlightthickness=1, highlightbackground=DOLP_COLORS['border_color'])
         scrollbar_list = ttk.Scrollbar(list_frame, orient='vertical', command=listbox.yview)
         listbox.configure(yscrollcommand=scrollbar_list.set)
 
