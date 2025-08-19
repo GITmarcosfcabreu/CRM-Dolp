@@ -558,18 +558,18 @@ class CRMApp:
         style.map('Danger.TButton', background=[('active', '#dc2626'), ('pressed', '#b91c1c')])
 
         # Labels e outros elementos
-        style.configure('TLabel', background=DOLP_COLORS['white'], foreground=DOLP_COLORS['dark_gray'], font=('Segoe UI', 10))
-        style.configure('Header.TLabel', background=DOLP_COLORS['white'], foreground=DOLP_COLORS['primary_blue'], font=('Segoe UI', 16, 'bold'))
-        style.configure('Title.TLabel', background=DOLP_COLORS['white'], foreground=DOLP_COLORS['dark_gray'], font=('Segoe UI', 14, 'bold'))
+        style.configure('TLabel', foreground=DOLP_COLORS['dark_gray'], font=('Segoe UI', 10))
+        style.configure('Header.TLabel', foreground=DOLP_COLORS['primary_blue'], font=('Segoe UI', 16, 'bold'))
+        style.configure('Title.TLabel', foreground=DOLP_COLORS['dark_gray'], font=('Segoe UI', 14, 'bold'))
 
         # Estilos para LabelFrames
         style.configure('White.TLabelframe', background=DOLP_COLORS['white'], borderwidth=1, relief='solid')
-        style.configure('White.TLabelframe.Label', background=DOLP_COLORS['white'], foreground=DOLP_COLORS['primary_blue'], font=('Segoe UI', 11, 'bold'))
+        style.configure('White.TLabelframe.Label', foreground=DOLP_COLORS['primary_blue'], font=('Segoe UI', 11, 'bold'))
 
         # Estilos para Labels específicos
-        style.configure('Metric.White.TLabel', background=DOLP_COLORS['white'], foreground=DOLP_COLORS['primary_blue'], font=('Segoe UI', 12, 'bold'))
-        style.configure('Value.White.TLabel', background=DOLP_COLORS['white'], foreground=DOLP_COLORS['dark_gray'], font=('Segoe UI', 11))
-        style.configure('Link.White.TLabel', background=DOLP_COLORS['white'], foreground=DOLP_COLORS['secondary_blue'], font=('Segoe UI', 10, 'underline'))
+        style.configure('Metric.White.TLabel', foreground=DOLP_COLORS['primary_blue'], font=('Segoe UI', 12, 'bold'))
+        style.configure('Value.White.TLabel', foreground=DOLP_COLORS['dark_gray'], font=('Segoe UI', 11))
+        style.configure('Link.White.TLabel', foreground=DOLP_COLORS['secondary_blue'], font=('Segoe UI', 10, 'underline'))
 
         # Entry e Combobox
         style.configure('TEntry', fieldbackground='white', borderwidth=1, relief='solid')
@@ -588,8 +588,8 @@ class CRMApp:
         # --- NOVA SEÇÃO DE ESTILOS ADICIONADA ---
         # Estilos para os Cards de Oportunidade no Funil
         style.configure('Card.TFrame', background=DOLP_COLORS['light_blue'], relief='solid', borderwidth=2)
-        style.configure('Card.TLabel', background=DOLP_COLORS['light_blue'], foreground=DOLP_COLORS['dark_gray'], font=('Segoe UI', 10))
-        style.configure('Card.Title.TLabel', background=DOLP_COLORS['light_blue'], foreground=DOLP_COLORS['dark_gray'], font=('Segoe UI', 11, 'bold'))
+        style.configure('Card.TLabel', foreground=DOLP_COLORS['dark_gray'], font=('Segoe UI', 10))
+        style.configure('Card.Title.TLabel', foreground=DOLP_COLORS['dark_gray'], font=('Segoe UI', 11, 'bold'))
         # ----------------------------------------
 
     def _create_main_container(self):
