@@ -288,10 +288,26 @@ class DatabaseManager:
             conn.execute("UPDATE clientes SET nome_empresa=?, cnpj=?, cidade=?, estado=?, setor_atuacao=?, segmento_atuacao=?, data_atualizacao=?, link_portal=?, status=? WHERE id=?", (data['nome_empresa'], data['cnpj'], data['cidade'], data['estado'], data['setor_atuacao'], data['segmento_atuacao'], data['data_atualizacao'], data['link_portal'], data['status'], client_id))
 
     # Métodos de Pipeline
-    def get_pipeline_data(self):
+    def get_pipeline_data(self, setor=None, segmento=None):
         with self._connect() as conn:
             estagios = conn.execute("SELECT * FROM pipeline_estagios ORDER BY ordem").fetchall()
-            oportunidades = conn.execute("SELECT o.id, o.titulo, o.valor, o.cliente_id, o.estagio_id, c.nome_empresa FROM oportunidades o JOIN clientes c ON o.cliente_id = c.id").fetchall()
+
+            base_query = "SELECT o.id, o.titulo, o.valor, o.cliente_id, o.estagio_id, c.nome_empresa FROM oportunidades o JOIN clientes c ON o.cliente_id = c.id"
+            conditions = []
+            params = []
+
+            if setor and setor != 'Todos':
+                conditions.append("c.setor_atuacao = ?")
+                params.append(setor)
+
+            if segmento and segmento != 'Todos':
+                conditions.append("c.segmento_atuacao = ?")
+                params.append(segmento)
+
+            if conditions:
+                base_query += " WHERE " + " AND ".join(conditions)
+
+            oportunidades = conn.execute(base_query, params).fetchall()
             return estagios, oportunidades
 
     def get_opportunity_details(self, op_id):
@@ -684,6 +700,28 @@ class CRMApp:
         ttk.Button(title_frame, text="Nova Oportunidade", command=lambda: self.show_opportunity_form(), style='Success.TButton').pack(side='right', padx=(0, 10))
         ttk.Button(title_frame, text="← Voltar", command=self.show_main_menu, style='TButton').pack(side='right', padx=(0, 10))
 
+        # Frame de Filtros
+        filters_frame = ttk.LabelFrame(self.content_frame, text="Filtros", padding=15, style='White.TLabelframe')
+        filters_frame.pack(fill='x', pady=(5, 20))
+
+        # Setor
+        ttk.Label(filters_frame, text="Setor:", style='TLabel').grid(row=0, column=0, sticky='w', padx=(0, 5))
+        self.setor_filter = ttk.Combobox(filters_frame, values=['Todos'] + self.db.get_all_setores(), width=25)
+        self.setor_filter.set('Todos')
+        self.setor_filter.grid(row=0, column=1, padx=(0, 20))
+
+        # Segmento
+        ttk.Label(filters_frame, text="Segmento:", style='TLabel').grid(row=0, column=2, sticky='w', padx=(0, 5))
+        self.segmento_filter = ttk.Combobox(filters_frame, values=['Todos'] + self.db.get_all_segmentos(), width=25)
+        self.segmento_filter.set('Todos')
+        self.segmento_filter.grid(row=0, column=3, padx=(0, 20))
+
+        # Botão de Aplicar
+        apply_btn = ttk.Button(filters_frame, text="🔍 Aplicar Filtros", style='Primary.TButton',
+                               command=lambda: self.show_kanban_view()) # Recarrega a view
+        apply_btn.grid(row=0, column=4, padx=(20, 0))
+
+
         # Frame principal com scrollbar vertical
         main_frame = ttk.Frame(self.content_frame, style='TFrame')
         main_frame.pack(fill='both', expand=True)
@@ -701,8 +739,11 @@ class CRMApp:
         canvas.pack(side="left", fill="both", expand=True)
         v_scrollbar.pack(side="right", fill="y")
 
-        # Obter dados do pipeline
-        estagios_todos, oportunidades = self.db.get_pipeline_data()
+        # Obter dados do pipeline com base nos filtros
+        setor_selecionado = self.setor_filter.get() if hasattr(self, 'setor_filter') else 'Todos'
+        segmento_selecionado = self.segmento_filter.get() if hasattr(self, 'segmento_filter') else 'Todos'
+
+        estagios_todos, oportunidades = self.db.get_pipeline_data(setor=setor_selecionado, segmento=segmento_selecionado)
         estagios = [e for e in estagios_todos if e['nome'] != 'Histórico']
         clients = self.db.get_all_clients()
 
