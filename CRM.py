@@ -598,6 +598,10 @@ class CRMApp:
         # --- LabelFrames (usados como contêineres de seção) ---
         style.configure('TLabelframe', background='#f0f4f8', borderwidth=1, relief='solid', bordercolor=DOLP_COLORS['border_color'])
         style.configure('TLabelframe.Label', background='#f0f4f8', foreground=primary_color, font=(self.primary_font, 11, 'bold'))
+        
+ # --- LabelFrames (usados como contêineres de seção) ---
+        style.configure('TLabelframeTarefa', background="#cf2a1e", borderwidth=1, relief='solid', bordercolor=DOLP_COLORS['border_color'])
+        style.configure('TLabelframeTarefa.Label', background="#11c02e", foreground=primary_color, font=(self.primary_font, 11, 'bold'))
 
         # --- Estilos para Labels dentro de Cards/Frames Brancos ---
         style.configure('Card.TLabel', background=white_color, foreground=text_color, font=(self.primary_font, 10))
@@ -1918,7 +1922,7 @@ class CRMApp:
                 int_frame.pack(fill='x', pady=5)
 
                 ttk.Label(int_frame, text=f"Usuário: {interacao['usuario']}", style='Metric.TLabel').pack(anchor='w')
-                ttk.Label(int_frame, text=interacao['resumo'], style='Value.TLabel', wraplength=800).pack(anchor='w', pady=(5, 0))
+                ttk.Label(int_frame, text=interacao['resumo'], style='Metric.TLabel', wraplength=800).pack(anchor='w', pady=(5, 0))
         else:
             ttk.Label(interacoes_tab, text="Nenhuma interação registrada.", style='Value.TLabel').pack(pady=20)
 
@@ -1934,12 +1938,12 @@ class CRMApp:
                 task_frame = ttk.LabelFrame(tarefas_tab, text=f"Tarefa - {tarefa['status']}", padding=10, style='TLabelframe')
                 task_frame.pack(fill='x', pady=5)
 
-                ttk.Label(task_frame, text=tarefa['descricao'], style='Value.TLabel', wraplength=800).pack(anchor='w')
+                ttk.Label(task_frame, text=tarefa['descricao'], style='Metric.TLabel', wraplength=800).pack(anchor='w')
 
                 info_frame = ttk.Frame(task_frame, style='TLabelframe')
-                info_frame.pack(fill='x', pady=(5, 0))
-                ttk.Label(info_frame, text=f"Responsável: {tarefa['responsavel']}", style='Metric.TLabel').pack(side='left')
-                ttk.Label(info_frame, text=f"Vencimento: {tarefa['data_vencimento']}", style='Metric.TLabel').pack(side='right')
+                info_frame.pack(fill='x', pady=(15, 0))
+                ttk.Label(info_frame, text=f"Responsável: {tarefa['responsavel']}", style='Metric.TLabel').pack(side='left', pady=(5,0))
+                ttk.Label(info_frame, text=f"Vencimento: {tarefa['data_vencimento']}", style='Metric.TLabel').pack(side='right', pady=(5,0))
 
                 if tarefa['status'] != 'Concluída':
                     ttk.Button(task_frame, text="Marcar como Concluída",
