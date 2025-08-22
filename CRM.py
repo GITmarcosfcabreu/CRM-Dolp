@@ -622,9 +622,9 @@ class CRMApp:
         style.map('Danger.TButton', background=[('active', '#dc2626'), ('pressed', '#b91c1c')])
 
         # Labels e outros elementos
-        style.configure('TLabel', foreground='#000000', font=('Segoe UI', 10))
-        style.configure('Header.TLabel', foreground=DOLP_COLORS['primary_blue'], font=('Segoe UI', 16, 'bold'))
-        style.configure('Title.TLabel', foreground=DOLP_COLORS['dark_gray'], font=('Segoe UI', 14, 'bold'))
+        style.configure('TLabel', foreground='#000000', font=('Segoe UI', 10), background=DOLP_COLORS['white'])
+        style.configure('Header.TLabel', foreground=DOLP_COLORS['primary_blue'], font=('Segoe UI', 16, 'bold'), background=DOLP_COLORS['white'])
+        style.configure('Title.TLabel', foreground=DOLP_COLORS['dark_gray'], font=('Segoe UI', 14, 'bold'), background=DOLP_COLORS['white'])
 
         # Estilos para LabelFrames
         style.configure('White.TLabelframe', background=DOLP_COLORS['white'], borderwidth=1, relief='solid')
