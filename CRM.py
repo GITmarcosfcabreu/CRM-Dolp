@@ -571,6 +571,11 @@ class CRMApp:
         self.root.state('zoomed') # Abre a janela maximizada
         self.root.minsize(1280, 720)
         self.logo_image = load_logo_image()
+
+        # Inicializar estado dos filtros
+        self.kanban_setor_filter = 'Todos'
+        self.kanban_segmento_filter = 'Todos'
+
         self._configure_styles()
         self._create_main_container()
         self.show_main_menu()
@@ -727,6 +732,13 @@ class CRMApp:
             btn = ttk.Button(buttons_frame, text=text, command=command, style=style, width=25)
             btn.pack(pady=10)
 
+    def _apply_kanban_filters(self):
+        """Salva o estado atual dos filtros e recarrega a visão do kanban."""
+        if hasattr(self, 'setor_filter') and hasattr(self, 'segmento_filter'):
+            self.kanban_setor_filter = self.setor_filter.get()
+            self.kanban_segmento_filter = self.segmento_filter.get()
+        self.show_kanban_view()
+
     def show_kanban_view(self):
         self.clear_content()
 
@@ -746,18 +758,18 @@ class CRMApp:
         # Setor
         ttk.Label(filters_frame, text="Setor:", style='TLabel').grid(row=0, column=0, sticky='w', padx=(0, 5))
         self.setor_filter = ttk.Combobox(filters_frame, values=['Todos'] + self.db.get_all_setores(), width=25)
-        self.setor_filter.set('Todos')
+        self.setor_filter.set(self.kanban_setor_filter)
         self.setor_filter.grid(row=0, column=1, padx=(0, 20))
 
         # Segmento
         ttk.Label(filters_frame, text="Segmento:", style='TLabel').grid(row=0, column=2, sticky='w', padx=(0, 5))
         self.segmento_filter = ttk.Combobox(filters_frame, values=['Todos'] + self.db.get_all_segmentos(), width=25)
-        self.segmento_filter.set('Todos')
+        self.segmento_filter.set(self.kanban_segmento_filter)
         self.segmento_filter.grid(row=0, column=3, padx=(0, 20))
 
         # Botão de Aplicar
         apply_btn = ttk.Button(filters_frame, text="🔍 Aplicar Filtros", style='Primary.TButton',
-                               command=lambda: self.show_kanban_view()) # Recarrega a view
+                               command=self._apply_kanban_filters)
         apply_btn.grid(row=0, column=4, padx=(20, 0))
 
 
@@ -779,10 +791,10 @@ class CRMApp:
         v_scrollbar.pack(side="right", fill="y")
 
         # Obter dados do pipeline com base nos filtros
-        setor_selecionado = self.setor_filter.get() if hasattr(self, 'setor_filter') else 'Todos'
-        segmento_selecionado = self.segmento_filter.get() if hasattr(self, 'segmento_filter') else 'Todos'
-
-        estagios_todos, oportunidades = self.db.get_pipeline_data(setor=setor_selecionado, segmento=segmento_selecionado)
+        estagios_todos, oportunidades = self.db.get_pipeline_data(
+            setor=self.kanban_setor_filter,
+            segmento=self.kanban_segmento_filter
+        )
         estagios = [e for e in estagios_todos if e['nome'] != 'Histórico']
         clients = self.db.get_all_clients()
 
