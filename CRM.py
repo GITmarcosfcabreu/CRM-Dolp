@@ -283,9 +283,25 @@ class DatabaseManager:
                 cursor.execute("INSERT INTO crm_segmentos (nome) VALUES (?)", (segmento,))
 
     # Métodos de Clientes
-    def get_all_clients(self):
+    def get_all_clients(self, setor=None, segmento=None):
         with self._connect() as conn:
-            return conn.execute("SELECT * FROM clientes ORDER BY nome_empresa").fetchall()
+            base_query = "SELECT * FROM clientes"
+            conditions = []
+            params = []
+
+            if setor and setor != 'Todos':
+                conditions.append("setor_atuacao = ?")
+                params.append(setor)
+
+            if segmento and segmento != 'Todos':
+                conditions.append("segmento_atuacao = ?")
+                params.append(segmento)
+
+            if conditions:
+                base_query += " WHERE " + " AND ".join(conditions)
+
+            base_query += " ORDER BY nome_empresa"
+            return conn.execute(base_query, params).fetchall()
 
     def get_client_by_id(self, client_id):
         with self._connect() as conn:
@@ -796,7 +812,10 @@ class CRMApp:
             segmento=self.kanban_segmento_filter
         )
         estagios = [e for e in estagios_todos if e['nome'] != 'Histórico']
-        clients = self.db.get_all_clients()
+        clients = self.db.get_all_clients(
+            setor=self.kanban_setor_filter,
+            segmento=self.kanban_segmento_filter
+        )
 
         # Container para o funil, que se expande para preencher o espaço
         funil_container = ttk.Frame(scrollable_frame, style='TFrame')
