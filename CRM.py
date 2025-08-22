@@ -67,6 +67,32 @@ INITIAL_SETORES = ["Distribuição", "Geração", "Transmissão", "Comercializa�
 INITIAL_SEGMENTOS = ["Utilities", "Energia Renovável", "Óleo & Gás", "Manutenção Industrial", "Infraestrutura Elétrica", "Telecomunicações"]
 CLIENT_STATUS_OPTIONS = ["Playbook e não cadastrado", "Playbook e cadastrado", "Cadastrado", "Não cadastrado"]
 
+QUALIFICATION_CHECKLIST = {
+    "Aderência Estratégica e ao Perfil de Cliente Ideal": [
+        "O serviço está alinhado ao nosso core business de engenharia elétrica (construção, manutenção, serviços comerciais)?",
+        "A localização geográfica é estratégica para a DOLP?",
+        "O cliente possui reputação e solidez compatíveis com os valores da empresa, como a credibilidade e a ética?"
+    ],
+    "Capacidade Técnica e Operacional": [
+        "O escopo técnico exigido está 100% contido no escopo do nosso SGI?",
+        "Possuímos ou temos acesso rápido ao pessoal, equipamentos e frota necessários para atender à demanda sem comprometer os contratos vigentes?",
+        "Os requisitos de Segurança do Trabalho e Meio Ambiente do edital são compatíveis com nossas certificações e práticas?"
+    ],
+    "Viabilidade Econômico-Financeira": [
+        "O valor estimado do contrato está acima do mínimo definido pela diretoria?",
+        "As exigências de garantias contratuais e capacidade financeira são atendíveis pela empresa?",
+        "A margem potencial do negócio está alinhada com as metas financeiras estratégicas de lucro e rentabilidade?"
+    ],
+    "Análise Concorrencial e de Riscos": [
+        "Quem são os principais concorrentes que provavelmente participarão?",
+        "Quais são nossos diferenciais competitivos claros para esta oportunidade específica?",
+        "Quais os principais riscos (técnicos, logísticos, regulatórios, políticos) associados ao projeto?"
+    ],
+    "Análise de Interesse da Diretoria": [
+        "O investimento de tempo e recursos na elaboração de uma análise previa de viabilidade, é justificável?"
+    ]
+}
+
 # --- 2. FUNÇÕES UTILITÁRIAS ---
 def load_logo_image(size=(200, 75)):
     try:
@@ -191,6 +217,7 @@ class DatabaseManager:
                                 total_pessoas INTEGER,
                                 margem_contribuicao REAL,
                                 descricao_detalhada TEXT,
+                                qualificacao_data TEXT,
                                 FOREIGN KEY (cliente_id) REFERENCES clientes(id) ON DELETE CASCADE,
                                 FOREIGN KEY (estagio_id) REFERENCES pipeline_estagios(id)
                            )''')
@@ -228,7 +255,7 @@ class DatabaseManager:
                 "modalidade": "TEXT", "contato_principal": "TEXT", "link_documentos": "TEXT",
                 "faturamento_estimado": "REAL", "duracao_contrato": "INTEGER", "mod": "REAL",
                 "moi": "REAL", "total_pessoas": "INTEGER", "margem_contribuicao": "REAL",
-                "descricao_detalhada": "TEXT"
+                "descricao_detalhada": "TEXT", "qualificacao_data": "TEXT"
             }
 
             for col_name, col_type in required_columns.items():
@@ -348,15 +375,15 @@ class DatabaseManager:
             query = '''INSERT INTO oportunidades (titulo, valor, cliente_id, estagio_id, data_criacao,
                         tempo_contrato_meses, regional, polo, quantidade_bases, bases_nomes, servicos_data, empresa_referencia,
                         numero_edital, data_abertura, modalidade, contato_principal, link_documentos,
-                        faturamento_estimado, duracao_contrato, mod, moi, total_pessoas, margem_contribuicao, descricao_detalhada)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'''
+                        faturamento_estimado, duracao_contrato, mod, moi, total_pessoas, margem_contribuicao, descricao_detalhada, qualificacao_data)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'''
             params = (data['titulo'], data['valor'], data['cliente_id'], data['estagio_id'], datetime.now().date(),
                       data.get('tempo_contrato_meses'), data.get('regional'), data.get('polo'), data.get('quantidade_bases'),
                       data.get('bases_nomes'), data.get('servicos_data'), data.get('empresa_referencia'),
                       data.get('numero_edital'), data.get('data_abertura'), data.get('modalidade'), data.get('contato_principal'),
                       data.get('link_documentos'), data.get('faturamento_estimado'), data.get('duracao_contrato'),
                       data.get('mod'), data.get('moi'), data.get('total_pessoas'),
-                      data.get('margem_contribuicao'), data.get('descricao_detalhada'))
+                      data.get('margem_contribuicao'), data.get('descricao_detalhada'), data.get('qualificacao_data'))
 
             cursor = conn.cursor()
             cursor.execute(query, params)
@@ -371,7 +398,7 @@ class DatabaseManager:
             query = '''UPDATE oportunidades SET titulo=?, valor=?, cliente_id=?, estagio_id=?,
                         tempo_contrato_meses=?, regional=?, polo=?, quantidade_bases=?, bases_nomes=?, servicos_data=?, empresa_referencia=?,
                         numero_edital=?, data_abertura=?, modalidade=?, contato_principal=?, link_documentos=?,
-                        faturamento_estimado=?, duracao_contrato=?, mod=?, moi=?, total_pessoas=?, margem_contribuicao=?, descricao_detalhada=?
+                        faturamento_estimado=?, duracao_contrato=?, mod=?, moi=?, total_pessoas=?, margem_contribuicao=?, descricao_detalhada=?, qualificacao_data=?
                          WHERE id=?'''
             params = (data['titulo'], data['valor'], data['cliente_id'], data['estagio_id'],
                       data.get('tempo_contrato_meses'), data.get('regional'), data.get('polo'), data.get('quantidade_bases'),
@@ -379,7 +406,7 @@ class DatabaseManager:
                       data.get('numero_edital'), data.get('data_abertura'), data.get('modalidade'), data.get('contato_principal'),
                       data.get('link_documentos'), data.get('faturamento_estimado'), data.get('duracao_contrato'),
                       data.get('mod'), data.get('moi'), data.get('total_pessoas'),
-                      data.get('margem_contribuicao'), data.get('descricao_detalhada'),
+                      data.get('margem_contribuicao'), data.get('descricao_detalhada'), data.get('qualificacao_data'),
                       op_id)
             conn.execute(query, params)
 
@@ -1271,10 +1298,7 @@ class CRMApp:
             widget.grid(row=i, column=1, sticky='ew', pady=5, padx=5)
             entries[key] = widget
 
-        # Checklist de Qualificação de Oportunidade
-        checklist_frame = ttk.LabelFrame(analise_frame, text="Checklist de Qualificação de Oportunidade", padding=15, style='TLabelframe')
-        checklist_frame.pack(fill='x', pady=(0, 10))
-        checklist_frame.columnconfigure(1, weight=1)
+
 
         # --- Seção de Configuração de Serviços e Equipes (Lógica Nova) ---
 
@@ -1357,8 +1381,7 @@ class CRMApp:
         # --- Início da UI do Checklist ---
 
         # Tipos de Serviço (Checkboxes)
-        ttk.Label(checklist_frame, text="Tipos de Serviço:", font=(self.primary_font, 10, 'bold')).grid(row=0, column=0, sticky='nw', pady=5, padx=5)
-        tipos_frame = ttk.Frame(checklist_frame, style='TLabelframe')
+
         tipos_frame.grid(row=0, column=1, sticky='ew', pady=5, padx=5)
         tipos_vars = {}
         col_count = 3
@@ -1374,13 +1397,13 @@ class CRMApp:
                 col = 0
                 row += 1
         entries['tipos_servico_vars'] = tipos_vars
-        start_row_after_services = row + 1
+        start_row_after_services = 1 # Começa na próxima linha
 
         # Outros campos do checklist
         checklist_fields = [("Tempo de Contrato (meses):", "tempo_contrato_meses", "entry"), ("Regional:", "regional", "entry"), ("Polo:", "polo", "entry")]
         for i, (text, key, widget_type) in enumerate(checklist_fields):
-            ttk.Label(checklist_frame, text=text).grid(row=start_row_after_services + i, column=0, sticky='w', pady=5, padx=5)
-            entry = ttk.Entry(checklist_frame)
+            ttk.Label(servicos_lf, text=text).grid(row=start_row_after_services + i, column=0, sticky='w', pady=5, padx=5)
+            entry = ttk.Entry(servicos_lf)
             entry.grid(row=start_row_after_services + i, column=1, sticky='ew', pady=5, padx=5)
             entries[key] = entry
 
@@ -1730,6 +1753,19 @@ class CRMApp:
                         messagebox.showwarning("Alerta de Carregamento",
                                                "Não foi possível carregar os detalhes de serviços e equipes. Os dados podem estar corrompidos.",
                                                parent=form_win)
+
+                # 4. Carregar dados do formulário de qualificação
+                qualificacao_data_json = op_data['qualificacao_data'] if 'qualificacao_data' in op_keys else None
+                if qualificacao_data_json:
+                    try:
+                        qualificacao_answers = json.loads(qualificacao_data_json)
+                        qualificacao_vars = entries.get('qualificacao_data', {})
+                        for question, answer in qualificacao_answers.items():
+                            if question in qualificacao_vars:
+                                qualificacao_vars[question].set(answer)
+                    except (json.JSONDecodeError, TypeError) as e:
+                        print(f"Erro ao carregar dados de qualificação: {e}")
+
             except Exception as e:
                 import traceback
                 traceback.print_exc()
@@ -1789,6 +1825,13 @@ class CRMApp:
                         servicos_data_to_save.append(servico_entry)
 
                 data['servicos_data'] = json.dumps(servicos_data_to_save)
+
+                # Coletar dados do formulário de qualificação
+                qualificacao_answers = {}
+                qualificacao_vars = entries.get('qualificacao_data', {})
+                for question, var in qualificacao_vars.items():
+                    qualificacao_answers[question] = var.get()
+                data['qualificacao_data'] = json.dumps(qualificacao_answers)
 
                 # Dados do sumário executivo
                 data['numero_edital'] = entries['numero_edital'].get().strip()
@@ -1895,6 +1938,33 @@ class CRMApp:
                         ttk.Label(base_frame, text=base, style='Value.TLabel').pack(side='left', padx=(10, 0))
             except (json.JSONDecodeError, TypeError):
                 print(f"Alerta: Falha ao carregar nomes de bases na tela de detalhes: {bases_nomes_json}")
+
+        # Formulário de Qualificação
+        qualificacao_data_json = op_data['qualificacao_data'] if 'qualificacao_data' in op_keys else None
+        if qualificacao_data_json:
+            try:
+                qualificacao_answers = json.loads(qualificacao_data_json)
+                if qualificacao_answers:
+                    qual_frame = ttk.LabelFrame(analise_tab, text="Formulário de Análise de Qualificação da Oportunidade", padding=15, style='White.TLabelframe')
+                    qual_frame.pack(fill='x', pady=(10, 0))
+
+                    # Usar o dicionário original para manter a ordem das seções
+                    for section, questions in QUALIFICATION_CHECKLIST.items():
+                        # Apenas mostra a seção se houver alguma pergunta dela nos dados salvos
+                        if any(q in qualificacao_answers for q in questions):
+                            section_frame = ttk.LabelFrame(qual_frame, text=section, padding=10, style='White.TLabelframe')
+                            section_frame.pack(fill='x', expand=True, pady=5)
+                            section_frame.columnconfigure(1, weight=1)
+
+                            row_idx = 0
+                            for question in questions:
+                                if question in qualificacao_answers:
+                                    answer = qualificacao_answers[question] or "Não respondido"
+                                    ttk.Label(section_frame, text=question, wraplength=600, justify='left').grid(row=row_idx, column=0, sticky='w')
+                                    ttk.Label(section_frame, text=answer, style='Value.White.TLabel').grid(row=row_idx, column=1, sticky='e', padx=10)
+                                    row_idx += 1
+            except (json.JSONDecodeError, TypeError) as e:
+                print(f"Erro ao exibir dados de qualificação: {e}")
 
 
         # Aba 2: Sumário Executivo
