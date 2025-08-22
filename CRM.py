@@ -760,7 +760,13 @@ class CRMApp:
         scrollable_frame = ttk.Frame(canvas, style='TFrame')
 
         scrollable_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
-        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+
+        window_id = canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+
+        def on_canvas_configure(event):
+            canvas.itemconfig(window_id, width=event.width)
+
+        canvas.bind("<Configure>", on_canvas_configure)
         canvas.configure(yscrollcommand=v_scrollbar.set)
 
         # Posicionar canvas e scrollbar
