@@ -1291,12 +1291,6 @@ class CRMApp:
                 rb_sim.pack(side='left')
                 rb_nao.pack(side='left', padx=10)
 
-        # --- Seção de Configuração de Serviços e Equipes (Lógica Nova) ---
-
-        # Frame para as configurações dinâmicas de serviço/equipe
-        servicos_config_frame = ttk.Frame(analise_frame, padding=(0, 10))
-        servicos_config_frame.pack(fill='x', expand=True)
-
         # Dicionários para manter o estado da UI dinâmica
         servico_frames = {}
         servico_equipes_data = {}
@@ -1371,10 +1365,14 @@ class CRMApp:
 
         # --- Início da UI do Checklist ---
 
-        # Tipos de Serviço (Checkboxes)
+        # Container principal para toda a seção de serviços
         servicos_lf = ttk.LabelFrame(analise_frame, text="Configuração de Serviços e Equipes", padding=15, style='White.TLabelframe')
         servicos_lf.pack(fill='x', pady=(0, 10))
         servicos_lf.columnconfigure(1, weight=1)
+
+        # Container para os frames de equipe que são adicionados dinamicamente.
+        # Ele é criado aqui para estar no escopo das funções helper, e posicionado no grid mais tarde.
+        servicos_config_frame = ttk.Frame(servicos_lf, padding=(0, 10))
 
         ttk.Label(servicos_lf, text="Tipos de Serviço:", font=('Segoe UI', 10, 'bold')).grid(row=0, column=0, sticky='nw', pady=5, padx=5)
         tipos_frame = ttk.Frame(servicos_lf)
@@ -1405,20 +1403,24 @@ class CRMApp:
 
         # Empresa Referência
         empresa_row = start_row_after_services + len(checklist_fields)
-        ttk.Label(checklist_frame, text="Empresa Referência:", font=('Segoe UI', 10, 'bold')).grid(row=empresa_row, column=0, sticky='w', pady=5, padx=5)
+        ttk.Label(servicos_lf, text="Empresa Referência:", font=('Segoe UI', 10, 'bold')).grid(row=empresa_row, column=0, sticky='w', pady=5, padx=5)
         empresas_ref = self.db.get_all_empresas_referencia()
         empresa_names = sorted(list(set([emp['nome_empresa'] for emp in empresas_ref])))
-        empresa_combo = ttk.Combobox(checklist_frame, values=empresa_names, state='readonly')
+        empresa_combo = ttk.Combobox(servicos_lf, values=empresa_names, state='readonly')
         empresa_combo.grid(row=empresa_row, column=1, sticky='ew', pady=5, padx=5)
         entries['empresa_referencia'] = empresa_combo
 
         # Quantidade de Bases
         bases_row = empresa_row + 1
-        ttk.Label(checklist_frame, text="Quantidade de Bases:", font=('Segoe UI', 10, 'bold')).grid(row=bases_row, column=0, sticky='w', pady=5, padx=5)
-        bases_input_frame = ttk.Frame(checklist_frame)
+        ttk.Label(servicos_lf, text="Quantidade de Bases:", font=('Segoe UI', 10, 'bold')).grid(row=bases_row, column=0, sticky='w', pady=5, padx=5)
+        bases_input_frame = ttk.Frame(servicos_lf)
         bases_input_frame.grid(row=bases_row, column=1, sticky='ew', pady=5, padx=5)
-        bases_fields_frame = ttk.Frame(checklist_frame)
+        bases_fields_frame = ttk.Frame(servicos_lf)
         bases_fields_frame.grid(row=bases_row + 1, column=0, columnspan=2, sticky='ew', pady=5, padx=5)
+
+        # Posiciona o frame que conterá os serviços dinâmicos no final do grid estático
+        next_row_for_dynamic_services = bases_row + 2
+        servicos_config_frame.grid(row=next_row_for_dynamic_services, column=0, columnspan=2, sticky='ew', pady=(10, 0))
 
         base_name_entries = []
         entries['bases_nomes_widgets'] = base_name_entries
