@@ -22,6 +22,12 @@ import webbrowser
 from tkcalendar import DateEntry
 from datetime import datetime, timedelta
 import json
+import google.generativeai as genai
+from duckduckgo_search import DDGS
+from bs4 import BeautifulSoup
+import re
+import threading
+
 
 # --- 1. CONFIGURAÇÕES GERAIS ---
 DB_NAME = 'dolp_crm_final.db'
@@ -219,6 +225,17 @@ class DatabaseManager:
             cursor.execute('''CREATE TABLE IF NOT EXISTS crm_empresas_referencia (id INTEGER PRIMARY KEY, nome_empresa TEXT NOT NULL, tipo_servico TEXT NOT NULL, valor_mensal REAL NOT NULL, volumetria_minima REAL NOT NULL, valor_por_pessoa REAL NOT NULL, ativa INTEGER DEFAULT 1, data_criacao TEXT DEFAULT CURRENT_TIMESTAMP)''')
             cursor.execute('CREATE TABLE IF NOT EXISTS crm_setores (id INTEGER PRIMARY KEY, nome TEXT UNIQUE NOT NULL)')
             cursor.execute('CREATE TABLE IF NOT EXISTS crm_segmentos (id INTEGER PRIMARY KEY, nome TEXT UNIQUE NOT NULL)')
+
+            # Tabela para Notícias
+            cursor.execute('''CREATE TABLE IF NOT EXISTS crm_news (
+                                id INTEGER PRIMARY KEY,
+                                title TEXT NOT NULL,
+                                url TEXT NOT NULL UNIQUE,
+                                source TEXT,
+                                content_summary TEXT,
+                                published_date TEXT,
+                                saved INTEGER DEFAULT 0
+                           )''')
 
             self._populate_initial_data(cursor)
 
@@ -580,11 +597,185 @@ class DatabaseManager:
         with self._connect() as conn:
             return conn.execute("SELECT * FROM crm_empresas_referencia WHERE nome_empresa = ? AND tipo_servico = ? AND ativa = 1", (nome_empresa, tipo_servico)).fetchone()
 
-# --- 4. APLICAÇÃO PRINCIPAL ---
+    # Métodos para Notícias
+    def add_news_article(self, article_data):
+        with self._connect() as conn:
+            conn.execute("INSERT OR IGNORE INTO crm_news (title, url, source, content_summary, published_date, saved) VALUES (?, ?, ?, ?, ?, ?)",
+                         (article_data['title'], article_data['url'], article_data.get('source'), article_data.get('content_summary'), article_data.get('published_date'), 0))
+
+    def get_latest_news(self, limit=10):
+        with self._connect() as conn:
+            return conn.execute("SELECT * FROM crm_news ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+
+    def get_saved_news(self):
+        with self._connect() as conn:
+            return conn.execute("SELECT * FROM crm_news WHERE saved = 1 ORDER BY id DESC").fetchall()
+
+    def set_news_saved_status(self, news_id, saved):
+        with self._connect() as conn:
+            conn.execute("UPDATE crm_news SET saved = ? WHERE id = ?", (1 if saved else 0, news_id))
+
+    def delete_old_unsaved_news(self, days_old=7):
+        with self._connect() as conn:
+            try:
+                date_limit = (datetime.now() - timedelta(days=days_old)).strftime('%Y-%m-%d')
+                conn.execute("DELETE FROM crm_news WHERE saved = 0 AND published_date < ?", (date_limit,))
+            except sqlite3.Error as e:
+                print(f"Could not delete old news: {e}")
+
+# --- 4. SERVIÇO DE NOTÍCIAS ---
+class NewsService:
+    def __init__(self, db_manager):
+        self.db = db_manager
+        # IMPORTANT: User needs to configure their API key
+        self.gemini_api_key = os.environ.get('GEMINI_API_KEY') # Placeholder
+        if self.gemini_api_key:
+            genai.configure(api_key=self.gemini_api_key)
+            self.model = genai.GenerativeModel('gemini-pro')
+        else:
+            self.model = None
+            print("AVISO: Chave da API do Gemini não configurada. A funcionalidade de resumo de notícias estará desabilitada.")
+            print("Para habilitar, defina a variável de ambiente 'GEMINI_API_KEY'.")
+
+    def _search_news(self):
+        """Busca notícias usando DuckDuckGo."""
+        queries = [
+            "notícias setor elétrico brasileiro",
+            "programas governo federal energia elétrica",
+            "fatos relevantes concessionárias energia Brasil",
+            "ANEEL últimas notícias",
+            "leilão de transmissão energia"
+        ]
+        results = []
+        with DDGS() as ddgs:
+            for query in queries:
+                # max_results can be adjusted
+                search_results = [r for r in ddgs.news(query, region='br-pt', max_results=5)]
+                results.extend(search_results)
+        # Remove duplicates based on URL
+        unique_results = {result['url']: result for result in results}.values()
+        return list(unique_results)
+
+    def _get_article_text(self, url):
+        """Extrai o texto principal de uma página web."""
+        try:
+            response = requests.get(url, timeout=10, headers={'User-Agent': 'Mozilla/5.0'})
+            response.raise_for_status()
+            soup = BeautifulSoup(response.content, 'lxml')
+            # Remove scripts, styles, and other non-text elements
+            for script_or_style in soup(["script", "style", "header", "footer", "nav"]):
+                script_or_style.decompose()
+            # Get text and clean it up
+            text = soup.get_text()
+            lines = (line.strip() for line in text.splitlines())
+            chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
+            text = '\n'.join(chunk for chunk in chunks if chunk)
+            return text
+        except Exception as e:
+            print(f"Erro ao buscar conteúdo de {url}: {e}")
+            return None
+
+    def _summarize_with_gemini(self, text, title):
+        """Usa o Gemini para verificar a relevância e resumir o texto."""
+        if not self.model:
+            return "Relevância: Média\nResumo: Resumo não disponível (API do Gemini não configurada)."
+        if not text or len(text) < 200: # Avoid summarizing very short texts
+             return "Relevância: Baixa\nResumo: Conteúdo insuficiente para resumo."
+
+        # Limit text size to avoid exceeding API limits
+        text = text[:15000]
+
+        prompt = f'''
+        Você é um analista sênior do setor de energia elétrica no Brasil. Sua tarefa é analisar o seguinte texto de uma notícia e determinar sua relevância para uma empresa de engenharia que atua em construção e manutenção de redes de distribuição, transmissão e subestações.
+
+        Título da Notícia: "{title}"
+        Conteúdo da Notícia:
+        ---
+        {text}
+        ---
+
+        Responda em português e siga estritamente o formato abaixo:
+        1.  **Relevância:** (Responda com 'Alta', 'Média', 'Baixa' ou 'Nenhuma'). A notícia é diretamente relevante para o setor de distribuição, transmissão, geração de energia, ou sobre grandes concessionárias (ex: Neoenergia, CPFL, Equatorial, Energisa, Light, Enel)?
+        2.  **Resumo:** (Se a relevância for 'Alta' ou 'Média', forneça um resumo conciso de 2 a 4 frases, focando nos pontos chave que impactam o setor. Caso contrário, escreva 'Não aplicável.')
+        '''
+        try:
+            response = self.model.generate_content(prompt)
+            return response.text
+        except Exception as e:
+            print(f"Erro na API do Gemini: {e}")
+            return "Relevância: Baixa\nResumo: Erro ao gerar resumo."
+
+    def fetch_and_store_news(self):
+        """Orquestra o processo completo de busca e armazenamento de notícias."""
+        print("Buscando novas notícias...")
+        news_items = self._search_news()
+        if not news_items:
+            print("Nenhuma notícia encontrada.")
+            return
+
+        for item in news_items:
+            url = item.get('url')
+            title = item.get('title')
+            source = item.get('source')
+            date_str = item.get('date') # Format is '2024-03-20T11:02:47-04:00'
+
+            if not url or not title:
+                continue
+
+            print(f"Processando: {title}")
+
+            # Convert date
+            published_date = ''
+            if date_str:
+                try:
+                    # Parse ISO 8601 format and get only the date part
+                    dt_obj = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
+                    published_date = dt_obj.strftime('%Y-%m-%d')
+                except ValueError:
+                    published_date = '' # Keep it empty if parsing fails
+
+            article_text = self._get_article_text(url)
+            if not article_text:
+                continue
+
+            summary_analysis = self._summarize_with_gemini(article_text, title)
+
+            # Parse the Gemini response
+            relevance = "Nenhuma"
+            summary = "Não aplicável."
+            # Use regex to find relevance, being more flexible with surrounding text
+            relevance_match = re.search(r"Relevância:\s*(Alta|Média)", summary_analysis, re.IGNORECASE)
+            if relevance_match:
+                relevance = relevance_match.group(1).capitalize()
+                # Use regex to find summary, also more flexible
+                summary_match = re.search(r"Resumo:\s*(.*)", summary_analysis, re.IGNORECASE | re.DOTALL)
+                if summary_match:
+                    summary = summary_match.group(1).strip()
+
+            if relevance in ["Alta", "Média"]:
+                print(f"  -> Relevante! Salvando no banco de dados.")
+                article_data = {
+                    'title': title,
+                    'url': url,
+                    'source': source,
+                    'content_summary': summary,
+                    'published_date': published_date
+                }
+                self.db.add_news_article(article_data)
+            else:
+                print(f"  -> Não relevante (Relevância: {relevance}).")
+
+        # Clean up old news
+        self.db.delete_old_unsaved_news()
+        print("Busca de notícias concluída.")
+
+
+# --- 5. APLICAÇÃO PRINCIPAL ---
 class CRMApp:
     def __init__(self, root):
         self.root = root
         self.db = DatabaseManager(DB_NAME)
+        self.news_service = NewsService(self.db)
         self.root.title("CRM Dolp Engenharia")
         self.root.geometry("1600x900")
         self.root.minsize(1280, 720)
@@ -598,6 +789,7 @@ class CRMApp:
         self._configure_styles()
         self._create_main_container()
         self.show_main_menu()
+        self.fetch_news_thread()
 
     def _configure_styles(self):
         style = ttk.Style(self.root)
@@ -714,6 +906,22 @@ class CRMApp:
         for widget in self.content_frame.winfo_children():
             widget.destroy()
 
+    def fetch_news_thread(self):
+        """Inicia a busca de notícias em uma thread separada para não bloquear a UI."""
+        def run_fetch():
+            self.news_service.fetch_and_store_news()
+            # Após a busca, se a tela de menu principal estiver visível, atualize-a
+            # É preciso agendar a atualização na thread principal do Tkinter
+            try:
+                if self.content_frame.winfo_exists() and self.content_frame.winfo_children() and isinstance(self.content_frame.winfo_children()[0], ttk.Label) and self.content_frame.winfo_children()[0].cget("text") == "Menu Principal":
+                     self.root.after(0, self.show_main_menu)
+            except tk.TclError:
+                # Janela pode ter sido fechada
+                pass
+
+        thread = threading.Thread(target=run_fetch, daemon=True)
+        thread.start()
+
     def show_main_menu(self):
         self.clear_content()
 
@@ -723,18 +931,123 @@ class CRMApp:
 
         # Container para botões
         buttons_frame = ttk.Frame(self.content_frame, style='TFrame')
-        buttons_frame.pack(expand=True)
+        buttons_frame.pack()
 
         # Botões do menu principal
         menu_buttons = [
             ("Funil de Vendas", self.show_kanban_view, 'Primary.TButton'),
             ("Clientes", self.show_clients_view, 'Primary.TButton'),
+            ("Notícias Salvas", self.show_saved_news_view, 'Primary.TButton'),
             ("Configurações do CRM", self.show_crm_settings, 'Warning.TButton')
         ]
 
         for i, (text, command, style) in enumerate(menu_buttons):
             btn = ttk.Button(buttons_frame, text=text, command=command, style=style, width=25)
             btn.pack(pady=10)
+
+        # Frame para as notícias
+        news_lf = ttk.LabelFrame(self.content_frame, text="Últimas Notícias do Setor", padding=15, style='White.TLabelframe')
+        news_lf.pack(fill='both', expand=True, pady=(20, 0), padx=20)
+
+        # --- Scrollable area for news ---
+        news_canvas = tk.Canvas(news_lf, bg=DOLP_COLORS['white'], highlightthickness=0)
+        news_scrollbar = ttk.Scrollbar(news_lf, orient="vertical", command=news_canvas.yview)
+        scrollable_news_frame = ttk.Frame(news_canvas, style='TFrame')
+
+        scrollable_news_frame.bind("<Configure>", lambda e: news_canvas.configure(scrollregion=news_canvas.bbox("all")))
+        news_canvas.create_window((0, 0), window=scrollable_news_frame, anchor="nw")
+        news_canvas.configure(yscrollcommand=news_scrollbar.set)
+
+        def _on_mousewheel(event):
+            news_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
+        news_lf.bind('<Enter>', lambda e: self.root.bind_all("<MouseWheel>", _on_mousewheel))
+        news_lf.bind('<Leave>', lambda e: self.root.unbind_all("<MouseWheel>"))
+
+        news_canvas.pack(side="left", fill="both", expand=True)
+        news_scrollbar.pack(side="right", fill="y")
+        # ------------------------------------
+
+        latest_news = self.db.get_latest_news()
+
+        if not latest_news:
+            ttk.Label(scrollable_news_frame, text="Buscando notícias relevantes...", style='Value.White.TLabel', font=('Segoe UI', 10, 'italic')).pack(pady=20)
+        else:
+            for news_item in latest_news:
+                self.create_news_card(scrollable_news_frame, news_item, self.show_main_menu)
+
+    def create_news_card(self, parent, news_item, refresh_callback):
+        """Cria um card para uma notícia."""
+        card = ttk.Frame(parent, style='Card.TFrame', padding=15, relief='solid', borderwidth=1)
+        card.pack(fill='x', pady=5, padx=5)
+
+        # Top frame for title and buttons
+        top_frame = ttk.Frame(card, style='Card.TFrame')
+        top_frame.pack(fill='x')
+
+        # Title
+        title_label = ttk.Label(top_frame, text=news_item['title'], style='Card.Title.TLabel', cursor="hand2", wraplength=750)
+        title_label.pack(side='left', anchor='w', expand=True, fill='x')
+        title_label.bind("<Button-1>", lambda e, url=news_item['url']: open_link(url))
+
+        # Action buttons
+        actions_frame = ttk.Frame(top_frame, style='Card.TFrame')
+        actions_frame.pack(side='right', anchor='ne')
+
+        def toggle_save():
+            new_status = not bool(news_item['saved'])
+            self.db.set_news_saved_status(news_item['id'], new_status)
+            refresh_callback()
+
+        save_button = ttk.Button(actions_frame, command=toggle_save)
+        if news_item['saved']:
+            save_button.config(text="Salvo ✓", style='Success.TButton')
+        else:
+            save_button.config(text="Salvar", style='Primary.TButton')
+        save_button.pack()
+
+        # Info line
+        info_text = f"Fonte: {news_item['source'] or 'N/A'} | Data: {news_item['published_date'] or 'N/A'}"
+        ttk.Label(card, text=info_text, style='Card.TLabel', font=('Segoe UI', 9, 'italic')).pack(anchor='w', pady=(5,0))
+
+        # Summary
+        ttk.Label(card, text=news_item['content_summary'] or 'Sem resumo.', style='Card.TLabel', wraplength=800, justify='left').pack(anchor='w', pady=(5,0))
+
+
+    def show_saved_news_view(self):
+        self.clear_content()
+
+        title_frame = ttk.Frame(self.content_frame, style='TFrame')
+        title_frame.pack(fill='x', pady=(0, 20))
+
+        ttk.Label(title_frame, text="Notícias Salvas", style='Title.TLabel').pack(side='left')
+        ttk.Button(title_frame, text="← Voltar", command=self.show_main_menu, style='TButton').pack(side='right')
+
+        # Scrollable area
+        main_canvas = tk.Canvas(self.content_frame, bg=DOLP_COLORS['white'], highlightthickness=0)
+        main_scrollbar = ttk.Scrollbar(self.content_frame, orient="vertical", command=main_canvas.yview)
+        scrollable_frame = ttk.Frame(main_canvas, style='TFrame', padding=20)
+
+        scrollable_frame.bind("<Configure>", lambda e: main_canvas.configure(scrollregion=main_canvas.bbox("all")))
+        main_canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        main_canvas.configure(yscrollcommand=main_scrollbar.set)
+
+        def _on_mousewheel(event):
+            main_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
+        self.content_frame.bind('<Enter>', lambda e: self.root.bind_all("<MouseWheel>", _on_mousewheel))
+        self.content_frame.bind('<Leave>', lambda e: self.root.unbind_all("<MouseWheel>"))
+
+        main_canvas.pack(side="left", fill="both", expand=True)
+        main_scrollbar.pack(side="right", fill="y")
+
+        saved_news = self.db.get_saved_news()
+
+        if not saved_news:
+            ttk.Label(scrollable_frame, text="Nenhuma notícia salva ainda.", style='Value.White.TLabel', font=('Segoe UI', 10, 'italic')).pack(pady=20)
+        else:
+            for news_item in saved_news:
+                self.create_news_card(scrollable_frame, news_item, self.show_saved_news_view)
 
     def _apply_kanban_filters(self):
         """Salva o estado atual dos filtros e recarrega a visão do kanban."""
