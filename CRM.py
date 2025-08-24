@@ -57,8 +57,8 @@ ESTAGIOS_PIPELINE_DOLP = [
 ]
 BRAZILIAN_STATES = ["GO", "TO", "MT", "DF", "AC", "AL", "AP", "AM", "BA", "CE", "ES", "MA", "MS", "MG", "PA", "PB", "PR", "PE", "PI", "RJ", "RN", "RS", "RO", "RR", "SC", "SP", "SE"]
 SERVICE_TYPES = ["Linha Viva Cesto Duplo", "Linha Viva Cesto Simples", "Linha Morta Pesada 7 Elementos", "STC", "Plantão", "Perdas", "Motocicleta", "Atendimento Emergencial", "Novas Ligações", "Corte e Religação", "Subestações", "Grupos Geradores"]
-INITIAL_SETORES = ["Distribuição", "Geração", "Transmissão", "Comercialização", "Industrial", "Corporativo"]
-INITIAL_SEGMENTOS = ["Utilities", "Energia Renovável", "Óleo & Gás", "Manutenção Industrial", "Infraestrutura Elétrica", "Telecomunicações"]
+INITIAL_SETORES = sorted(list(set(["Distribuição", "Geração", "Transmissão", "Comercialização", "Industrial", "Corporativo", "Energia Elétrica", "Infraestrutura"])))
+INITIAL_SEGMENTOS = sorted(list(set(["Utilities", "Energia Renovável", "Óleo & Gás", "Manutenção Industrial", "Infraestrutura Elétrica", "Telecomunicações", "Distribuição", "Geração, Distribuição, Transmissão e Comercialização", "Geração e Transmissão", "Transmissão", "Concessão Rodoviária"])))
 CLIENT_STATUS_OPTIONS = ["Playbook e não cadastrado", "Playbook e cadastrado", "Cadastrado", "Não cadastrado"]
 
 QUALIFICATION_CHECKLIST = {
@@ -312,7 +312,33 @@ class DatabaseManager:
                 cursor.execute("INSERT INTO crm_setores (nome) VALUES (?)", (setor,))
         if cursor.execute("SELECT count(*) FROM crm_segmentos").fetchone()[0] == 0:
             for segmento in INITIAL_SEGMENTOS:
-                cursor.execute("INSERT INTO crm_segmentos (nome) VALUES (?)", (segmento,))
+                cursor.execute("INSERT OR IGNORE INTO crm_segmentos (nome) VALUES (?)", (segmento,))
+
+        # Adicionar clientes específicos
+        new_clients = [
+            {'nome_empresa': 'CPFL (RS)', 'cnpj': '02.016.440/0001-62', 'cidade': 'São Leopoldo', 'estado': 'RS', 'setor_atuacao': 'Energia Elétrica', 'segmento_atuacao': 'Distribuição'},
+            {'nome_empresa': 'CPFL (SP) - Paulista', 'cnpj': '33.050.196/0001-88', 'cidade': 'Campinas', 'estado': 'SP', 'setor_atuacao': 'Energia Elétrica', 'segmento_atuacao': 'Distribuição'},
+            {'nome_empresa': 'CPFL (SP) - Piratininga', 'cnpj': '04.172.213/0001-51', 'cidade': 'Campinas', 'estado': 'SP', 'setor_atuacao': 'Energia Elétrica', 'segmento_atuacao': 'Distribuição'},
+            {'nome_empresa': 'Energisa (PB)', 'cnpj': '09.095.183/0001-40', 'cidade': 'João Pessoa', 'estado': 'PB', 'setor_atuacao': 'Energia Elétrica', 'segmento_atuacao': 'Distribuição'},
+            {'nome_empresa': 'EDP Distribuição (ES)', 'cnpj': '28.152.650/0001-90', 'cidade': 'Vitória', 'estado': 'ES', 'setor_atuacao': 'Energia Elétrica', 'segmento_atuacao': 'Distribuição'},
+            {'nome_empresa': 'EDP Transmissão', 'cnpj': '03.983.431/0001-03', 'cidade': 'São Paulo', 'estado': 'SP', 'setor_atuacao': 'Energia Elétrica', 'segmento_atuacao': 'Geração, Distribuição, Transmissão e Comercialização'},
+            {'nome_empresa': 'Cemig', 'cnpj': '17.155.730/0001-64', 'cidade': 'Belo Horizonte', 'estado': 'MG', 'setor_atuacao': 'Energia Elétrica', 'segmento_atuacao': 'Geração, Transmissão, Distribuição e Comercialização'},
+            {'nome_empresa': 'TAESA Transmissão', 'cnpj': '07.859.971/0001-30', 'cidade': 'Rio de Janeiro', 'estado': 'RJ', 'setor_atuacao': 'Energia Elétrica', 'segmento_atuacao': 'Transmissão'},
+            {'nome_empresa': 'State Grid Transmissão', 'cnpj': '11.938.558/0001-39', 'cidade': 'Rio de Janeiro', 'estado': 'RJ', 'setor_atuacao': 'Energia Elétrica', 'segmento_atuacao': 'Transmissão'},
+            {'nome_empresa': 'Eletrobrás Transmissão', 'cnpj': '00.001.180/0001-26', 'cidade': 'Rio de Janeiro', 'estado': 'RJ', 'setor_atuacao': 'Energia Elétrica', 'segmento_atuacao': 'Geração, Transmissão e Comercialização'},
+            {'nome_empresa': 'Eletrobrás Transmissão (Subsidiária)', 'cnpj': '02.016.507/0001-69', 'cidade': 'Florianópolis', 'estado': 'SC', 'setor_atuacao': 'Energia Elétrica', 'segmento_atuacao': 'Geração e Transmissão'},
+            {'nome_empresa': 'Engie Transmissão', 'cnpj': '02.474.103/0001-19', 'cidade': 'Florianópolis', 'estado': 'SC', 'setor_atuacao': 'Energia Elétrica', 'segmento_atuacao': 'Geração e Transmissão'},
+            {'nome_empresa': 'Ecovias', 'cnpj': '02.509.491/0001-26', 'cidade': 'São Bernardo do Campo', 'estado': 'SP', 'setor_atuacao': 'Infraestrutura', 'segmento_atuacao': 'Concessão Rodoviária'},
+            {'nome_empresa': 'Consórcio Rota Verde', 'cnpj': '59.354.202/0001-84', 'cidade': 'Goiânia', 'estado': 'GO', 'setor_atuacao': 'Infraestrutura', 'segmento_atuacao': 'Concessão Rodoviária'},
+        ]
+
+        for client in new_clients:
+            # Usar INSERT OR IGNORE para não dar erro se o cliente (baseado no CNPJ) já existir
+            cursor.execute("""INSERT OR IGNORE INTO clientes
+                              (nome_empresa, cnpj, cidade, estado, setor_atuacao, segmento_atuacao, data_atualizacao, status)
+                              VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                           (client['nome_empresa'], strip_cnpj(client['cnpj']), client['cidade'], client['estado'],
+                            client['setor_atuacao'], client['segmento_atuacao'], datetime.now().strftime('%d/%m/%Y'), 'Cadastrado'))
 
     # Métodos de Clientes
     def get_all_clients(self, setor=None, segmento=None):
@@ -650,7 +676,7 @@ class NewsService:
         with DDGS() as ddgs:
             for query in queries:
                 # max_results can be adjusted
-                search_results = [r for r in ddgs.news(query, region='br-pt', max_results=5)]
+                search_results = [r for r in ddgs.news(query, region='br-pt', timelimit='m', max_results=5)]
                 results.extend(search_results)
         # Remove duplicates based on URL
         unique_results = {result['url']: result for result in results}.values()
