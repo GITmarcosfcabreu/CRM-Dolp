@@ -631,7 +631,7 @@ class NewsService:
         self.gemini_api_key = os.environ.get('GEMINI_API_KEY') # Placeholder
         if self.gemini_api_key:
             genai.configure(api_key=self.gemini_api_key)
-            self.model = genai.GenerativeModel('gemini-pro')
+            self.model = genai.GenerativeModel('gemini-1.5-flash')
         else:
             self.model = None
             print("AVISO: Chave da API do Gemini não configurada. A funcionalidade de resumo de notícias estará desabilitada.")
