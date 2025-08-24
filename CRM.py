@@ -795,6 +795,9 @@ class NewsService:
             else:
                 print(f"  -> Não relevante (Relevância: {relevance}).")
 
+            # Add delay to respect API rate limits (15 RPM = 1 request every 4 seconds)
+            time.sleep(4)
+
         # Clean up old news
         self.db.delete_old_unsaved_news()
         print("Busca de notícias concluída.")
