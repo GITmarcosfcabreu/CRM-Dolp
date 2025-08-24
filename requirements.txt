@@ -2,6 +2,6 @@ Pillow
 requests
 tkcalendar
 google-generativeai
-duckduckgo-search
+ddgs
 beautifulsoup4
 lxml

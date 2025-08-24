@@ -23,13 +23,16 @@ from tkcalendar import DateEntry
 from datetime import datetime, timedelta
 import json
 import google.generativeai as genai
-from duckduckgo_search import DDGS
+from ddgs.ddgs import DDGS
 from bs4 import BeautifulSoup
 import re
 import threading
+import time
 
 
 # --- 1. CONFIGURAÇÕES GERAIS ---
+LAST_FETCH_FILE = 'last_fetch.log'
+FETCH_INTERVAL_HOURS = 4
 DB_NAME = 'dolp_crm_final.db'
 LOGO_PATH = "dolp_logo.png"
 LOGO_URL = "https://mcusercontent.com/cfa43b95eeae85d65cf1366fb/images/a68e98a6-1595-5add-0b79-2e541e7faefa.png"
@@ -678,6 +681,7 @@ class NewsService:
                 # max_results can be adjusted
                 search_results = [r for r in ddgs.news(query, region='br-pt', timelimit='m', max_results=5)]
                 results.extend(search_results)
+                time.sleep(2)
         # Remove duplicates based on URL
         unique_results = {result['url']: result for result in results}.values()
         return list(unique_results)
@@ -932,17 +936,39 @@ class CRMApp:
         for widget in self.content_frame.winfo_children():
             widget.destroy()
 
+    def should_fetch_news(self):
+        if not os.path.exists(LAST_FETCH_FILE):
+            return True
+        try:
+            with open(LAST_FETCH_FILE, 'r') as f:
+                last_fetch_time = datetime.fromisoformat(f.read().strip())
+            if (datetime.now() - last_fetch_time) > timedelta(hours=FETCH_INTERVAL_HOURS):
+                return True
+        except (IOError, ValueError):
+            return True
+        return False
+
+    def update_last_fetch_time(self):
+        try:
+            with open(LAST_FETCH_FILE, 'w') as f:
+                f.write(datetime.now().isoformat())
+        except IOError:
+            print("Aviso: Não foi possível atualizar o horário da última busca de notícias.")
+
     def fetch_news_thread(self):
         """Inicia a busca de notícias em uma thread separada para não bloquear a UI."""
         def run_fetch():
+            if not self.should_fetch_news():
+                print("Busca de notícias recente já realizada. Pulando.")
+                return
+
             self.news_service.fetch_and_store_news()
-            # Após a busca, se a tela de menu principal estiver visível, atualize-a
-            # É preciso agendar a atualização na thread principal do Tkinter
+            self.update_last_fetch_time()
+
             try:
                 if self.content_frame.winfo_exists() and self.content_frame.winfo_children() and isinstance(self.content_frame.winfo_children()[0], ttk.Label) and self.content_frame.winfo_children()[0].cget("text") == "Menu Principal":
                      self.root.after(0, self.show_main_menu)
             except tk.TclError:
-                # Janela pode ter sido fechada
                 pass
 
         thread = threading.Thread(target=run_fetch, daemon=True)
