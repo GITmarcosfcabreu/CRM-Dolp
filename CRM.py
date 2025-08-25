@@ -131,6 +131,27 @@ def format_cnpj(cnpj):
         return f"{cnpj_digits[:2]}.{cnpj_digits[2:5]}.{cnpj_digits[5:8]}/{cnpj_digits[8:12]}-{cnpj_digits[12:]}"
     return cnpj # Retorna o original (ou o que sobrou) se não tiver 14 dígitos
 
+def parse_currency(value_str):
+    """Converte uma string de moeda no formato '1.234,56' para um float."""
+    if not isinstance(value_str, str):
+        return 0.0
+    try:
+        # Remove "R$", espaços, separador de milhar '.', e troca a vírgula decimal por ponto
+        cleaned_str = value_str.replace("R$", "").strip().replace(".", "").replace(",", ".")
+        return float(cleaned_str)
+    except (ValueError, TypeError):
+        return 0.0
+
+def format_for_entry(value):
+    """Formata um valor numérico para o formato '1.234,56' para exibição em campos de entrada."""
+    try:
+        if value is None or str(value).strip() == "":
+            return ""
+        # Formata com 2 casas decimais e separador de milhares, depois inverte os separadores
+        return f"{float(value):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    except (ValueError, TypeError):
+        return ""
+
 # --- 3. GERENCIADOR DE BANCO DE DADOS ---
 class DatabaseManager:
     def __init__(self, db_name):
@@ -1862,65 +1883,63 @@ class CRMApp:
         entries['servicos_tree'] = servicos_tree
 
         def calcular_precos_automaticos():
-            # 1. Obter empresa de referência
-            empresa_nome = entries['empresa_referencia'].get()
-            if not empresa_nome:
-                messagebox.showwarning("Aviso", "Por favor, selecione uma Empresa Referência na aba 'Análise Prévia' primeiro.", parent=form_win)
-                return
+            try:
+                # 1. Obter valores base do formulário
+                valor_estimado = parse_currency(entries['valor'].get())
+                duracao_contrato = int(entries['duracao_contrato'].get() or 0)
 
-            # 2. Limpar a árvore de resultados e resetar o faturamento
-            for item in servicos_tree.get_children():
-                servicos_tree.delete(item)
+                if valor_estimado <= 0:
+                    messagebox.showwarning("Aviso", "Insira um 'Valor Estimado' maior que zero na aba 'Análise Prévia'.", parent=form_win)
+                    return
+                if duracao_contrato <= 0:
+                    messagebox.showwarning("Aviso", "Insira uma 'Duração do Contrato' maior que zero na aba 'Sumário Executivo'.", parent=form_win)
+                    return
 
-            faturamento_total = 0.0
+                # 2. Limpar a árvore de resultados
+                for item in servicos_tree.get_children():
+                    servicos_tree.delete(item)
 
-            # 3. Iterar sobre os serviços configurados no formulário
-            servico_equipes_data = entries.get('servicos_data', {})
-            tipos_servico_vars = entries.get('tipos_servico_vars', {})
+                # 3. Iterar sobre os serviços configurados no formulário
+                servico_equipes_data = entries.get('servicos_data', {})
+                tipos_servico_vars = entries.get('tipos_servico_vars', {})
 
-            for servico_nome, equipe_rows in servico_equipes_data.items():
-                # Verificar se o serviço está ativo (checkbox marcado)
-                if not (tipos_servico_vars.get(servico_nome) and tipos_servico_vars[servico_nome].get()):
-                    continue
+                for servico_nome, equipe_rows in servico_equipes_data.items():
+                    if not (tipos_servico_vars.get(servico_nome) and tipos_servico_vars[servico_nome].get()):
+                        continue
 
-                # 4. Obter dados de referência para o serviço
-                ref_data = self.db.get_empresa_referencia_by_nome_e_tipo(empresa_nome, servico_nome)
-                if not ref_data:
-                    servicos_tree.insert('', 'end', values=(servico_nome, '---', '---', 'N/A', 'Ref. não encontrada'))
-                    continue
-
-                preco_unitario = ref_data['valor_mensal']
-
-                # 5. Calcular totais para o serviço
-                total_qtd_equipes = 0
-                total_volumetria = 0.0
-
-                for row_widgets in equipe_rows:
-                    try:
+                    # 4. Calcular totais para o serviço (quantidade e volumetria)
+                    total_qtd_equipes = 0
+                    total_volumetria = 0.0
+                    for row_widgets in equipe_rows:
                         total_qtd_equipes += int(row_widgets['qtd_entry'].get() or 0)
-                        total_volumetria += float(row_widgets['vol_entry'].get().replace(',', '.') or 0)
-                    except (ValueError, TypeError):
-                        messagebox.showerror("Erro de Formato", f"Verifique os valores de Quantidade e Volumetria para o serviço '{servico_nome}'. Devem ser números.", parent=form_win)
-                        return
+                        total_volumetria += parse_currency(row_widgets['vol_entry'].get())
 
-                # 6. Calcular preço total e adicionar ao faturamento
-                preco_total_servico = total_qtd_equipes * preco_unitario
-                faturamento_total += preco_total_servico
+                    # 5. Aplicar as novas fórmulas de cálculo
+                    if total_volumetria > 0 and duracao_contrato > 0 and total_qtd_equipes > 0:
+                        # Preço Total = Valor Estimado / Volumetria / Duração do Contrato
+                        preco_total = valor_estimado / total_volumetria / duracao_contrato
+                        # Preço Unitário = Preço Total / Quantidade de Equipes
+                        preco_unitario = preco_total / total_qtd_equipes
+                    else:
+                        preco_total = 0
+                        preco_unitario = 0
+                        messagebox.showwarning("Aviso de Cálculo", f"Não foi possível calcular os preços para o serviço '{servico_nome}'. Verifique se a quantidade, volumetria e duração do contrato são maiores que zero.", parent=form_win)
 
-                # 7. Inserir na árvore
-                servicos_tree.insert('', 'end', values=(
-                    servico_nome,
-                    total_qtd_equipes,
-                    f"{total_volumetria:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
-                    format_currency(preco_unitario),
-                    format_currency(preco_total_servico)
-                ))
+                    # 6. Inserir na árvore
+                    servicos_tree.insert('', 'end', values=(
+                        servico_nome,
+                        total_qtd_equipes,
+                        format_for_entry(total_volumetria),
+                        format_currency(preco_unitario),
+                        format_currency(preco_total)
+                    ))
 
-            # 8. Atualizar campo de faturamento estimado
-            entries['faturamento_estimado'].delete(0, 'end')
-            faturamento_estimado_str = f"{faturamento_total:.2f}".replace('.', ',')
-            entries['faturamento_estimado'].insert(0, faturamento_estimado_str)
-            messagebox.showinfo("Sucesso", "Cálculo de preços concluído e Faturamento Estimado atualizado.", parent=form_win)
+                messagebox.showinfo("Sucesso", "Cálculo de preços concluído com base nas novas fórmulas.", parent=form_win)
+
+            except (ValueError, TypeError):
+                messagebox.showerror("Erro de Formato", "Verifique se os valores de 'Valor Estimado', 'Duração do Contrato', 'Quantidade' e 'Volumetria' são números válidos.", parent=form_win)
+            except Exception as e:
+                messagebox.showerror("Erro Inesperado", f"Ocorreu um erro ao calcular os preços: {e}", parent=form_win)
 
 
         # Descrição Detalhada
@@ -1968,7 +1987,7 @@ class CRMApp:
 
                 # 1. Carregar todos os dados estáticos primeiro, usando a verificação de chaves
                 entries['titulo'].insert(0, str(op_data['titulo']) if 'titulo' in op_keys and op_data['titulo'] is not None else '')
-                entries['valor'].insert(0, str(op_data['valor']) if 'valor' in op_keys and op_data['valor'] is not None else '')
+                entries['valor'].insert(0, format_for_entry(op_data['valor']) if 'valor' in op_keys and op_data['valor'] is not None else '')
 
                 cliente_id_val = op_data['cliente_id'] if 'cliente_id' in op_keys else None
                 for client in clients:
@@ -1998,12 +2017,12 @@ class CRMApp:
                 entries['modalidade'].insert(0, str(op_data['modalidade']) if 'modalidade' in op_keys and op_data['modalidade'] is not None else '')
                 entries['contato_principal'].insert(0, str(op_data['contato_principal']) if 'contato_principal' in op_keys and op_data['contato_principal'] is not None else '')
                 entries['link_documentos'].insert(0, str(op_data['link_documentos']) if 'link_documentos' in op_keys and op_data['link_documentos'] is not None else '')
-                entries['faturamento_estimado'].insert(0, str(op_data['faturamento_estimado']) if 'faturamento_estimado' in op_keys and op_data['faturamento_estimado'] is not None else '')
+                entries['faturamento_estimado'].insert(0, format_for_entry(op_data['faturamento_estimado']) if 'faturamento_estimado' in op_keys and op_data['faturamento_estimado'] is not None else '')
                 entries['duracao_contrato'].insert(0, str(op_data['duracao_contrato']) if 'duracao_contrato' in op_keys and op_data['duracao_contrato'] is not None else '')
-                entries['mod'].insert(0, str(op_data['mod']) if 'mod' in op_keys and op_data['mod'] is not None else '')
-                entries['moi'].insert(0, str(op_data['moi']) if 'moi' in op_keys and op_data['moi'] is not None else '')
+                entries['mod'].insert(0, format_for_entry(op_data['mod']) if 'mod' in op_keys and op_data['mod'] is not None else '')
+                entries['moi'].insert(0, format_for_entry(op_data['moi']) if 'moi' in op_keys and op_data['moi'] is not None else '')
                 entries['total_pessoas'].insert(0, str(op_data['total_pessoas']) if 'total_pessoas' in op_keys and op_data['total_pessoas'] is not None else '')
-                entries['margem_contribuicao'].insert(0, str(op_data['margem_contribuicao']) if 'margem_contribuicao' in op_keys and op_data['margem_contribuicao'] is not None else '')
+                entries['margem_contribuicao'].insert(0, format_for_entry(op_data['margem_contribuicao']) if 'margem_contribuicao' in op_keys and op_data['margem_contribuicao'] is not None else '')
 
                 descricao_detalhada = op_data['descricao_detalhada'] if 'descricao_detalhada' in op_keys else None
                 if descricao_detalhada:
@@ -2096,7 +2115,7 @@ class CRMApp:
             try:
                 data = {}
                 data['titulo'] = entries['titulo'].get().strip()
-                data['valor'] = entries['valor'].get().strip().replace('.','').replace(',', '.') or '0'
+                data['valor'] = parse_currency(entries['valor'].get())
                 data['cliente_id'] = client_map.get(entries['cliente_id'].get())
                 data['estagio_id'] = estagio_map.get(entries['estagio_id'].get())
 
@@ -2149,12 +2168,12 @@ class CRMApp:
                 data['modalidade'] = entries['modalidade'].get().strip()
                 data['contato_principal'] = entries['contato_principal'].get().strip()
                 data['link_documentos'] = entries['link_documentos'].get().strip()
-                data['faturamento_estimado'] = entries['faturamento_estimado'].get().strip().replace('.','').replace(',', '.') or '0'
+                data['faturamento_estimado'] = parse_currency(entries['faturamento_estimado'].get())
                 data['duracao_contrato'] = entries['duracao_contrato'].get().strip()
-                data['mod'] = entries['mod'].get().strip().replace(',', '.') or '0'
-                data['moi'] = entries['moi'].get().strip().replace(',', '.') or '0'
+                data['mod'] = parse_currency(entries['mod'].get())
+                data['moi'] = parse_currency(entries['moi'].get())
                 data['total_pessoas'] = entries['total_pessoas'].get().strip()
-                data['margem_contribuicao'] = entries['margem_contribuicao'].get().strip().replace(',', '.') or '0'
+                data['margem_contribuicao'] = parse_currency(entries['margem_contribuicao'].get())
                 data['descricao_detalhada'] = entries['descricao_detalhada'].get('1.0', 'end-1c')
 
                 if op_id:
