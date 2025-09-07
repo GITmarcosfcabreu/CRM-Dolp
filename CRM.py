@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 CRM Dolp Engenharia - Versão Completa com Todas as Melhorias
 
@@ -79,6 +78,11 @@ QUALIFICATION_CHECKLIST = {
         "O valor estimado do contrato está acima do mínimo definido pela diretoria?",
         "As exigências de garantias contratuais e capacidade financeira são atendíveis pela empresa?",
         "A margem potencial do negócio está alinhada com as metas financeiras estratégicas de lucro e rentabilidade?"
+    ],
+    "Análise Concorrencial e de Riscos": [
+        "Quem são os principais concorrentes que provavelmente participarão?",
+        "Quais são nossos diferenciais competitivos claros para esta oportunidade específica?",
+        "Quais os principais riscos (técnicos, logísticos, regulatórios, políticos) associados ao projeto?"
     ],
     "Análise de Interesse da Diretoria": [
         "O investimento de tempo e recursos na elaboração de uma análise previa de viabilidade, é justificável?"
@@ -231,8 +235,6 @@ class DatabaseManager:
                                 margem_contribuicao REAL,
                                 descricao_detalhada TEXT,
                                 qualificacao_data TEXT,
-                                diferenciais_competitivos TEXT,
-                                principais_riscos TEXT,
                                 FOREIGN KEY (cliente_id) REFERENCES clientes(id) ON DELETE CASCADE,
                                 FOREIGN KEY (estagio_id) REFERENCES pipeline_estagios(id)
                            )''')
@@ -281,8 +283,7 @@ class DatabaseManager:
                 "modalidade": "TEXT", "contato_principal": "TEXT", "link_documentos": "TEXT",
                 "faturamento_estimado": "REAL", "duracao_contrato": "INTEGER", "mod": "REAL",
                 "moi": "REAL", "total_pessoas": "INTEGER", "margem_contribuicao": "REAL",
-                "descricao_detalhada": "TEXT", "qualificacao_data": "TEXT",
-                "diferenciais_competitivos": "TEXT", "principais_riscos": "TEXT"
+                "descricao_detalhada": "TEXT", "qualificacao_data": "TEXT"
             }
 
             for col_name, col_type in required_columns.items():
@@ -428,17 +429,15 @@ class DatabaseManager:
             query = '''INSERT INTO oportunidades (titulo, valor, cliente_id, estagio_id, data_criacao,
                         tempo_contrato_meses, regional, polo, quantidade_bases, bases_nomes, servicos_data, empresa_referencia,
                         numero_edital, data_abertura, modalidade, contato_principal, link_documentos,
-                        faturamento_estimado, duracao_contrato, mod, moi, total_pessoas, margem_contribuicao, descricao_detalhada, qualificacao_data,
-                        diferenciais_competitivos, principais_riscos)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'''
+                        faturamento_estimado, duracao_contrato, mod, moi, total_pessoas, margem_contribuicao, descricao_detalhada, qualificacao_data)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'''
             params = (data['titulo'], data['valor'], data['cliente_id'], data['estagio_id'], datetime.now().date(),
                       data.get('tempo_contrato_meses'), data.get('regional'), data.get('polo'), data.get('quantidade_bases'),
                       data.get('bases_nomes'), data.get('servicos_data'), data.get('empresa_referencia'),
                       data.get('numero_edital'), data.get('data_abertura'), data.get('modalidade'), data.get('contato_principal'),
                       data.get('link_documentos'), data.get('faturamento_estimado'), data.get('duracao_contrato'),
                       data.get('mod'), data.get('moi'), data.get('total_pessoas'),
-                      data.get('margem_contribuicao'), data.get('descricao_detalhada'), data.get('qualificacao_data'),
-                      data.get('diferenciais_competitivos'), data.get('principais_riscos'))
+                      data.get('margem_contribuicao'), data.get('descricao_detalhada'), data.get('qualificacao_data'))
 
             cursor = conn.cursor()
             cursor.execute(query, params)
@@ -453,8 +452,7 @@ class DatabaseManager:
             query = '''UPDATE oportunidades SET titulo=?, valor=?, cliente_id=?, estagio_id=?,
                         tempo_contrato_meses=?, regional=?, polo=?, quantidade_bases=?, bases_nomes=?, servicos_data=?, empresa_referencia=?,
                         numero_edital=?, data_abertura=?, modalidade=?, contato_principal=?, link_documentos=?,
-                        faturamento_estimado=?, duracao_contrato=?, mod=?, moi=?, total_pessoas=?, margem_contribuicao=?, descricao_detalhada=?, qualificacao_data=?,
-                        diferenciais_competitivos=?, principais_riscos=?
+                        faturamento_estimado=?, duracao_contrato=?, mod=?, moi=?, total_pessoas=?, margem_contribuicao=?, descricao_detalhada=?, qualificacao_data=?
                          WHERE id=?'''
             params = (data['titulo'], data['valor'], data['cliente_id'], data['estagio_id'],
                       data.get('tempo_contrato_meses'), data.get('regional'), data.get('polo'), data.get('quantidade_bases'),
@@ -463,7 +461,6 @@ class DatabaseManager:
                       data.get('link_documentos'), data.get('faturamento_estimado'), data.get('duracao_contrato'),
                       data.get('mod'), data.get('moi'), data.get('total_pessoas'),
                       data.get('margem_contribuicao'), data.get('descricao_detalhada'), data.get('qualificacao_data'),
-                      data.get('diferenciais_competitivos'), data.get('principais_riscos'),
                       op_id)
             conn.execute(query, params)
 
@@ -734,7 +731,7 @@ class NewsService:
         Você é um analista do setor de energia. Abaixo está uma lista de títulos de notícias, cada um com um índice. Sua tarefa é identificar quais notícias são relevantes para uma empresa de engenharia elétrica no Brasil.
 
         **Critérios de Relevância:**
-        - Relevante: Notícias sobre leilões de energia, construção/manutenção de linhas de transmissão ou distribuição, investimentos, LPT, Universalização, mudanças regulatórias da ANEEL, ou sobre grandes concessionárias (Neoenergia, CPFL, Eletrobras, etc.).
+        - Relevante: Notícias sobre leilões de energia, construção/manutenção de linhas de transmissão ou distribuição, investimentos, mudanças regulatórias da ANEEL, ou sobre grandes concessionárias (Neoenergia, CPFL, Eletrobras, etc.).
         - Não Relevante: Notícias genéricas de economia, política não relacionada, ou outros setores.
 
         **Lista de Títulos:**
@@ -1011,20 +1008,11 @@ class CRMApp:
 
         # Título da seção
         title_label = ttk.Label(self.content_frame, text="Menu Principal", style='Title.TLabel')
-        title_label.pack(pady=(0, 20))
+        title_label.pack(pady=(0, 30))
 
-        # Main layout frame
-        main_layout_frame = ttk.Frame(self.content_frame, style='TFrame')
-        main_layout_frame.pack(fill='both', expand=True)
-
-        # News frame on the left (more prominent)
-        news_lf = ttk.LabelFrame(main_layout_frame, text="Últimas Notícias do Setor", padding=15, style='White.TLabelframe')
-        news_lf.pack(side='left', fill='both', expand=True, padx=(0, 20))
-
-        # Container for buttons on the right
-        buttons_frame = ttk.Frame(main_layout_frame, style='TFrame')
-        buttons_frame.pack(side='right', fill='y', padx=(20, 0))
-
+        # Container para botões
+        buttons_frame = ttk.Frame(self.content_frame, style='TFrame')
+        buttons_frame.pack()
 
         # Botões do menu principal
         menu_buttons = [
@@ -1036,7 +1024,11 @@ class CRMApp:
 
         for i, (text, command, style) in enumerate(menu_buttons):
             btn = ttk.Button(buttons_frame, text=text, command=command, style=style, width=25)
-            btn.pack(pady=10, anchor='n')
+            btn.pack(pady=10)
+
+        # Frame para as notícias
+        news_lf = ttk.LabelFrame(self.content_frame, text="Últimas Notícias do Setor", padding=15, style='White.TLabelframe')
+        news_lf.pack(fill='both', expand=True, pady=(20, 0), padx=20)
 
         # --- Scrollable area for news ---
         news_canvas = tk.Canvas(news_lf, bg=DOLP_COLORS['white'], highlightthickness=0)
@@ -1827,20 +1819,6 @@ class CRMApp:
         base_name_entries = []
         entries['bases_nomes_widgets'] = base_name_entries
 
-        # NEW DIFERENCIAIS COMPETITIVOS
-        diferenciais_frame = ttk.LabelFrame(analise_frame, text="Diferenciais Competitivos", padding=15, style='White.TLabelframe')
-        diferenciais_frame.pack(fill='x', pady=(10, 10))
-        diferenciais_text = tk.Text(diferenciais_frame, height=5, wrap='word', bg='white', font=('Segoe UI', 10))
-        diferenciais_text.pack(fill='both', expand=True)
-        entries['diferenciais_competitivos'] = diferenciais_text
-
-        # NEW PRINCIPAIS RISCOS
-        riscos_frame = ttk.LabelFrame(analise_frame, text="Principais Riscos", padding=15, style='White.TLabelframe')
-        riscos_frame.pack(fill='x', pady=(0, 10))
-        riscos_text = tk.Text(riscos_frame, height=5, wrap='word', bg='white', font=('Segoe UI', 10))
-        riscos_text.pack(fill='both', expand=True)
-        entries['principais_riscos'] = riscos_text
-
         def _update_base_fields_ui():
             for widget in bases_fields_frame.winfo_children():
                 widget.destroy()
@@ -2110,14 +2088,6 @@ class CRMApp:
                 if descricao_detalhada:
                     entries['descricao_detalhada'].insert('1.0', str(descricao_detalhada))
 
-                diferenciais_competitivos = op_data.get('diferenciais_competitivos')
-                if diferenciais_competitivos:
-                    entries['diferenciais_competitivos'].insert('1.0', str(diferenciais_competitivos))
-
-                principais_riscos = op_data.get('principais_riscos')
-                if principais_riscos:
-                    entries['principais_riscos'].insert('1.0', str(principais_riscos))
-
                 form_win.update_idletasks()
 
                 # 2. Carregar dados das bases
@@ -2252,9 +2222,6 @@ class CRMApp:
                     qualificacao_answers[question] = var.get()
                 data['qualificacao_data'] = json.dumps(qualificacao_answers)
 
-                data['diferenciais_competitivos'] = entries['diferenciais_competitivos'].get('1.0', 'end-1c').strip()
-                data['principais_riscos'] = entries['principais_riscos'].get('1.0', 'end-1c').strip()
-
                 # Dados do sumário executivo
                 data['numero_edital'] = entries['numero_edital'].get().strip()
                 data['data_abertura'] = entries['data_abertura'].get() if hasattr(entries['data_abertura'], 'get') else ''
@@ -2386,20 +2353,6 @@ class CRMApp:
                                     row_idx += 1
             except (json.JSONDecodeError, TypeError) as e:
                 print(f"Erro ao exibir dados de qualificação: {e}")
-
-        # Diferenciais Competitivos
-        diferenciais_competitivos = op_data.get('diferenciais_competitivos')
-        if diferenciais_competitivos:
-            diferenciais_frame = ttk.LabelFrame(analise_tab, text="Diferenciais Competitivos", padding=15, style='White.TLabelframe')
-            diferenciais_frame.pack(fill='x', pady=(10, 0))
-            ttk.Label(diferenciais_frame, text=diferenciais_competitivos, style='Value.White.TLabel', wraplength=800).pack(anchor='w')
-
-        # Principais Riscos
-        principais_riscos = op_data.get('principais_riscos')
-        if principais_riscos:
-            riscos_frame = ttk.LabelFrame(analise_tab, text="Principais Riscos", padding=15, style='White.TLabelframe')
-            riscos_frame.pack(fill='x', pady=(10, 0))
-            ttk.Label(riscos_frame, text=principais_riscos, style='Value.White.TLabel', wraplength=800).pack(anchor='w')
 
 
         # Aba 2: Sumário Executivo
