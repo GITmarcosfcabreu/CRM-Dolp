@@ -706,34 +706,39 @@ class NewsService:
             return None
 
     def _summarize_with_gemini(self, text, title):
-        """Usa o Gemini para verificar a relevância e resumir o texto."""
+        """Usa o Gemini para verificar a relevância e resumir o texto, esperando uma resposta JSON."""
         if not self.model:
-            return "Relevância: Média\nResumo: Resumo não disponível (API do Gemini não configurada)."
-        if not text or len(text) < 200: # Avoid summarizing very short texts
-             return "Relevância: Baixa\nResumo: Conteúdo insuficiente para resumo."
+            return '{"relevancia": "Baixa", "resumo": "API do Gemini não configurada."}'
+        if not text or len(text) < 200:
+             return '{"relevancia": "Baixa", "resumo": "Conteúdo insuficiente para resumo."}'
 
-        # Limit text size to avoid exceeding API limits
-        text = text[:15000]
+        text = text[:10000] # Limitar o tamanho do texto para a API
 
         prompt = f'''
-        Você é um analista sênior do setor de energia elétrica no Brasil. Sua tarefa é analisar o seguinte texto de uma notícia e determinar sua relevância para uma empresa de engenharia que atua em construção e manutenção de redes de distribuição, transmissão e subestações.
+        Analise a seguinte notícia do setor de energia do Brasil. Seu objetivo é identificar se ela é importante para uma empresa de engenharia elétrica.
 
-        Título da Notícia: "{title}"
-        Conteúdo da Notícia:
-        ---
-        {text}
-        ---
+        **Critérios de Relevância:**
+        - **Alta:** A notícia fala sobre leilões de energia, novos projetos de construção ou manutenção, investimentos em transmissão ou distribuição, mudanças regulatórias da ANEEL, ou resultados financeiros de grandes concessionárias (Neoenergia, CPFL, Eletrobras, etc.).
+        - **Média:** A notícia menciona o setor elétrico de forma geral, novas tecnologias, ou programas do governo que podem impactar o setor indiretamente.
+        - **Baixa:** A notícia é sobre outros setores ou não tem impacto claro no mercado de engenharia elétrica.
 
-        Responda em português e siga estritamente o formato abaixo:
-        1.  **Relevância:** (Responda com 'Alta', 'Média', 'Baixa' ou 'Nenhuma'). A notícia é diretamente relevante para o setor de distribuição, transmissão, geração de energia, ou sobre grandes concessionárias (ex: Neoenergia, CPFL, Equatorial, Energisa, Light, Enel)?
-        2.  **Resumo:** (Se a relevância for 'Alta' ou 'Média', forneça um resumo conciso de 2 a 4 frases, focando nos pontos chave que impactam o setor. Caso contrário, escreva 'Não aplicável.')
+        **Notícia:**
+        - Título: "{title}"
+        - Conteúdo: "{text}"
+
+        **Sua Tarefa:**
+        Responda APENAS com o seguinte formato JSON, sem adicionar nenhuma outra palavra ou formatação:
+        {{
+          "relevancia": "coloque aqui 'Alta', 'Média' ou 'Baixa'",
+          "resumo": "se a relevância for 'Alta' ou 'Média', crie um resumo de 2 a 3 frases focado no impacto para a engenharia. senão, escreva 'Não aplicável'."
+        }}
         '''
         try:
             response = self.model.generate_content(prompt)
             return response.text
         except Exception as e:
             print(f"Erro na API do Gemini: {e}")
-            return "Relevância: Baixa\nResumo: Erro ao gerar resumo."
+            return '{"relevancia": "Baixa", "resumo": "Erro ao gerar resumo."}'
 
     def fetch_and_store_news(self):
         """Orquestra o processo completo de busca e armazenamento de notícias."""
@@ -747,58 +752,55 @@ class NewsService:
             url = item.get('url')
             title = item.get('title')
             source = item.get('source')
-            date_str = item.get('date') # Format is '2024-03-20T11:02:47-04:00'
+            date_str = item.get('date')
 
             if not url or not title:
                 continue
 
             print(f"Processando: {title}")
 
-            # Convert date
             published_date = ''
             if date_str:
                 try:
-                    # Parse ISO 8601 format and get only the date part
                     dt_obj = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
                     published_date = dt_obj.strftime('%Y-%m-%d')
                 except ValueError:
-                    published_date = '' # Keep it empty if parsing fails
+                    published_date = ''
 
             article_text = self._get_article_text(url)
             if not article_text:
+                time.sleep(4) # Ainda respeitar o delay mesmo se a página falhar
                 continue
 
             summary_analysis = self._summarize_with_gemini(article_text, title)
 
-            # Parse the Gemini response
-            relevance = "Nenhuma"
-            summary = "Não aplicável."
-            # Use regex to find relevance, being more flexible with surrounding text
-            relevance_match = re.search(r"Relevância:\s*(Alta|Média)", summary_analysis, re.IGNORECASE)
-            if relevance_match:
-                relevance = relevance_match.group(1).capitalize()
-                # Use regex to find summary, also more flexible
-                summary_match = re.search(r"Resumo:\s*(.*)", summary_analysis, re.IGNORECASE | re.DOTALL)
-                if summary_match:
-                    summary = summary_match.group(1).strip()
+            try:
+                # Extrair o JSON da resposta, que pode vir com ```json ... ```
+                if '```json' in summary_analysis:
+                    json_str = summary_analysis.split('```json')[1].split('```')[0].strip()
+                else:
+                    json_str = summary_analysis
 
-            if relevance in ["Alta", "Média"]:
-                print(f"  -> Relevante! Salvando no banco de dados.")
-                article_data = {
-                    'title': title,
-                    'url': url,
-                    'source': source,
-                    'content_summary': summary,
-                    'published_date': published_date
-                }
-                self.db.add_news_article(article_data)
-            else:
-                print(f"  -> Não relevante (Relevância: {relevance}).")
+                data = json.loads(json_str)
+                relevance = data.get("relevancia", "Baixa")
+                summary = data.get("resumo", "Não aplicável.")
 
-            # Add delay to respect API rate limits (15 RPM = 1 request every 4 seconds)
-            time.sleep(4)
+                if relevance.lower() in ["alta", "média"]:
+                    print(f"  -> Relevante! Salvando no banco de dados.")
+                    article_data = {
+                        'title': title, 'url': url, 'source': source,
+                        'content_summary': summary, 'published_date': published_date
+                    }
+                    self.db.add_news_article(article_data)
+                else:
+                    print(f"  -> Não relevante (Relevância: {relevance}).")
 
-        # Clean up old news
+            except (json.JSONDecodeError, KeyError) as e:
+                print(f"  -> Erro ao processar a resposta do Gemini: {e}")
+                print(f"  -> Resposta recebida: {summary_analysis}")
+
+            time.sleep(4) # Respeitar o limite de 15 RPM da API do Gemini
+
         self.db.delete_old_unsaved_news()
         print("Busca de notícias concluída.")
 
