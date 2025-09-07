@@ -656,15 +656,13 @@ class DatabaseManager:
 class NewsService:
     def __init__(self, db_manager):
         self.db = db_manager
-        # IMPORTANT: User needs to configure their API key
-        self.gemini_api_key = os.environ.get('GEMINI_API_KEY') # Placeholder
+        self.gemini_api_key = os.environ.get('GEMINI_API_KEY')
         if self.gemini_api_key:
             genai.configure(api_key=self.gemini_api_key)
             self.model = genai.GenerativeModel('gemini-1.5-flash')
         else:
             self.model = None
-            print("AVISO: Chave da API do Gemini não configurada. A funcionalidade de resumo de notícias estará desabilitada.")
-            print("Para habilitar, defina a variável de ambiente 'GEMINI_API_KEY'.")
+            print("AVISO: Chave da API do Gemini não configurada.")
 
     def _search_news(self):
         """Busca notícias usando DuckDuckGo."""
@@ -678,11 +676,9 @@ class NewsService:
         results = []
         with DDGS() as ddgs:
             for query in queries:
-                # max_results can be adjusted
                 search_results = [r for r in ddgs.news(query, region='br-pt', timelimit='m', max_results=5)]
                 results.extend(search_results)
                 time.sleep(2)
-        # Remove duplicates based on URL
         unique_results = {result['url']: result for result in results}.values()
         return list(unique_results)
 
@@ -692,10 +688,8 @@ class NewsService:
             response = requests.get(url, timeout=10, headers={'User-Agent': 'Mozilla/5.0'})
             response.raise_for_status()
             soup = BeautifulSoup(response.content, 'lxml')
-            # Remove scripts, styles, and other non-text elements
             for script_or_style in soup(["script", "style", "header", "footer", "nav"]):
                 script_or_style.decompose()
-            # Get text and clean it up
             text = soup.get_text()
             lines = (line.strip() for line in text.splitlines())
             chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
@@ -705,101 +699,111 @@ class NewsService:
             print(f"Erro ao buscar conteúdo de {url}: {e}")
             return None
 
-    def _summarize_with_gemini(self, text, title):
-        """Usa o Gemini para verificar a relevância e resumir o texto, esperando uma resposta JSON."""
-        if not self.model:
-            return '{"relevancia": "Baixa", "resumo": "API do Gemini não configurada."}'
-        if not text or len(text) < 200:
-             return '{"relevancia": "Baixa", "resumo": "Conteúdo insuficiente para resumo."}'
+    def _check_relevance_batch(self, news_items):
+        """Verifica a relevância de uma lista de notícias em uma única chamada de API."""
+        if not self.model or not news_items:
+            return []
 
-        text = text[:10000] # Limitar o tamanho do texto para a API
+        titles_with_indices = [f'{i}: {item["title"]}' for i, item in enumerate(news_items)]
+        titles_text = "\n".join(titles_with_indices)
 
         prompt = f'''
-        Analise a seguinte notícia do setor de energia do Brasil. Seu objetivo é identificar se ela é importante para uma empresa de engenharia elétrica.
+        Você é um analista do setor de energia. Abaixo está uma lista de títulos de notícias, cada um com um índice. Sua tarefa é identificar quais notícias são relevantes para uma empresa de engenharia elétrica no Brasil.
 
         **Critérios de Relevância:**
-        - **Alta:** A notícia fala sobre leilões de energia, novos projetos de construção ou manutenção, investimentos em transmissão ou distribuição, mudanças regulatórias da ANEEL, ou resultados financeiros de grandes concessionárias (Neoenergia, CPFL, Eletrobras, etc.).
-        - **Média:** A notícia menciona o setor elétrico de forma geral, novas tecnologias, ou programas do governo que podem impactar o setor indiretamente.
-        - **Baixa:** A notícia é sobre outros setores ou não tem impacto claro no mercado de engenharia elétrica.
+        - Relevante: Notícias sobre leilões de energia, construção/manutenção de linhas de transmissão ou distribuição, investimentos, mudanças regulatórias da ANEEL, ou sobre grandes concessionárias (Neoenergia, CPFL, Eletrobras, etc.).
+        - Não Relevante: Notícias genéricas de economia, política não relacionada, ou outros setores.
 
-        **Notícia:**
-        - Título: "{title}"
-        - Conteúdo: "{text}"
+        **Lista de Títulos:**
+        {titles_text}
 
         **Sua Tarefa:**
-        Responda APENAS com o seguinte formato JSON, sem adicionar nenhuma outra palavra ou formatação:
+        Responda APENAS com um objeto JSON contendo uma única chave "indices_relevantes", que é uma lista de números (inteiros) correspondendo aos índices dos títulos que você considerou relevantes.
+        Exemplo de Resposta:
         {{
-          "relevancia": "coloque aqui 'Alta', 'Média' ou 'Baixa'",
-          "resumo": "se a relevância for 'Alta' ou 'Média', crie um resumo de 2 a 3 frases focado no impacto para a engenharia. senão, escreva 'Não aplicável'."
+          "indices_relevantes": [0, 4, 15]
         }}
         '''
         try:
             response = self.model.generate_content(prompt)
-            return response.text
+            # Extrair o JSON da resposta
+            if '```json' in response.text:
+                json_str = response.text.split('```json')[1].split('```')[0].strip()
+            else:
+                json_str = response.text
+
+            data = json.loads(json_str)
+            return data.get("indices_relevantes", [])
+        except (json.JSONDecodeError, KeyError, Exception) as e:
+            print(f"Erro ao checar relevância em lote: {e}")
+            return []
+
+    def _get_summary(self, text, title):
+        """Gera o resumo para um único artigo já considerado relevante."""
+        if not self.model:
+            return "Resumo não disponível (API não configurada)."
+
+        prompt = f'''
+        Resuma a seguinte notícia em 2 a 3 frases, focando no impacto para o setor de engenharia elétrica.
+
+        Título: "{title}"
+        Conteúdo: "{text[:10000]}"
+        '''
+        try:
+            response = self.model.generate_content(prompt)
+            return response.text.strip()
         except Exception as e:
-            print(f"Erro na API do Gemini: {e}")
-            return '{"relevancia": "Baixa", "resumo": "Erro ao gerar resumo."}'
+            print(f"Erro ao gerar resumo para '{title}': {e}")
+            return "Não foi possível gerar o resumo."
 
     def fetch_and_store_news(self):
-        """Orquestra o processo completo de busca e armazenamento de notícias."""
+        """Orquestra o processo de busca e armazenamento de notícias de forma eficiente."""
         print("Buscando novas notícias...")
         news_items = self._search_news()
         if not news_items:
             print("Nenhuma notícia encontrada.")
             return
 
-        for item in news_items:
+        print(f"Verificando relevância de {len(news_items)} notícias...")
+        relevant_indices = self._check_relevance_batch(news_items)
+        if not relevant_indices:
+            print("Nenhuma notícia relevante encontrada na checagem inicial.")
+            self.db.delete_old_unsaved_news()
+            print("Busca de notícias concluída.")
+            return
+
+        relevant_articles = [news_items[i] for i in relevant_indices if i < len(news_items)]
+        print(f"Encontradas {len(relevant_articles)} notícias relevantes. Buscando resumos...")
+
+        for item in relevant_articles:
             url = item.get('url')
             title = item.get('title')
-            source = item.get('source')
-            date_str = item.get('date')
-
-            if not url or not title:
-                continue
-
-            print(f"Processando: {title}")
-
-            published_date = ''
-            if date_str:
-                try:
-                    dt_obj = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
-                    published_date = dt_obj.strftime('%Y-%m-%d')
-                except ValueError:
-                    published_date = ''
+            print(f"Processando resumo para: {title}")
 
             article_text = self._get_article_text(url)
             if not article_text:
-                time.sleep(4) # Ainda respeitar o delay mesmo se a página falhar
+                time.sleep(4)
                 continue
 
-            summary_analysis = self._summarize_with_gemini(article_text, title)
+            summary = self._get_summary(article_text, title)
 
-            try:
-                # Extrair o JSON da resposta, que pode vir com ```json ... ```
-                if '```json' in summary_analysis:
-                    json_str = summary_analysis.split('```json')[1].split('```')[0].strip()
-                else:
-                    json_str = summary_analysis
+            article_data = {
+                'title': title,
+                'url': url,
+                'source': item.get('source'),
+                'content_summary': summary,
+                'published_date': ''
+            }
+            if item.get('date'):
+                try:
+                    dt_obj = datetime.fromisoformat(item['date'].replace('Z', '+00:00'))
+                    article_data['published_date'] = dt_obj.strftime('%Y-%m-%d')
+                except ValueError:
+                    pass
 
-                data = json.loads(json_str)
-                relevance = data.get("relevancia", "Baixa")
-                summary = data.get("resumo", "Não aplicável.")
-
-                if relevance.lower() in ["alta", "média"]:
-                    print(f"  -> Relevante! Salvando no banco de dados.")
-                    article_data = {
-                        'title': title, 'url': url, 'source': source,
-                        'content_summary': summary, 'published_date': published_date
-                    }
-                    self.db.add_news_article(article_data)
-                else:
-                    print(f"  -> Não relevante (Relevância: {relevance}).")
-
-            except (json.JSONDecodeError, KeyError) as e:
-                print(f"  -> Erro ao processar a resposta do Gemini: {e}")
-                print(f"  -> Resposta recebida: {summary_analysis}")
-
-            time.sleep(4) # Respeitar o limite de 15 RPM da API do Gemini
+            self.db.add_news_article(article_data)
+            print(f"  -> Notícia '{title}' salva no banco de dados.")
+            time.sleep(4) # Respeitar o limite de RPM da API
 
         self.db.delete_old_unsaved_news()
         print("Busca de notícias concluída.")
