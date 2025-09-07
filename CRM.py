@@ -23,13 +23,16 @@ from tkcalendar import DateEntry
 from datetime import datetime, timedelta
 import json
 import google.generativeai as genai
-from duckduckgo_search import DDGS
+from ddgs.ddgs import DDGS
 from bs4 import BeautifulSoup
 import re
 import threading
+import time
 
 
 # --- 1. CONFIGURAÇÕES GERAIS ---
+LAST_FETCH_FILE = 'last_fetch.log'
+FETCH_INTERVAL_HOURS = 4
 DB_NAME = 'dolp_crm_final.db'
 LOGO_PATH = "dolp_logo.png"
 LOGO_URL = "https://mcusercontent.com/cfa43b95eeae85d65cf1366fb/images/a68e98a6-1595-5add-0b79-2e541e7faefa.png"
@@ -57,8 +60,8 @@ ESTAGIOS_PIPELINE_DOLP = [
 ]
 BRAZILIAN_STATES = ["GO", "TO", "MT", "DF", "AC", "AL", "AP", "AM", "BA", "CE", "ES", "MA", "MS", "MG", "PA", "PB", "PR", "PE", "PI", "RJ", "RN", "RS", "RO", "RR", "SC", "SP", "SE"]
 SERVICE_TYPES = ["Linha Viva Cesto Duplo", "Linha Viva Cesto Simples", "Linha Morta Pesada 7 Elementos", "STC", "Plantão", "Perdas", "Motocicleta", "Atendimento Emergencial", "Novas Ligações", "Corte e Religação", "Subestações", "Grupos Geradores"]
-INITIAL_SETORES = ["Distribuição", "Geração", "Transmissão", "Comercialização", "Industrial", "Corporativo"]
-INITIAL_SEGMENTOS = ["Utilities", "Energia Renovável", "Óleo & Gás", "Manutenção Industrial", "Infraestrutura Elétrica", "Telecomunicações"]
+INITIAL_SETORES = sorted(list(set(["Distribuição", "Geração", "Transmissão", "Comercialização", "Industrial", "Corporativo", "Energia Elétrica", "Infraestrutura"])))
+INITIAL_SEGMENTOS = sorted(list(set(["Utilities", "Energia Renovável", "Óleo & Gás", "Manutenção Industrial", "Infraestrutura Elétrica", "Telecomunicações", "Distribuição", "Geração, Distribuição, Transmissão e Comercialização", "Geração e Transmissão", "Transmissão", "Concessão Rodoviária"])))
 CLIENT_STATUS_OPTIONS = ["Playbook e não cadastrado", "Playbook e cadastrado", "Cadastrado", "Não cadastrado"]
 
 QUALIFICATION_CHECKLIST = {
@@ -333,7 +336,33 @@ class DatabaseManager:
                 cursor.execute("INSERT INTO crm_setores (nome) VALUES (?)", (setor,))
         if cursor.execute("SELECT count(*) FROM crm_segmentos").fetchone()[0] == 0:
             for segmento in INITIAL_SEGMENTOS:
-                cursor.execute("INSERT INTO crm_segmentos (nome) VALUES (?)", (segmento,))
+                cursor.execute("INSERT OR IGNORE INTO crm_segmentos (nome) VALUES (?)", (segmento,))
+
+        # Adicionar clientes específicos
+        new_clients = [
+            {'nome_empresa': 'CPFL (RS)', 'cnpj': '02.016.440/0001-62', 'cidade': 'São Leopoldo', 'estado': 'RS', 'setor_atuacao': 'Energia Elétrica', 'segmento_atuacao': 'Distribuição'},
+            {'nome_empresa': 'CPFL (SP) - Paulista', 'cnpj': '33.050.196/0001-88', 'cidade': 'Campinas', 'estado': 'SP', 'setor_atuacao': 'Energia Elétrica', 'segmento_atuacao': 'Distribuição'},
+            {'nome_empresa': 'CPFL (SP) - Piratininga', 'cnpj': '04.172.213/0001-51', 'cidade': 'Campinas', 'estado': 'SP', 'setor_atuacao': 'Energia Elétrica', 'segmento_atuacao': 'Distribuição'},
+            {'nome_empresa': 'Energisa (PB)', 'cnpj': '09.095.183/0001-40', 'cidade': 'João Pessoa', 'estado': 'PB', 'setor_atuacao': 'Energia Elétrica', 'segmento_atuacao': 'Distribuição'},
+            {'nome_empresa': 'EDP Distribuição (ES)', 'cnpj': '28.152.650/0001-90', 'cidade': 'Vitória', 'estado': 'ES', 'setor_atuacao': 'Energia Elétrica', 'segmento_atuacao': 'Distribuição'},
+            {'nome_empresa': 'EDP Transmissão', 'cnpj': '03.983.431/0001-03', 'cidade': 'São Paulo', 'estado': 'SP', 'setor_atuacao': 'Energia Elétrica', 'segmento_atuacao': 'Geração, Distribuição, Transmissão e Comercialização'},
+            {'nome_empresa': 'Cemig', 'cnpj': '17.155.730/0001-64', 'cidade': 'Belo Horizonte', 'estado': 'MG', 'setor_atuacao': 'Energia Elétrica', 'segmento_atuacao': 'Geração, Transmissão, Distribuição e Comercialização'},
+            {'nome_empresa': 'TAESA Transmissão', 'cnpj': '07.859.971/0001-30', 'cidade': 'Rio de Janeiro', 'estado': 'RJ', 'setor_atuacao': 'Energia Elétrica', 'segmento_atuacao': 'Transmissão'},
+            {'nome_empresa': 'State Grid Transmissão', 'cnpj': '11.938.558/0001-39', 'cidade': 'Rio de Janeiro', 'estado': 'RJ', 'setor_atuacao': 'Energia Elétrica', 'segmento_atuacao': 'Transmissão'},
+            {'nome_empresa': 'Eletrobrás Transmissão', 'cnpj': '00.001.180/0001-26', 'cidade': 'Rio de Janeiro', 'estado': 'RJ', 'setor_atuacao': 'Energia Elétrica', 'segmento_atuacao': 'Geração, Transmissão e Comercialização'},
+            {'nome_empresa': 'Eletrobrás Transmissão (Subsidiária)', 'cnpj': '02.016.507/0001-69', 'cidade': 'Florianópolis', 'estado': 'SC', 'setor_atuacao': 'Energia Elétrica', 'segmento_atuacao': 'Geração e Transmissão'},
+            {'nome_empresa': 'Engie Transmissão', 'cnpj': '02.474.103/0001-19', 'cidade': 'Florianópolis', 'estado': 'SC', 'setor_atuacao': 'Energia Elétrica', 'segmento_atuacao': 'Geração e Transmissão'},
+            {'nome_empresa': 'Ecovias', 'cnpj': '02.509.491/0001-26', 'cidade': 'São Bernardo do Campo', 'estado': 'SP', 'setor_atuacao': 'Infraestrutura', 'segmento_atuacao': 'Concessão Rodoviária'},
+            {'nome_empresa': 'Consórcio Rota Verde', 'cnpj': '59.354.202/0001-84', 'cidade': 'Goiânia', 'estado': 'GO', 'setor_atuacao': 'Infraestrutura', 'segmento_atuacao': 'Concessão Rodoviária'},
+        ]
+
+        for client in new_clients:
+            # Usar INSERT OR IGNORE para não dar erro se o cliente (baseado no CNPJ) já existir
+            cursor.execute("""INSERT OR IGNORE INTO clientes
+                              (nome_empresa, cnpj, cidade, estado, setor_atuacao, segmento_atuacao, data_atualizacao, status)
+                              VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                           (client['nome_empresa'], strip_cnpj(client['cnpj']), client['cidade'], client['estado'],
+                            client['setor_atuacao'], client['segmento_atuacao'], datetime.now().strftime('%d/%m/%Y'), 'Cadastrado'))
 
     # Métodos de Clientes
     def get_all_clients(self, setor=None, segmento=None):
@@ -671,8 +700,9 @@ class NewsService:
         with DDGS() as ddgs:
             for query in queries:
                 # max_results can be adjusted
-                search_results = [r for r in ddgs.news(query, region='br-pt', max_results=5)]
+                search_results = [r for r in ddgs.news(query, region='br-pt', timelimit='m', max_results=5)]
                 results.extend(search_results)
+                time.sleep(2)
         # Remove duplicates based on URL
         unique_results = {result['url']: result for result in results}.values()
         return list(unique_results)
@@ -697,34 +727,39 @@ class NewsService:
             return None
 
     def _summarize_with_gemini(self, text, title):
-        """Usa o Gemini para verificar a relevância e resumir o texto."""
+        """Usa o Gemini para verificar a relevância e resumir o texto, esperando uma resposta JSON."""
         if not self.model:
-            return "Relevância: Média\nResumo: Resumo não disponível (API do Gemini não configurada)."
-        if not text or len(text) < 200: # Avoid summarizing very short texts
-             return "Relevância: Baixa\nResumo: Conteúdo insuficiente para resumo."
+            return '{"relevancia": "Baixa", "resumo": "API do Gemini não configurada."}'
+        if not text or len(text) < 200:
+             return '{"relevancia": "Baixa", "resumo": "Conteúdo insuficiente para resumo."}'
 
-        # Limit text size to avoid exceeding API limits
-        text = text[:15000]
+        text = text[:10000] # Limitar o tamanho do texto para a API
 
         prompt = f'''
-        Você é um analista sênior do setor de energia elétrica no Brasil. Sua tarefa é analisar o seguinte texto de uma notícia e determinar sua relevância para uma empresa de engenharia que atua em construção e manutenção de redes de distribuição, transmissão e subestações.
+        Analise a seguinte notícia do setor de energia do Brasil. Seu objetivo é identificar se ela é importante para uma empresa de engenharia elétrica.
 
-        Título da Notícia: "{title}"
-        Conteúdo da Notícia:
-        ---
-        {text}
-        ---
+        **Critérios de Relevância:**
+        - **Alta:** A notícia fala sobre leilões de energia, novos projetos de construção ou manutenção, investimentos em transmissão ou distribuição, mudanças regulatórias da ANEEL, ou resultados financeiros de grandes concessionárias (Neoenergia, CPFL, Eletrobras, etc.).
+        - **Média:** A notícia menciona o setor elétrico de forma geral, novas tecnologias, ou programas do governo que podem impactar o setor indiretamente.
+        - **Baixa:** A notícia é sobre outros setores ou não tem impacto claro no mercado de engenharia elétrica.
 
-        Responda em português e siga estritamente o formato abaixo:
-        1.  **Relevância:** (Responda com 'Alta', 'Média', 'Baixa' ou 'Nenhuma'). A notícia é diretamente relevante para o setor de distribuição, transmissão, geração de energia, ou sobre grandes concessionárias (ex: Neoenergia, CPFL, Equatorial, Energisa, Light, Enel)?
-        2.  **Resumo:** (Se a relevância for 'Alta' ou 'Média', forneça um resumo conciso de 2 a 4 frases, focando nos pontos chave que impactam o setor. Caso contrário, escreva 'Não aplicável.')
+        **Notícia:**
+        - Título: "{title}"
+        - Conteúdo: "{text}"
+
+        **Sua Tarefa:**
+        Responda APENAS com o seguinte formato JSON, sem adicionar nenhuma outra palavra ou formatação:
+        {{
+          "relevancia": "coloque aqui 'Alta', 'Média' ou 'Baixa'",
+          "resumo": "se a relevância for 'Alta' ou 'Média', crie um resumo de 2 a 3 frases focado no impacto para a engenharia. senão, escreva 'Não aplicável'."
+        }}
         '''
         try:
             response = self.model.generate_content(prompt)
             return response.text
         except Exception as e:
             print(f"Erro na API do Gemini: {e}")
-            return "Relevância: Baixa\nResumo: Erro ao gerar resumo."
+            return '{"relevancia": "Baixa", "resumo": "Erro ao gerar resumo."}'
 
     def fetch_and_store_news(self):
         """Orquestra o processo completo de busca e armazenamento de notícias."""
@@ -738,55 +773,55 @@ class NewsService:
             url = item.get('url')
             title = item.get('title')
             source = item.get('source')
-            date_str = item.get('date') # Format is '2024-03-20T11:02:47-04:00'
+            date_str = item.get('date')
 
             if not url or not title:
                 continue
 
             print(f"Processando: {title}")
 
-            # Convert date
             published_date = ''
             if date_str:
                 try:
-                    # Parse ISO 8601 format and get only the date part
                     dt_obj = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
                     published_date = dt_obj.strftime('%Y-%m-%d')
                 except ValueError:
-                    published_date = '' # Keep it empty if parsing fails
+                    published_date = ''
 
             article_text = self._get_article_text(url)
             if not article_text:
+                time.sleep(4) # Ainda respeitar o delay mesmo se a página falhar
                 continue
 
             summary_analysis = self._summarize_with_gemini(article_text, title)
 
-            # Parse the Gemini response
-            relevance = "Nenhuma"
-            summary = "Não aplicável."
-            # Use regex to find relevance, being more flexible with surrounding text
-            relevance_match = re.search(r"Relevância:\s*(Alta|Média)", summary_analysis, re.IGNORECASE)
-            if relevance_match:
-                relevance = relevance_match.group(1).capitalize()
-                # Use regex to find summary, also more flexible
-                summary_match = re.search(r"Resumo:\s*(.*)", summary_analysis, re.IGNORECASE | re.DOTALL)
-                if summary_match:
-                    summary = summary_match.group(1).strip()
+            try:
+                # Extrair o JSON da resposta, que pode vir com ```json ... ```
+                if '```json' in summary_analysis:
+                    json_str = summary_analysis.split('```json')[1].split('```')[0].strip()
+                else:
+                    json_str = summary_analysis
 
-            if relevance in ["Alta", "Média"]:
-                print(f"  -> Relevante! Salvando no banco de dados.")
-                article_data = {
-                    'title': title,
-                    'url': url,
-                    'source': source,
-                    'content_summary': summary,
-                    'published_date': published_date
-                }
-                self.db.add_news_article(article_data)
-            else:
-                print(f"  -> Não relevante (Relevância: {relevance}).")
+                data = json.loads(json_str)
+                relevance = data.get("relevancia", "Baixa")
+                summary = data.get("resumo", "Não aplicável.")
 
-        # Clean up old news
+                if relevance.lower() in ["alta", "média"]:
+                    print(f"  -> Relevante! Salvando no banco de dados.")
+                    article_data = {
+                        'title': title, 'url': url, 'source': source,
+                        'content_summary': summary, 'published_date': published_date
+                    }
+                    self.db.add_news_article(article_data)
+                else:
+                    print(f"  -> Não relevante (Relevância: {relevance}).")
+
+            except (json.JSONDecodeError, KeyError) as e:
+                print(f"  -> Erro ao processar a resposta do Gemini: {e}")
+                print(f"  -> Resposta recebida: {summary_analysis}")
+
+            time.sleep(4) # Respeitar o limite de 15 RPM da API do Gemini
+
         self.db.delete_old_unsaved_news()
         print("Busca de notícias concluída.")
 
@@ -927,17 +962,39 @@ class CRMApp:
         for widget in self.content_frame.winfo_children():
             widget.destroy()
 
+    def should_fetch_news(self):
+        if not os.path.exists(LAST_FETCH_FILE):
+            return True
+        try:
+            with open(LAST_FETCH_FILE, 'r') as f:
+                last_fetch_time = datetime.fromisoformat(f.read().strip())
+            if (datetime.now() - last_fetch_time) > timedelta(hours=FETCH_INTERVAL_HOURS):
+                return True
+        except (IOError, ValueError):
+            return True
+        return False
+
+    def update_last_fetch_time(self):
+        try:
+            with open(LAST_FETCH_FILE, 'w') as f:
+                f.write(datetime.now().isoformat())
+        except IOError:
+            print("Aviso: Não foi possível atualizar o horário da última busca de notícias.")
+
     def fetch_news_thread(self):
         """Inicia a busca de notícias em uma thread separada para não bloquear a UI."""
         def run_fetch():
+            if not self.should_fetch_news():
+                print("Busca de notícias recente já realizada. Pulando.")
+                return
+
             self.news_service.fetch_and_store_news()
-            # Após a busca, se a tela de menu principal estiver visível, atualize-a
-            # É preciso agendar a atualização na thread principal do Tkinter
+            self.update_last_fetch_time()
+
             try:
                 if self.content_frame.winfo_exists() and self.content_frame.winfo_children() and isinstance(self.content_frame.winfo_children()[0], ttk.Label) and self.content_frame.winfo_children()[0].cget("text") == "Menu Principal":
                      self.root.after(0, self.show_main_menu)
             except tk.TclError:
-                # Janela pode ter sido fechada
                 pass
 
         thread = threading.Thread(target=run_fetch, daemon=True)
