@@ -80,6 +80,10 @@ QUALIFICATION_CHECKLIST = {
         "As exigências de garantias contratuais e capacidade financeira são atendíveis pela empresa?",
         "A margem potencial do negócio está alinhada com as metas financeiras estratégicas de lucro e rentabilidade?"
     ],
+    "Análise Concorrencial e de Riscos": [
+        "Quais são nossos diferenciais competitivos claros para esta oportunidade específica?",
+        "Quais os principais riscos (técnicos, logísticos, regulatórios, políticos) associados ao projeto?"
+    ],
     "Análise de Interesse da Diretoria": [
         "O investimento de tempo e recursos na elaboração de uma análise previa de viabilidade, é justificável?"
     ]
@@ -1651,26 +1655,43 @@ class CRMApp:
         qualificacao_vars = {}
         entries['qualificacao_data'] = qualificacao_vars
 
+        # Define the special questions
+        q_diferenciais = "Quais são nossos diferenciais competitivos claros para esta oportunidade específica?"
+        q_riscos = "Quais os principais riscos (técnicos, logísticos, regulatórios, políticos) associados ao projeto?"
+
         for section, questions in QUALIFICATION_CHECKLIST.items():
             section_frame = ttk.LabelFrame(qualificacao_frame, text=section, padding=10, style='White.TLabelframe')
             section_frame.pack(fill='x', expand=True, pady=5)
-            section_frame.columnconfigure(0, weight=1)
+            section_frame.columnconfigure(0, weight=1) # Allow question label to expand
 
-            for i, question in enumerate(questions):
-                q_var = tk.StringVar(value="") # Valor padrão vazio
-                qualificacao_vars[question] = q_var
-
-                q_label = ttk.Label(section_frame, text=question, wraplength=800, justify='left')
-                q_label.grid(row=i, column=0, sticky='w', pady=(5,0))
-
-                radio_frame = ttk.Frame(section_frame)
-                radio_frame.grid(row=i, column=1, sticky='e', padx=10)
-
-                rb_sim = ttk.Radiobutton(radio_frame, text="Sim", variable=q_var, value="Sim")
-                rb_nao = ttk.Radiobutton(radio_frame, text="Não", variable=q_var, value="Não")
-
-                rb_sim.pack(side='left')
-                rb_nao.pack(side='left', padx=10)
+            row_idx = 0
+            for question in questions:
+                if question == q_diferenciais:
+                    q_label = ttk.Label(section_frame, text=question, wraplength=800, justify='left')
+                    q_label.grid(row=row_idx, column=0, columnspan=2, sticky='w', pady=(5,2))
+                    diferenciais_text = tk.Text(section_frame, height=4, wrap='word', bg='white', font=('Segoe UI', 10))
+                    diferenciais_text.grid(row=row_idx + 1, column=0, columnspan=2, sticky='ew', pady=(0, 10), padx=5)
+                    entries['diferenciais_competitivos'] = diferenciais_text
+                    row_idx += 2
+                elif question == q_riscos:
+                    q_label = ttk.Label(section_frame, text=question, wraplength=800, justify='left')
+                    q_label.grid(row=row_idx, column=0, columnspan=2, sticky='w', pady=(5,2))
+                    riscos_text = tk.Text(section_frame, height=4, wrap='word', bg='white', font=('Segoe UI', 10))
+                    riscos_text.grid(row=row_idx + 1, column=0, columnspan=2, sticky='ew', pady=(0, 10), padx=5)
+                    entries['principais_riscos'] = riscos_text
+                    row_idx += 2
+                else:
+                    q_var = tk.StringVar(value="")
+                    qualificacao_vars[question] = q_var
+                    q_label = ttk.Label(section_frame, text=question, wraplength=800, justify='left')
+                    q_label.grid(row=row_idx, column=0, sticky='w', pady=(5,0))
+                    radio_frame = ttk.Frame(section_frame)
+                    radio_frame.grid(row=row_idx, column=1, sticky='e', padx=10)
+                    rb_sim = ttk.Radiobutton(radio_frame, text="Sim", variable=q_var, value="Sim")
+                    rb_nao = ttk.Radiobutton(radio_frame, text="Não", variable=q_var, value="Não")
+                    rb_sim.pack(side='left')
+                    rb_nao.pack(side='left', padx=10)
+                    row_idx += 1
 
         # Dicionários para manter o estado da UI dinâmica
         servico_frames = {}
@@ -1805,20 +1826,6 @@ class CRMApp:
 
         base_name_entries = []
         entries['bases_nomes_widgets'] = base_name_entries
-
-        # NEW DIFERENCIAIS COMPETITIVOS
-        diferenciais_frame = ttk.LabelFrame(analise_frame, text="Diferenciais Competitivos", padding=15, style='White.TLabelframe')
-        diferenciais_frame.pack(fill='x', pady=(10, 10))
-        diferenciais_text = tk.Text(diferenciais_frame, height=5, wrap='word', bg='white', font=('Segoe UI', 10))
-        diferenciais_text.pack(fill='both', expand=True)
-        entries['diferenciais_competitivos'] = diferenciais_text
-
-        # NEW PRINCIPAIS RISCOS
-        riscos_frame = ttk.LabelFrame(analise_frame, text="Principais Riscos", padding=15, style='White.TLabelframe')
-        riscos_frame.pack(fill='x', pady=(0, 10))
-        riscos_text = tk.Text(riscos_frame, height=5, wrap='word', bg='white', font=('Segoe UI', 10))
-        riscos_text.pack(fill='both', expand=True)
-        entries['principais_riscos'] = riscos_text
 
         def _update_base_fields_ui():
             for widget in bases_fields_frame.winfo_children():
@@ -2091,14 +2098,6 @@ class CRMApp:
                 if descricao_detalhada:
                     entries['descricao_detalhada'].insert('1.0', str(descricao_detalhada))
 
-                diferenciais_competitivos = op_data.get('diferenciais_competitivos')
-                if diferenciais_competitivos:
-                    entries['diferenciais_competitivos'].insert('1.0', str(diferenciais_competitivos))
-
-                principais_riscos = op_data.get('principais_riscos')
-                if principais_riscos:
-                    entries['principais_riscos'].insert('1.0', str(principais_riscos))
-
                 form_win.update_idletasks()
 
                 # 2. Carregar dados das bases
@@ -2155,7 +2154,7 @@ class CRMApp:
                                                parent=form_win)
 
                 # 4. Carregar dados do formulário de qualificação
-                qualificacao_data_json = op_data['qualificacao_data'] if 'qualificacao_data' in op_keys else None
+                qualificacao_data_json = op_data.get('qualificacao_data')
                 if qualificacao_data_json:
                     try:
                         qualificacao_answers = json.loads(qualificacao_data_json)
@@ -2165,6 +2164,12 @@ class CRMApp:
                                 qualificacao_vars[question].set(answer)
                     except (json.JSONDecodeError, TypeError) as e:
                         print(f"Erro ao carregar dados de qualificação: {e}")
+
+                # Carregar dados dos campos de texto
+                if 'diferenciais_competitivos' in entries and op_data.get('diferenciais_competitivos'):
+                    entries['diferenciais_competitivos'].insert('1.0', op_data['diferenciais_competitivos'])
+                if 'principais_riscos' in entries and op_data.get('principais_riscos'):
+                    entries['principais_riscos'].insert('1.0', op_data['principais_riscos'])
 
             except Exception as e:
                 import traceback
@@ -2233,8 +2238,11 @@ class CRMApp:
                     qualificacao_answers[question] = var.get()
                 data['qualificacao_data'] = json.dumps(qualificacao_answers)
 
-                data['diferenciais_competitivos'] = entries['diferenciais_competitivos'].get('1.0', 'end-1c').strip()
-                data['principais_riscos'] = entries['principais_riscos'].get('1.0', 'end-1c').strip()
+                # Coletar dados dos novos campos de texto
+                if 'diferenciais_competitivos' in entries:
+                    data['diferenciais_competitivos'] = entries['diferenciais_competitivos'].get('1.0', 'end-1c').strip()
+                if 'principais_riscos' in entries:
+                    data['principais_riscos'] = entries['principais_riscos'].get('1.0', 'end-1c').strip()
 
                 # Dados do sumário executivo
                 data['numero_edital'] = entries['numero_edital'].get().strip()
@@ -2342,45 +2350,43 @@ class CRMApp:
                 print(f"Alerta: Falha ao carregar nomes de bases na tela de detalhes: {bases_nomes_json}")
 
         # Formulário de Qualificação
-        qualificacao_data_json = op_data['qualificacao_data'] if 'qualificacao_data' in op_keys else None
+        qual_frame = ttk.LabelFrame(analise_tab, text="Formulário de Análise de Qualificação da Oportunidade", padding=15, style='White.TLabelframe')
+        qual_frame.pack(fill='x', pady=(10, 0))
+
+        qualificacao_data_json = op_data.get('qualificacao_data')
+        qualificacao_answers = {}
         if qualificacao_data_json:
             try:
                 qualificacao_answers = json.loads(qualificacao_data_json)
-                if qualificacao_answers:
-                    qual_frame = ttk.LabelFrame(analise_tab, text="Formulário de Análise de Qualificação da Oportunidade", padding=15, style='White.TLabelframe')
-                    qual_frame.pack(fill='x', pady=(10, 0))
+            except (json.JSONDecodeError, TypeError):
+                pass
 
-                    # Usar o dicionário original para manter a ordem das seções
-                    for section, questions in QUALIFICATION_CHECKLIST.items():
-                        # Apenas mostra a seção se houver alguma pergunta dela nos dados salvos
-                        if any(q in qualificacao_answers for q in questions):
-                            section_frame = ttk.LabelFrame(qual_frame, text=section, padding=10, style='White.TLabelframe')
-                            section_frame.pack(fill='x', expand=True, pady=5)
-                            section_frame.columnconfigure(1, weight=1)
+        # Define the special questions again to check against
+        q_diferenciais = "Quais são nossos diferenciais competitivos claros para esta oportunidade específica?"
+        q_riscos = "Quais os principais riscos (técnicos, logísticos, regulatórios, políticos) associados ao projeto?"
 
-                            row_idx = 0
-                            for question in questions:
-                                if question in qualificacao_answers:
-                                    answer = qualificacao_answers[question] or "Não respondido"
-                                    ttk.Label(section_frame, text=question, wraplength=600, justify='left', style='Value.White.TLabel').grid(row=row_idx, column=0, sticky='w')
-                                    ttk.Label(section_frame, text=answer, style='Value.White.TLabel').grid(row=row_idx, column=1, sticky='e', padx=10)
-                                    row_idx += 1
-            except (json.JSONDecodeError, TypeError) as e:
-                print(f"Erro ao exibir dados de qualificação: {e}")
+        for section, questions in QUALIFICATION_CHECKLIST.items():
+            section_frame = ttk.LabelFrame(qual_frame, text=section, padding=10, style='White.TLabelframe')
+            section_frame.pack(fill='x', expand=True, pady=5)
+            section_frame.columnconfigure(1, weight=1)
 
-        # Diferenciais Competitivos
-        diferenciais_competitivos = op_data.get('diferenciais_competitivos')
-        if diferenciais_competitivos:
-            diferenciais_frame = ttk.LabelFrame(analise_tab, text="Diferenciais Competitivos", padding=15, style='White.TLabelframe')
-            diferenciais_frame.pack(fill='x', pady=(10, 0))
-            ttk.Label(diferenciais_frame, text=diferenciais_competitivos, style='Value.White.TLabel', wraplength=800).pack(anchor='w')
-
-        # Principais Riscos
-        principais_riscos = op_data.get('principais_riscos')
-        if principais_riscos:
-            riscos_frame = ttk.LabelFrame(analise_tab, text="Principais Riscos", padding=15, style='White.TLabelframe')
-            riscos_frame.pack(fill='x', pady=(10, 0))
-            ttk.Label(riscos_frame, text=principais_riscos, style='Value.White.TLabel', wraplength=800).pack(anchor='w')
+            row_idx = 0
+            for question in questions:
+                if question == q_diferenciais:
+                    ttk.Label(section_frame, text=question, style='Metric.White.TLabel').grid(row=row_idx, column=0, sticky='w', pady=2)
+                    diferenciais_text = op_data.get('diferenciais_competitivos') or "---"
+                    ttk.Label(section_frame, text=diferenciais_text, style='Value.White.TLabel', wraplength=600).grid(row=row_idx, column=1, sticky='w', pady=2, padx=(10,0))
+                    row_idx +=1
+                elif question == q_riscos:
+                    ttk.Label(section_frame, text=question, style='Metric.White.TLabel').grid(row=row_idx, column=0, sticky='w', pady=2)
+                    riscos_text = op_data.get('principais_riscos') or "---"
+                    ttk.Label(section_frame, text=riscos_text, style='Value.White.TLabel', wraplength=600).grid(row=row_idx, column=1, sticky='w', pady=2, padx=(10,0))
+                    row_idx +=1
+                elif question in qualificacao_answers:
+                    answer = qualificacao_answers[question] or "Não respondido"
+                    ttk.Label(section_frame, text=question, wraplength=600, justify='left', style='Value.White.TLabel').grid(row=row_idx, column=0, sticky='w')
+                    ttk.Label(section_frame, text=answer, style='Value.White.TLabel').grid(row=row_idx, column=1, sticky='e', padx=10)
+                    row_idx += 1
 
 
         # Aba 2: Sumário Executivo
