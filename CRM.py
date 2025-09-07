@@ -691,6 +691,7 @@ class NewsService:
             "programas governo federal energia elétrica",
             "fatos relevantes concessionárias energia Brasil",
             "ANEEL últimas notícias",
+            "LPT",
             "leilão de transmissão energia"
         ]
         results = []
@@ -731,7 +732,7 @@ class NewsService:
         Você é um analista do setor de energia. Abaixo está uma lista de títulos de notícias, cada um com um índice. Sua tarefa é identificar quais notícias são relevantes para uma empresa de engenharia elétrica no Brasil.
 
         **Critérios de Relevância:**
-        - Relevante: Notícias sobre leilões de energia, construção/manutenção de linhas de transmissão ou distribuição, investimentos, mudanças regulatórias da ANEEL, ou sobre grandes concessionárias (Neoenergia, CPFL, Eletrobras, etc.).
+        - Relevante: Notícias sobre leilões de energia, construção/manutenção de linhas de transmissão ou distribuição, investimentos, mudanças regulatórias da ANEEL, LPT, Universalização, Luz para Todos, ou sobre grandes concessionárias (Neoenergia, CPFL, Eletrobras, etc.).
         - Não Relevante: Notícias genéricas de economia, política não relacionada, ou outros setores.
 
         **Lista de Títulos:**
