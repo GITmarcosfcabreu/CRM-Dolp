@@ -1,7 +1,0 @@
-Pillow
-requests
-tkcalendar
-google-generativeai
-ddgs
-beautifulsoup4
-lxml
