@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 CRM Dolp Engenharia - Versão Completa com Todas as Melhorias
 
@@ -81,6 +80,7 @@ QUALIFICATION_CHECKLIST = {
         "A margem potencial do negócio está alinhada com as metas financeiras estratégicas de lucro e rentabilidade?"
     ],
     "Análise Concorrencial e de Riscos": [
+
         "Quais são nossos diferenciais competitivos claros para esta oportunidade específica?",
         "Quais os principais riscos (técnicos, logísticos, regulatórios, políticos) associados ao projeto?"
     ],
@@ -132,6 +132,27 @@ def format_cnpj(cnpj):
     if len(cnpj_digits) == 14:
         return f"{cnpj_digits[:2]}.{cnpj_digits[2:5]}.{cnpj_digits[5:8]}/{cnpj_digits[8:12]}-{cnpj_digits[12:]}"
     return cnpj # Retorna o original (ou o que sobrou) se não tiver 14 dígitos
+
+def parse_currency(value_str):
+    """Converte uma string de moeda no formato '1.234,56' para um float."""
+    if not isinstance(value_str, str):
+        return 0.0
+    try:
+        # Remove "R$", espaços, separador de milhar '.', e troca a vírgula decimal por ponto
+        cleaned_str = value_str.replace("R$", "").strip().replace(".", "").replace(",", ".")
+        return float(cleaned_str)
+    except (ValueError, TypeError):
+        return 0.0
+
+def format_for_entry(value):
+    """Formata um valor numérico para o formato '1.234,56' para exibição em campos de entrada."""
+    try:
+        if value is None or str(value).strip() == "":
+            return ""
+        # Formata com 2 casas decimais e separador de milhares, depois inverte os separadores
+        return f"{float(value):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    except (ValueError, TypeError):
+        return ""
 
 # --- 3. GERENCIADOR DE BANCO DE DADOS ---
 class DatabaseManager:
@@ -214,8 +235,6 @@ class DatabaseManager:
                                 margem_contribuicao REAL,
                                 descricao_detalhada TEXT,
                                 qualificacao_data TEXT,
-                                diferenciais_competitivos TEXT,
-                                principais_riscos TEXT,
                                 FOREIGN KEY (cliente_id) REFERENCES clientes(id) ON DELETE CASCADE,
                                 FOREIGN KEY (estagio_id) REFERENCES pipeline_estagios(id)
                            )''')
@@ -264,8 +283,7 @@ class DatabaseManager:
                 "modalidade": "TEXT", "contato_principal": "TEXT", "link_documentos": "TEXT",
                 "faturamento_estimado": "REAL", "duracao_contrato": "INTEGER", "mod": "REAL",
                 "moi": "REAL", "total_pessoas": "INTEGER", "margem_contribuicao": "REAL",
-                "descricao_detalhada": "TEXT", "qualificacao_data": "TEXT",
-                "diferenciais_competitivos": "TEXT", "principais_riscos": "TEXT"
+                "descricao_detalhada": "TEXT", "qualificacao_data": "TEXT"
             }
 
             for col_name, col_type in required_columns.items():
@@ -411,17 +429,15 @@ class DatabaseManager:
             query = '''INSERT INTO oportunidades (titulo, valor, cliente_id, estagio_id, data_criacao,
                         tempo_contrato_meses, regional, polo, quantidade_bases, bases_nomes, servicos_data, empresa_referencia,
                         numero_edital, data_abertura, modalidade, contato_principal, link_documentos,
-                        faturamento_estimado, duracao_contrato, mod, moi, total_pessoas, margem_contribuicao, descricao_detalhada, qualificacao_data,
-                        diferenciais_competitivos, principais_riscos)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'''
+                        faturamento_estimado, duracao_contrato, mod, moi, total_pessoas, margem_contribuicao, descricao_detalhada, qualificacao_data)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'''
             params = (data['titulo'], data['valor'], data['cliente_id'], data['estagio_id'], datetime.now().date(),
                       data.get('tempo_contrato_meses'), data.get('regional'), data.get('polo'), data.get('quantidade_bases'),
                       data.get('bases_nomes'), data.get('servicos_data'), data.get('empresa_referencia'),
                       data.get('numero_edital'), data.get('data_abertura'), data.get('modalidade'), data.get('contato_principal'),
                       data.get('link_documentos'), data.get('faturamento_estimado'), data.get('duracao_contrato'),
                       data.get('mod'), data.get('moi'), data.get('total_pessoas'),
-                      data.get('margem_contribuicao'), data.get('descricao_detalhada'), data.get('qualificacao_data'),
-                      data.get('diferenciais_competitivos'), data.get('principais_riscos'))
+                      data.get('margem_contribuicao'), data.get('descricao_detalhada'), data.get('qualificacao_data'))
 
             cursor = conn.cursor()
             cursor.execute(query, params)
@@ -436,8 +452,7 @@ class DatabaseManager:
             query = '''UPDATE oportunidades SET titulo=?, valor=?, cliente_id=?, estagio_id=?,
                         tempo_contrato_meses=?, regional=?, polo=?, quantidade_bases=?, bases_nomes=?, servicos_data=?, empresa_referencia=?,
                         numero_edital=?, data_abertura=?, modalidade=?, contato_principal=?, link_documentos=?,
-                        faturamento_estimado=?, duracao_contrato=?, mod=?, moi=?, total_pessoas=?, margem_contribuicao=?, descricao_detalhada=?, qualificacao_data=?,
-                        diferenciais_competitivos=?, principais_riscos=?
+                        faturamento_estimado=?, duracao_contrato=?, mod=?, moi=?, total_pessoas=?, margem_contribuicao=?, descricao_detalhada=?, qualificacao_data=?
                          WHERE id=?'''
             params = (data['titulo'], data['valor'], data['cliente_id'], data['estagio_id'],
                       data.get('tempo_contrato_meses'), data.get('regional'), data.get('polo'), data.get('quantidade_bases'),
@@ -446,7 +461,6 @@ class DatabaseManager:
                       data.get('link_documentos'), data.get('faturamento_estimado'), data.get('duracao_contrato'),
                       data.get('mod'), data.get('moi'), data.get('total_pessoas'),
                       data.get('margem_contribuicao'), data.get('descricao_detalhada'), data.get('qualificacao_data'),
-                      data.get('diferenciais_competitivos'), data.get('principais_riscos'),
                       op_id)
             conn.execute(query, params)
 
@@ -677,6 +691,7 @@ class NewsService:
             "programas governo federal energia elétrica",
             "fatos relevantes concessionárias energia Brasil",
             "ANEEL últimas notícias",
+            "LPT",
             "leilão de transmissão energia"
         ]
         results = []
@@ -717,7 +732,7 @@ class NewsService:
         Você é um analista do setor de energia. Abaixo está uma lista de títulos de notícias, cada um com um índice. Sua tarefa é identificar quais notícias são relevantes para uma empresa de engenharia elétrica no Brasil.
 
         **Critérios de Relevância:**
-        - Relevante: Notícias sobre leilões de energia, construção/manutenção de linhas de transmissão ou distribuição, investimentos, mudanças regulatórias da ANEEL, ou sobre grandes concessionárias (Neoenergia, CPFL, Eletrobras, etc.).
+        - Relevante: Notícias sobre leilões de energia, construção/manutenção de linhas de transmissão ou distribuição, investimentos, mudanças regulatórias da ANEEL, LPT, Universalização, Luz para Todos, ou sobre grandes concessionárias (Neoenergia, CPFL, Eletrobras, etc.).
         - Não Relevante: Notícias genéricas de economia, política não relacionada, ou outros setores.
 
         **Lista de Títulos:**
@@ -994,20 +1009,11 @@ class CRMApp:
 
         # Título da seção
         title_label = ttk.Label(self.content_frame, text="Menu Principal", style='Title.TLabel')
-        title_label.pack(pady=(0, 20))
+        title_label.pack(pady=(0, 30))
 
-        # Main layout frame
-        main_layout_frame = ttk.Frame(self.content_frame, style='TFrame')
-        main_layout_frame.pack(fill='both', expand=True)
-
-        # News frame on the left (more prominent)
-        news_lf = ttk.LabelFrame(main_layout_frame, text="Últimas Notícias do Setor", padding=15, style='White.TLabelframe')
-        news_lf.pack(side='left', fill='both', expand=True, padx=(0, 20))
-
-        # Container for buttons on the right
-        buttons_frame = ttk.Frame(main_layout_frame, style='TFrame')
-        buttons_frame.pack(side='right', fill='y', padx=(20, 0))
-
+        # Container para botões
+        buttons_frame = ttk.Frame(self.content_frame, style='TFrame')
+        buttons_frame.pack()
 
         # Botões do menu principal
         menu_buttons = [
@@ -1019,7 +1025,11 @@ class CRMApp:
 
         for i, (text, command, style) in enumerate(menu_buttons):
             btn = ttk.Button(buttons_frame, text=text, command=command, style=style, width=25)
-            btn.pack(pady=10, anchor='n')
+            btn.pack(pady=10)
+
+        # Frame para as notícias
+        news_lf = ttk.LabelFrame(self.content_frame, text="Últimas Notícias do Setor", padding=15, style='White.TLabelframe')
+        news_lf.pack(fill='both', expand=True, pady=(20, 0), padx=20)
 
         # --- Scrollable area for news ---
         news_canvas = tk.Canvas(news_lf, bg=DOLP_COLORS['white'], highlightthickness=0)
@@ -1951,65 +1961,63 @@ class CRMApp:
         entries['servicos_tree'] = servicos_tree
 
         def calcular_precos_automaticos():
-            # 1. Obter empresa de referência
-            empresa_nome = entries['empresa_referencia'].get()
-            if not empresa_nome:
-                messagebox.showwarning("Aviso", "Por favor, selecione uma Empresa Referência na aba 'Análise Prévia' primeiro.", parent=form_win)
-                return
+            try:
+                # 1. Obter valores base do formulário
+                valor_estimado = parse_currency(entries['valor'].get())
+                duracao_contrato = int(entries['duracao_contrato'].get() or 0)
 
-            # 2. Limpar a árvore de resultados e resetar o faturamento
-            for item in servicos_tree.get_children():
-                servicos_tree.delete(item)
+                if valor_estimado <= 0:
+                    messagebox.showwarning("Aviso", "Insira um 'Valor Estimado' maior que zero na aba 'Análise Prévia'.", parent=form_win)
+                    return
+                if duracao_contrato <= 0:
+                    messagebox.showwarning("Aviso", "Insira uma 'Duração do Contrato' maior que zero na aba 'Sumário Executivo'.", parent=form_win)
+                    return
 
-            faturamento_total = 0.0
+                # 2. Limpar a árvore de resultados
+                for item in servicos_tree.get_children():
+                    servicos_tree.delete(item)
 
-            # 3. Iterar sobre os serviços configurados no formulário
-            servico_equipes_data = entries.get('servicos_data', {})
-            tipos_servico_vars = entries.get('tipos_servico_vars', {})
+                # 3. Iterar sobre os serviços configurados no formulário
+                servico_equipes_data = entries.get('servicos_data', {})
+                tipos_servico_vars = entries.get('tipos_servico_vars', {})
 
-            for servico_nome, equipe_rows in servico_equipes_data.items():
-                # Verificar se o serviço está ativo (checkbox marcado)
-                if not (tipos_servico_vars.get(servico_nome) and tipos_servico_vars[servico_nome].get()):
-                    continue
+                for servico_nome, equipe_rows in servico_equipes_data.items():
+                    if not (tipos_servico_vars.get(servico_nome) and tipos_servico_vars[servico_nome].get()):
+                        continue
 
-                # 4. Obter dados de referência para o serviço
-                ref_data = self.db.get_empresa_referencia_by_nome_e_tipo(empresa_nome, servico_nome)
-                if not ref_data:
-                    servicos_tree.insert('', 'end', values=(servico_nome, '---', '---', 'N/A', 'Ref. não encontrada'))
-                    continue
-
-                preco_unitario = ref_data['valor_mensal']
-
-                # 5. Calcular totais para o serviço
-                total_qtd_equipes = 0
-                total_volumetria = 0.0
-
-                for row_widgets in equipe_rows:
-                    try:
+                    # 4. Calcular totais para o serviço (quantidade e volumetria)
+                    total_qtd_equipes = 0
+                    total_volumetria = 0.0
+                    for row_widgets in equipe_rows:
                         total_qtd_equipes += int(row_widgets['qtd_entry'].get() or 0)
-                        total_volumetria += float(row_widgets['vol_entry'].get().replace(',', '.') or 0)
-                    except (ValueError, TypeError):
-                        messagebox.showerror("Erro de Formato", f"Verifique os valores de Quantidade e Volumetria para o serviço '{servico_nome}'. Devem ser números.", parent=form_win)
-                        return
+                        total_volumetria += parse_currency(row_widgets['vol_entry'].get())
 
-                # 6. Calcular preço total e adicionar ao faturamento
-                preco_total_servico = total_qtd_equipes * preco_unitario
-                faturamento_total += preco_total_servico
+                    # 5. Aplicar as novas fórmulas de cálculo
+                    if total_volumetria > 0 and duracao_contrato > 0 and total_qtd_equipes > 0:
+                        # Preço Total = Valor Estimado / Volumetria / Duração do Contrato
+                        preco_total = valor_estimado / total_volumetria / duracao_contrato
+                        # Preço Unitário = Preço Total / Quantidade de Equipes
+                        preco_unitario = preco_total / total_qtd_equipes
+                    else:
+                        preco_total = 0
+                        preco_unitario = 0
+                        messagebox.showwarning("Aviso de Cálculo", f"Não foi possível calcular os preços para o serviço '{servico_nome}'. Verifique se a quantidade, volumetria e duração do contrato são maiores que zero.", parent=form_win)
 
-                # 7. Inserir na árvore
-                servicos_tree.insert('', 'end', values=(
-                    servico_nome,
-                    total_qtd_equipes,
-                    f"{total_volumetria:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
-                    format_currency(preco_unitario),
-                    format_currency(preco_total_servico)
-                ))
+                    # 6. Inserir na árvore
+                    servicos_tree.insert('', 'end', values=(
+                        servico_nome,
+                        total_qtd_equipes,
+                        format_for_entry(total_volumetria),
+                        format_currency(preco_unitario),
+                        format_currency(preco_total)
+                    ))
 
-            # 8. Atualizar campo de faturamento estimado
-            entries['faturamento_estimado'].delete(0, 'end')
-            faturamento_estimado_str = f"{faturamento_total:.2f}".replace('.', ',')
-            entries['faturamento_estimado'].insert(0, faturamento_estimado_str)
-            messagebox.showinfo("Sucesso", "Cálculo de preços concluído e Faturamento Estimado atualizado.", parent=form_win)
+                messagebox.showinfo("Sucesso", "Cálculo de preços concluído com base nas novas fórmulas.", parent=form_win)
+
+            except (ValueError, TypeError):
+                messagebox.showerror("Erro de Formato", "Verifique se os valores de 'Valor Estimado', 'Duração do Contrato', 'Quantidade' e 'Volumetria' são números válidos.", parent=form_win)
+            except Exception as e:
+                messagebox.showerror("Erro Inesperado", f"Ocorreu um erro ao calcular os preços: {e}", parent=form_win)
 
 
         # Descrição Detalhada
@@ -2057,7 +2065,7 @@ class CRMApp:
 
                 # 1. Carregar todos os dados estáticos primeiro, usando a verificação de chaves
                 entries['titulo'].insert(0, str(op_data['titulo']) if 'titulo' in op_keys and op_data['titulo'] is not None else '')
-                entries['valor'].insert(0, str(op_data['valor']) if 'valor' in op_keys and op_data['valor'] is not None else '')
+                entries['valor'].insert(0, format_for_entry(op_data['valor']) if 'valor' in op_keys and op_data['valor'] is not None else '')
 
                 cliente_id_val = op_data['cliente_id'] if 'cliente_id' in op_keys else None
                 for client in clients:
@@ -2087,12 +2095,12 @@ class CRMApp:
                 entries['modalidade'].insert(0, str(op_data['modalidade']) if 'modalidade' in op_keys and op_data['modalidade'] is not None else '')
                 entries['contato_principal'].insert(0, str(op_data['contato_principal']) if 'contato_principal' in op_keys and op_data['contato_principal'] is not None else '')
                 entries['link_documentos'].insert(0, str(op_data['link_documentos']) if 'link_documentos' in op_keys and op_data['link_documentos'] is not None else '')
-                entries['faturamento_estimado'].insert(0, str(op_data['faturamento_estimado']) if 'faturamento_estimado' in op_keys and op_data['faturamento_estimado'] is not None else '')
+                entries['faturamento_estimado'].insert(0, format_for_entry(op_data['faturamento_estimado']) if 'faturamento_estimado' in op_keys and op_data['faturamento_estimado'] is not None else '')
                 entries['duracao_contrato'].insert(0, str(op_data['duracao_contrato']) if 'duracao_contrato' in op_keys and op_data['duracao_contrato'] is not None else '')
-                entries['mod'].insert(0, str(op_data['mod']) if 'mod' in op_keys and op_data['mod'] is not None else '')
-                entries['moi'].insert(0, str(op_data['moi']) if 'moi' in op_keys and op_data['moi'] is not None else '')
+                entries['mod'].insert(0, format_for_entry(op_data['mod']) if 'mod' in op_keys and op_data['mod'] is not None else '')
+                entries['moi'].insert(0, format_for_entry(op_data['moi']) if 'moi' in op_keys and op_data['moi'] is not None else '')
                 entries['total_pessoas'].insert(0, str(op_data['total_pessoas']) if 'total_pessoas' in op_keys and op_data['total_pessoas'] is not None else '')
-                entries['margem_contribuicao'].insert(0, str(op_data['margem_contribuicao']) if 'margem_contribuicao' in op_keys and op_data['margem_contribuicao'] is not None else '')
+                entries['margem_contribuicao'].insert(0, format_for_entry(op_data['margem_contribuicao']) if 'margem_contribuicao' in op_keys and op_data['margem_contribuicao'] is not None else '')
 
                 descricao_detalhada = op_data['descricao_detalhada'] if 'descricao_detalhada' in op_keys else None
                 if descricao_detalhada:
@@ -2191,7 +2199,7 @@ class CRMApp:
             try:
                 data = {}
                 data['titulo'] = entries['titulo'].get().strip()
-                data['valor'] = entries['valor'].get().strip().replace('.','').replace(',', '.') or '0'
+                data['valor'] = parse_currency(entries['valor'].get())
                 data['cliente_id'] = client_map.get(entries['cliente_id'].get())
                 data['estagio_id'] = estagio_map.get(entries['estagio_id'].get())
 
@@ -2238,11 +2246,6 @@ class CRMApp:
                     qualificacao_answers[question] = var.get()
                 data['qualificacao_data'] = json.dumps(qualificacao_answers)
 
-                # Coletar dados dos novos campos de texto
-                if 'diferenciais_competitivos' in entries:
-                    data['diferenciais_competitivos'] = entries['diferenciais_competitivos'].get('1.0', 'end-1c').strip()
-                if 'principais_riscos' in entries:
-                    data['principais_riscos'] = entries['principais_riscos'].get('1.0', 'end-1c').strip()
 
                 # Dados do sumário executivo
                 data['numero_edital'] = entries['numero_edital'].get().strip()
@@ -2250,12 +2253,12 @@ class CRMApp:
                 data['modalidade'] = entries['modalidade'].get().strip()
                 data['contato_principal'] = entries['contato_principal'].get().strip()
                 data['link_documentos'] = entries['link_documentos'].get().strip()
-                data['faturamento_estimado'] = entries['faturamento_estimado'].get().strip().replace('.','').replace(',', '.') or '0'
+                data['faturamento_estimado'] = parse_currency(entries['faturamento_estimado'].get())
                 data['duracao_contrato'] = entries['duracao_contrato'].get().strip()
-                data['mod'] = entries['mod'].get().strip().replace(',', '.') or '0'
-                data['moi'] = entries['moi'].get().strip().replace(',', '.') or '0'
+                data['mod'] = parse_currency(entries['mod'].get())
+                data['moi'] = parse_currency(entries['moi'].get())
                 data['total_pessoas'] = entries['total_pessoas'].get().strip()
-                data['margem_contribuicao'] = entries['margem_contribuicao'].get().strip().replace(',', '.') or '0'
+                data['margem_contribuicao'] = parse_currency(entries['margem_contribuicao'].get())
                 data['descricao_detalhada'] = entries['descricao_detalhada'].get('1.0', 'end-1c')
 
                 if op_id:
@@ -2358,35 +2361,7 @@ class CRMApp:
         if qualificacao_data_json:
             try:
                 qualificacao_answers = json.loads(qualificacao_data_json)
-            except (json.JSONDecodeError, TypeError):
-                pass
 
-        # Define the special questions again to check against
-        q_diferenciais = "Quais são nossos diferenciais competitivos claros para esta oportunidade específica?"
-        q_riscos = "Quais os principais riscos (técnicos, logísticos, regulatórios, políticos) associados ao projeto?"
-
-        for section, questions in QUALIFICATION_CHECKLIST.items():
-            section_frame = ttk.LabelFrame(qual_frame, text=section, padding=10, style='White.TLabelframe')
-            section_frame.pack(fill='x', expand=True, pady=5)
-            section_frame.columnconfigure(1, weight=1)
-
-            row_idx = 0
-            for question in questions:
-                if question == q_diferenciais:
-                    ttk.Label(section_frame, text=question, style='Metric.White.TLabel').grid(row=row_idx, column=0, sticky='w', pady=2)
-                    diferenciais_text = op_data.get('diferenciais_competitivos') or "---"
-                    ttk.Label(section_frame, text=diferenciais_text, style='Value.White.TLabel', wraplength=600).grid(row=row_idx, column=1, sticky='w', pady=2, padx=(10,0))
-                    row_idx +=1
-                elif question == q_riscos:
-                    ttk.Label(section_frame, text=question, style='Metric.White.TLabel').grid(row=row_idx, column=0, sticky='w', pady=2)
-                    riscos_text = op_data.get('principais_riscos') or "---"
-                    ttk.Label(section_frame, text=riscos_text, style='Value.White.TLabel', wraplength=600).grid(row=row_idx, column=1, sticky='w', pady=2, padx=(10,0))
-                    row_idx +=1
-                elif question in qualificacao_answers:
-                    answer = qualificacao_answers[question] or "Não respondido"
-                    ttk.Label(section_frame, text=question, wraplength=600, justify='left', style='Value.White.TLabel').grid(row=row_idx, column=0, sticky='w')
-                    ttk.Label(section_frame, text=answer, style='Value.White.TLabel').grid(row=row_idx, column=1, sticky='e', padx=10)
-                    row_idx += 1
 
 
         # Aba 2: Sumário Executivo
