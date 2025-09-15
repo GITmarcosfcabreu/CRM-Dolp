@@ -2555,18 +2555,17 @@ class CRMApp:
 
         try:
             doc = SimpleDocTemplate(file_path, pagesize=A4,
-
+                                    rightMargin=72, leftMargin=72,
+                                    topMargin=90, bottomMargin=72)
             story = []
             styles = getSampleStyleSheet()
-            styles.add(ParagraphStyle(name='Justify', alignment=4)) # TA_JUSTIFY
+            styles.add(ParagraphStyle(name='Justify', alignment=4))
 
-            # Title
             story.append(Paragraph("Análise Prévia de Viabilidade", styles['h1']))
             story.append(Spacer(1, 12))
             story.append(Paragraph(f"Oportunidade: {op_data['titulo']}", styles['h2']))
             story.append(Spacer(1, 24))
 
-            # Informações Básicas
             story.append(Paragraph("1. Informações Básicas", styles['h3']))
             story.append(Spacer(1, 12))
 
@@ -2587,9 +2586,8 @@ class CRMApp:
                 ('BOTTOMPADDING', (0,0), (-1,-1), 6),
             ]))
             story.append(basic_info_table)
-            story.append(Spacer(1, 24))]
+            story.append(Spacer(1, 24))
 
-            # Formulário de Análise de Qualificação
             story.append(Paragraph("2. Formulário de Análise de Qualificação", styles['h3']))
             story.append(Spacer(1, 12))
 
@@ -2603,7 +2601,7 @@ class CRMApp:
 
                         question_data = []
                         for question in questions:
-                            answer = "---" # Default answer
+                            answer = "---"
                             if question == "Quais são nossos diferenciais competitivos claros para esta oportunidade específica?":
                                 answer = op_data['diferenciais_competitivos'] if 'diferenciais_competitivos' in op_keys and op_data['diferenciais_competitivos'] else "---"
                                 question_data.append([Paragraph(question, styles['BodyText']), Paragraph(answer, styles['BodyText'])])
@@ -2633,7 +2631,6 @@ class CRMApp:
                 story.append(Paragraph("Dados de qualificação não preenchidos.", styles['BodyText']))
             story.append(Spacer(1, 24))
 
-            # Bases
             story.append(Paragraph("3. Bases Alocadas", styles['h3']))
             story.append(Spacer(1, 12))
             bases_nomes_json = op_data['bases_nomes'] if 'bases_nomes' in op_keys else None
@@ -2651,7 +2648,6 @@ class CRMApp:
                 story.append(Paragraph("Nenhuma base alocada.", styles['BodyText']))
             story.append(Spacer(1, 24))
 
-            # Serviços e Equipes
             story.append(Paragraph("4. Serviços e Equipes", styles['h3']))
             story.append(Spacer(1, 12))
             servicos_data_json = op_data['servicos_data'] if 'servicos_data' in op_keys else None
@@ -2692,10 +2688,8 @@ class CRMApp:
             else:
                 story.append(Paragraph("Nenhum serviço configurado.", styles['BodyText']))
 
-            # Header and Footer function
             def header_footer(canvas, doc):
                 canvas.saveState()
-                # Header
                 if os.path.exists(LOGO_PATH):
                     try:
                         logo = ImageReader(LOGO_PATH)
@@ -2711,7 +2705,6 @@ class CRMApp:
                 canvas.setFont('Helvetica', 9)
                 canvas.drawRightString(A4[0] - doc.rightMargin, A4[1] - 0.75 * inch, f"Gerado em: {now}")
 
-                # Footer (Signature Line)
                 canvas.setFont('Helvetica', 10)
                 canvas.drawString(doc.leftMargin, 0.75 * inch, "_________________________________________")
                 canvas.drawString(doc.leftMargin, 0.5 * inch, "Assinatura da Diretoria")
