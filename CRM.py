@@ -25,7 +25,7 @@ import json
 import google.generativeai as genai
 from ddgs.ddgs import DDGS
 from bs4 import BeautifulSoup
-
+import re
 import threading
 import time
 from reportlab.pdfgen import canvas
@@ -469,7 +469,7 @@ class DatabaseManager:
             if filters:
                 if filters.get('numero_oportunidade'):
                     conditions.append("o.numero_oportunidade LIKE ?")
-                    params.append(f"%{filters['numero_oportunidade']}%")
+                    params.append(f"%{filters['numero_oportunidade']}%" )
                 if filters.get('cliente'):
                     conditions.append("c.nome_empresa = ?")
                     params.append(filters['cliente'])
@@ -2160,7 +2160,7 @@ class CRMApp:
                                                parent=form_win)
 
                 # 4. Carregar dados do formulário de qualificação
-                qualificacao_data_json = op_data.get('qualificacao_data')
+                qualificacao_data_json = op_data['qualificacao_data'] if 'qualificacao_data' in op_keys else None
                 if qualificacao_data_json:
                     try:
                         qualificacao_answers = json.loads(qualificacao_data_json)
@@ -2172,9 +2172,9 @@ class CRMApp:
                         print(f"Erro ao carregar dados de qualificação: {e}")
 
                 # Carregar dados dos campos de texto
-                if 'diferenciais_competitivos' in entries and op_data.get('diferenciais_competitivos'):
+                if 'diferenciais_competitivos' in entries and 'diferenciais_competitivos' in op_keys and op_data['diferenciais_competitivos']:
                     entries['diferenciais_competitivos'].insert('1.0', op_data['diferenciais_competitivos'])
-                if 'principais_riscos' in entries and op_data.get('principais_riscos'):
+                if 'principais_riscos' in entries and 'principais_riscos' in op_keys and op_data['principais_riscos']:
                     entries['principais_riscos'].insert('1.0', op_data['principais_riscos'])
 
             except Exception as e:
@@ -2316,7 +2316,7 @@ class CRMApp:
         notebook = ttk.Notebook(details_win, padding=10)
         notebook.pack(fill='both', expand=True, padx=20, pady=(0, 20))
 
-              # Aba 1: Análise Prévia de Viabilidade
+        # Aba 1: Análise Prévia de Viabilidade
         analise_tab = ttk.Frame(notebook, padding=20, style='TFrame')
         notebook.add(analise_tab, text='  Análise Prévia de Viabilidade  ')
 
@@ -2327,7 +2327,6 @@ class CRMApp:
         info_frame = ttk.LabelFrame(analise_tab, text="Informações Básicas", padding=15, style='White.TLabelframe')
         info_frame.pack(fill='x', pady=(0, 10))
 
-       
         basic_info = [
             ("Cliente:", op_data['nome_empresa'] if 'nome_empresa' in op_keys else '---'),
             ("Estágio:", op_data['estagio_nome'] if 'estagio_nome' in op_keys else '---'),
@@ -2364,7 +2363,7 @@ class CRMApp:
         qual_frame = ttk.LabelFrame(analise_tab, text="Formulário de Análise de Qualificação da Oportunidade", padding=15, style='White.TLabelframe')
         qual_frame.pack(fill='x', pady=(10, 0))
 
-        qualificacao_data_json = op_data.get('qualificacao_data')
+        qualificacao_data_json = op_data['qualificacao_data'] if 'qualificacao_data' in op_keys else None
         qualificacao_answers = {}
         if qualificacao_data_json:
             try:
@@ -2385,12 +2384,12 @@ class CRMApp:
             for question in questions:
                 if question == q_diferenciais:
                     ttk.Label(section_frame, text=question, style='Metric.White.TLabel').grid(row=row_idx, column=0, sticky='w', pady=2)
-                    diferenciais_text = op_data.get('diferenciais_competitivos') or "---"
+                    diferenciais_text = (op_data['diferenciais_competitivos'] if 'diferenciais_competitivos' in op_keys and op_data['diferenciais_competitivos'] else "---")
                     ttk.Label(section_frame, text=diferenciais_text, style='Value.White.TLabel', wraplength=600).grid(row=row_idx, column=1, sticky='w', pady=2, padx=(10,0))
                     row_idx +=1
                 elif question == q_riscos:
                     ttk.Label(section_frame, text=question, style='Metric.White.TLabel').grid(row=row_idx, column=0, sticky='w', pady=2)
-                    riscos_text = op_data.get('principais_riscos') or "---"
+                    riscos_text = (op_data['principais_riscos'] if 'principais_riscos' in op_keys and op_data['principais_riscos'] else "---")
                     ttk.Label(section_frame, text=riscos_text, style='Value.White.TLabel', wraplength=600).grid(row=row_idx, column=1, sticky='w', pady=2, padx=(10,0))
                     row_idx +=1
                 elif question in qualificacao_answers:
@@ -2539,13 +2538,15 @@ class CRMApp:
         if not op_data:
             messagebox.showerror("Erro", "Oportunidade não encontrada!")
             return
+        
+        op_keys = op_data.keys()
 
         # Ask for save location
         file_path = filedialog.asksaveasfilename(
             defaultextension=".pdf",
             filetypes=[("PDF files", "*.pdf"), ("All files", "*.*")],
             title="Salvar Análise Prévia de Viabilidade",
-            initialfile=f"Analise_Previa_{op_data.get('numero_oportunidade', 'NA')}_{op_data.get('titulo', 'SemTitulo')}.pdf".replace(" ", "_")
+            initialfile=f"Analise_Previa_{op_data['numero_oportunidade'] if 'numero_oportunidade' in op_keys else 'NA'}_{op_data['titulo'] if 'titulo' in op_keys else 'SemTitulo'}.pdf".replace(" ", "_")
         )
 
         if not file_path:
@@ -2573,10 +2574,10 @@ class CRMApp:
                 ['Cliente:', op_data['nome_empresa']],
                 ['Estágio:', op_data['estagio_nome']],
                 ['Valor Estimado:', format_currency(op_data['valor'])],
-                ['Tempo de Contrato:', f"{op_data['tempo_contrato_meses']} meses" if op_data['tempo_contrato_meses'] else "---"],
-                ['Regional:', op_data['regional'] or "---"],
-                ['Polo:', op_data['polo'] or "---"],
-                ['Empresa Referência:', op_data['empresa_referencia'] or "---"],
+                ['Tempo de Contrato:', f"{op_data['tempo_contrato_meses']} meses" if 'tempo_contrato_meses' in op_keys and op_data['tempo_contrato_meses'] else "---"],
+                ['Regional:', op_data['regional'] if 'regional' in op_keys and op_data['regional'] else "---"],
+                ['Polo:', op_data['polo'] if 'polo' in op_keys and op_data['polo'] else "---"],
+                ['Empresa Referência:', op_data['empresa_referencia'] if 'empresa_referencia' in op_keys and op_data['empresa_referencia'] else "---"],
             ]
             
             basic_info_table = Table(basic_info_data, colWidths=[1.5*inch, 4.5*inch])
@@ -2592,7 +2593,7 @@ class CRMApp:
             story.append(Paragraph("2. Formulário de Análise de Qualificação", styles['h3']))
             story.append(Spacer(1, 12))
             
-            qualificacao_data_json = op_data.get('qualificacao_data')
+            qualificacao_data_json = op_data['qualificacao_data'] if 'qualificacao_data' in op_keys else None
             if qualificacao_data_json:
                 try:
                     qualificacao_answers = json.loads(qualificacao_data_json)
@@ -2604,10 +2605,10 @@ class CRMApp:
                         for question in questions:
                             answer = qualificacao_answers.get(question, "Não respondido")
                             if question == "Quais são nossos diferenciais competitivos claros para esta oportunidade específica?":
-                                answer = op_data.get('diferenciais_competitivos') or "---"
+                                answer = (op_data['diferenciais_competitivos'] if 'diferenciais_competitivos' in op_keys and op_data['diferenciais_competitivos'] else "---")
                                 question_data.append([Paragraph(question, styles['BodyText']), Paragraph(answer, styles['BodyText'])])
                             elif question == "Quais os principais riscos (técnicos, logísticos, regulatórios, políticos) associados ao projeto?":
-                                answer = op_data.get('principais_riscos') or "---"
+                                answer = (op_data['principais_riscos'] if 'principais_riscos' in op_keys and op_data['principais_riscos'] else "---")
                                 question_data.append([Paragraph(question, styles['BodyText']), Paragraph(answer, styles['BodyText'])])
                             else:
                                 question_data.append([Paragraph(question, styles['BodyText']), answer])
@@ -2634,7 +2635,7 @@ class CRMApp:
             # Bases
             story.append(Paragraph("3. Bases Alocadas", styles['h3']))
             story.append(Spacer(1, 12))
-            bases_nomes_json = op_data.get('bases_nomes')
+            bases_nomes_json = op_data['bases_nomes'] if 'bases_nomes' in op_keys else None
             if bases_nomes_json:
                 try:
                     bases_nomes = json.loads(bases_nomes_json)
@@ -2652,7 +2653,7 @@ class CRMApp:
             # Serviços e Equipes
             story.append(Paragraph("4. Serviços e Equipes", styles['h3']))
             story.append(Spacer(1, 12))
-            servicos_data_json = op_data.get('servicos_data')
+            servicos_data_json = op_data['servicos_data'] if 'servicos_data' in op_keys else None
             if servicos_data_json:
                 try:
                     servicos_data = json.loads(servicos_data_json)
@@ -2701,13 +2702,15 @@ class CRMApp:
         if not op_data:
             messagebox.showerror("Erro", "Oportunidade não encontrada!")
             return
+            
+        op_keys = op_data.keys()
 
         # Ask for save location
         file_path = filedialog.asksaveasfilename(
             defaultextension=".pdf",
             filetypes=[("PDF files", "*.pdf"), ("All files", "*.*")],
             title="Salvar Sumário Executivo",
-            initialfile=f"Sumario_Executivo_{op_data.get('numero_oportunidade', 'NA')}_{op_data.get('titulo', 'SemTitulo')}.pdf".replace(" ", "_")
+            initialfile=f"Sumario_Executivo_{op_data['numero_oportunidade'] if 'numero_oportunidade' in op_keys else 'NA'}_{op_data['titulo'] if 'titulo' in op_keys else 'SemTitulo'}.pdf".replace(" ", "_")
         )
 
         if not file_path:
@@ -2732,11 +2735,11 @@ class CRMApp:
             story.append(Spacer(1, 12))
 
             edital_info_data = [
-                ['Número do Edital:', op_data['numero_edital'] or "---"],
-                ['Data de Abertura:', op_data['data_abertura'] or "---"],
-                ['Modalidade:', op_data['modalidade'] or "---"],
-                ['Contato Principal:', op_data['contato_principal'] or "---"],
-                ['Link dos Documentos:', op_data['link_documentos'] or "---"],
+                ['Número do Edital:', op_data['numero_edital'] if 'numero_edital' in op_keys and op_data['numero_edital'] else "---"],
+                ['Data de Abertura:', op_data['data_abertura'] if 'data_abertura' in op_keys and op_data['data_abertura'] else "---"],
+                ['Modalidade:', op_data['modalidade'] if 'modalidade' in op_keys and op_data['modalidade'] else "---"],
+                ['Contato Principal:', op_data['contato_principal'] if 'contato_principal' in op_keys and op_data['contato_principal'] else "---"],
+                ['Link dos Documentos:', op_data['link_documentos'] if 'link_documentos' in op_keys and op_data['link_documentos'] else "---"],
             ]
             
             edital_info_table = Table(edital_info_data, colWidths=[1.5*inch, 4.5*inch])
@@ -2753,12 +2756,12 @@ class CRMApp:
             story.append(Spacer(1, 12))
             
             financeiro_info_data = [
-                ['Faturamento Estimado:', format_currency(op_data['faturamento_estimado'])],
-                ['Duração do Contrato:', f"{op_data['duracao_contrato']} meses" if op_data['duracao_contrato'] else "---"],
-                ['MOD (Mão de Obra Direta):', op_data['mod'] or "---"],
-                ['MOI (Mão de Obra Indireta):', op_data['moi'] or "---"],
-                ['Total de Pessoas:', op_data['total_pessoas'] or "---"],
-                ['Margem de Contribuição:', f"{op_data['margem_contribuicao']}%" if op_data['margem_contribuicao'] else "---"],
+                ['Faturamento Estimado:', format_currency(op_data['faturamento_estimado'] if 'faturamento_estimado' in op_keys else None)],
+                ['Duração do Contrato:', f"{op_data['duracao_contrato']} meses" if 'duracao_contrato' in op_keys and op_data['duracao_contrato'] else "---"],
+                ['MOD (Mão de Obra Direta):', op_data['mod'] if 'mod' in op_keys and op_data['mod'] else "---"],
+                ['MOI (Mão de Obra Indireta):', op_data['moi'] if 'moi' in op_keys and op_data['moi'] else "---"],
+                ['Total de Pessoas:', op_data['total_pessoas'] if 'total_pessoas' in op_keys and op_data['total_pessoas'] else "---"],
+                ['Margem de Contribuição:', f"{op_data['margem_contribuicao']}%" if 'margem_contribuicao' in op_keys and op_data['margem_contribuicao'] else "---"],
             ]
 
             financeiro_info_table = Table(financeiro_info_data, colWidths=[2*inch, 4*inch])
@@ -2773,7 +2776,7 @@ class CRMApp:
             # Serviços e Equipes (reusing the same logic)
             story.append(Paragraph("3. Detalhes de Serviços e Preços", styles['h3']))
             story.append(Spacer(1, 12))
-            servicos_data_json = op_data.get('servicos_data')
+            servicos_data_json = op_data['servicos_data'] if 'servicos_data' in op_keys else None
             if servicos_data_json:
                 try:
                     servicos_data = json.loads(servicos_data_json)
@@ -2817,7 +2820,7 @@ class CRMApp:
             # Descrição Detalhada
             story.append(Paragraph("4. Descrição Detalhada", styles['h3']))
             story.append(Spacer(1, 12))
-            descricao = op_data.get('descricao_detalhada', 'Nenhuma descrição fornecida.')
+            descricao = (op_data['descricao_detalhada'] if 'descricao_detalhada' in op_keys and op_data['descricao_detalhada'] else 'Nenhuma descrição fornecida.')
             story.append(Paragraph(descricao.replace('\n', '<br/>'), styles['BodyText']))
 
             doc.build(story)
@@ -2825,7 +2828,6 @@ class CRMApp:
 
         except Exception as e:
             messagebox.showerror("Erro ao Gerar PDF", f"Ocorreu um erro: {e}", parent=self.root)
-
 
     def add_interaction_dialog(self, op_id, parent_win):
         dialog = Toplevel(parent_win)
