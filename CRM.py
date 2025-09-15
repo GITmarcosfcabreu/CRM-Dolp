@@ -32,7 +32,6 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
-from reportlab.lib.utils import ImageReader
 from reportlab.lib import colors
 from reportlab.lib.units import inch
 
@@ -470,7 +469,7 @@ class DatabaseManager:
             if filters:
                 if filters.get('numero_oportunidade'):
                     conditions.append("o.numero_oportunidade LIKE ?")
-                    params.append(f"%{filters['numero_oportunidade']}%")
+                    params.append(f"%{filters['numero_oportunidade']}%" )
                 if filters.get('cliente'):
                     conditions.append("c.nome_empresa = ?")
                     params.append(filters['cliente'])
@@ -2539,7 +2538,6 @@ class CRMApp:
         if not op_data:
             messagebox.showerror("Erro", "Oportunidade não encontrada!")
             return
-
         op_keys = op_data.keys()
 
         # Ask for save location
@@ -2556,7 +2554,6 @@ class CRMApp:
         try:
             doc = SimpleDocTemplate(file_path, pagesize=A4,
                                     rightMargin=72, leftMargin=72,
-                                    topMargin=90, bottomMargin=72) # Increased top/bottom margin for header/footer
             story = []
             styles = getSampleStyleSheet()
             styles.add(ParagraphStyle(name='Justify', alignment=4)) # TA_JUSTIFY
@@ -2575,12 +2572,6 @@ class CRMApp:
                 ['Cliente:', op_data['nome_empresa']],
                 ['Estágio:', op_data['estagio_nome']],
                 ['Valor Estimado:', format_currency(op_data['valor'])],
-                ['Tempo de Contrato:', f"{op_data.get('tempo_contrato_meses')} meses" if op_data.get('tempo_contrato_meses') else "---"],
-                ['Regional:', op_data.get('regional') or "---"],
-                ['Polo:', op_data.get('polo') or "---"],
-                ['Empresa Referência:', op_data.get('empresa_referencia') or "---"],
-            ]
-
             basic_info_table = Table(basic_info_data, colWidths=[1.5*inch, 4.5*inch])
             basic_info_table.setStyle(TableStyle([
                 ('ALIGN', (0,0), (-1,-1), 'LEFT'),
@@ -2593,27 +2584,12 @@ class CRMApp:
             # Formulário de Análise de Qualificação
             story.append(Paragraph("2. Formulário de Análise de Qualificação", styles['h3']))
             story.append(Spacer(1, 12))
-
-            qualificacao_data_json = op_data.get('qualificacao_data')
             if qualificacao_data_json:
                 try:
                     qualificacao_answers = json.loads(qualificacao_data_json)
                     for section, questions in QUALIFICATION_CHECKLIST.items():
                         story.append(Paragraph(f"<b>{section}</b>", styles['h4']))
                         story.append(Spacer(1, 6))
-
-                        question_data = []
-                        for question in questions:
-                            answer = "---" # Default answer
-                            if question == "Quais são nossos diferenciais competitivos claros para esta oportunidade específica?":
-                                answer = op_data.get('diferenciais_competitivos') or "---"
-                                question_data.append([Paragraph(question, styles['BodyText']), Paragraph(answer, styles['BodyText'])])
-                            elif question == "Quais os principais riscos (técnicos, logísticos, regulatórios, políticos) associados ao projeto?":
-                                answer = op_data.get('principais_riscos') or "---"
-                                question_data.append([Paragraph(question, styles['BodyText']), Paragraph(answer, styles['BodyText'])])
-                            else:
-                                answer = qualificacao_answers.get(question, "Não respondido")
-                                question_data.append([Paragraph(question, styles['BodyText']), answer])
 
                         question_table = Table(question_data, colWidths=[5*inch, 1*inch])
                         question_table.setStyle(TableStyle([
@@ -2637,7 +2613,6 @@ class CRMApp:
             # Bases
             story.append(Paragraph("3. Bases Alocadas", styles['h3']))
             story.append(Spacer(1, 12))
-            bases_nomes_json = op_data.get('bases_nomes')
             if bases_nomes_json:
                 try:
                     bases_nomes = json.loads(bases_nomes_json)
@@ -2655,7 +2630,7 @@ class CRMApp:
             # Serviços e Equipes
             story.append(Paragraph("4. Serviços e Equipes", styles['h3']))
             story.append(Spacer(1, 12))
-            servicos_data_json = op_data.get('servicos_data')
+
             if servicos_data_json:
                 try:
                     servicos_data = json.loads(servicos_data_json)
@@ -2693,32 +2668,7 @@ class CRMApp:
             else:
                 story.append(Paragraph("Nenhum serviço configurado.", styles['BodyText']))
 
-            # Header and Footer function
-            def header_footer(canvas, doc):
-                canvas.saveState()
-                # Header
-                if os.path.exists(LOGO_PATH):
-                    try:
-                        logo = ImageReader(LOGO_PATH)
-                        img_width, img_height = logo.getSize()
-                        aspect = img_height / float(img_width)
-                        display_width = 1.5 * inch
-                        display_height = display_width * aspect
-                        canvas.drawImage(logo, doc.leftMargin, A4[1] - 1.0 * inch, width=display_width, height=display_height, mask='auto')
-                    except Exception as e:
-                        print(f"Erro ao desenhar logo no PDF: {e}")
 
-                now = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-                canvas.setFont('Helvetica', 9)
-                canvas.drawRightString(A4[0] - doc.rightMargin, A4[1] - 0.75 * inch, f"Gerado em: {now}")
-
-                # Footer (Signature Line)
-                canvas.setFont('Helvetica', 10)
-                canvas.drawString(doc.leftMargin, 0.75 * inch, "_________________________________________")
-                canvas.drawString(doc.leftMargin, 0.5 * inch, "Assinatura da Diretoria")
-                canvas.restoreState()
-
-            doc.build(story, onFirstPage=header_footer, onLaterPages=header_footer)
             messagebox.showinfo("Sucesso", f"PDF 'Análise Prévia de Viabilidade' gerado com sucesso em:\n{file_path}", parent=self.root)
 
         except Exception as e:
@@ -2729,7 +2679,6 @@ class CRMApp:
         if not op_data:
             messagebox.showerror("Erro", "Oportunidade não encontrada!")
             return
-
         op_keys = op_data.keys()
 
         # Ask for save location
@@ -2737,7 +2686,6 @@ class CRMApp:
             defaultextension=".pdf",
             filetypes=[("PDF files", "*.pdf"), ("All files", "*.*")],
             title="Salvar Sumário Executivo",
-            initialfile=f"Sumario_Executivo_{op_data.get('numero_oportunidade', 'NA')}_{op_data.get('titulo', 'SemTitulo')}.pdf".replace(" ", "_")
         )
 
         if not file_path:
@@ -2746,7 +2694,6 @@ class CRMApp:
         try:
             doc = SimpleDocTemplate(file_path, pagesize=A4,
                                     rightMargin=72, leftMargin=72,
-                                    topMargin=90, bottomMargin=72) # Increased margins
             story = []
             styles = getSampleStyleSheet()
             styles.add(ParagraphStyle(name='Justify', alignment=4)) # TA_JUSTIFY
@@ -2754,7 +2701,7 @@ class CRMApp:
             # Title
             story.append(Paragraph("Sumário Executivo", styles['h1']))
             story.append(Spacer(1, 12))
-            story.append(Paragraph(f"Oportunidade: {op_data.get('titulo', 'N/A')}", styles['h2']))
+
             story.append(Spacer(1, 24))
 
             # Informações do Edital
@@ -2762,12 +2709,6 @@ class CRMApp:
             story.append(Spacer(1, 12))
 
             edital_info_data = [
-                ['Número do Edital:', op_data.get('numero_edital') or "---"],
-                ['Data de Abertura:', op_data.get('data_abertura') or "---"],
-                ['Modalidade:', op_data.get('modalidade') or "---"],
-                ['Contato Principal:', op_data.get('contato_principal') or "---"],
-                ['Link dos Documentos:', op_data.get('link_documentos') or "---"],
-            ]
 
             edital_info_table = Table(edital_info_data, colWidths=[1.5*inch, 4.5*inch])
             edital_info_table.setStyle(TableStyle([
@@ -2782,13 +2723,6 @@ class CRMApp:
             story.append(Paragraph("2. Informações Financeiras e de Pessoal", styles['h3']))
             story.append(Spacer(1, 12))
 
-            financeiro_info_data = [
-                ['Faturamento Estimado:', format_currency(op_data.get('faturamento_estimado'))],
-                ['Duração do Contrato:', f"{op_data.get('duracao_contrato')} meses" if op_data.get('duracao_contrato') else "---"],
-                ['MOD (Mão de Obra Direta):', op_data.get('mod') or "---"],
-                ['MOI (Mão de Obra Indireta):', op_data.get('moi') or "---"],
-                ['Total de Pessoas:', op_data.get('total_pessoas') or "---"],
-                ['Margem de Contribuição:', f"{op_data.get('margem_contribuicao')}%" if op_data.get('margem_contribuicao') else "---"],
             ]
 
             financeiro_info_table = Table(financeiro_info_data, colWidths=[2*inch, 4*inch])
@@ -2803,7 +2737,7 @@ class CRMApp:
             # Serviços e Equipes (reusing the same logic)
             story.append(Paragraph("3. Detalhes de Serviços e Preços", styles['h3']))
             story.append(Spacer(1, 12))
-            servicos_data_json = op_data.get('servicos_data')
+
             if servicos_data_json:
                 try:
                     servicos_data = json.loads(servicos_data_json)
@@ -2847,36 +2781,6 @@ class CRMApp:
             # Descrição Detalhada
             story.append(Paragraph("4. Descrição Detalhada", styles['h3']))
             story.append(Spacer(1, 12))
-            descricao = (op_data.get('descricao_detalhada') or 'Nenhuma descrição fornecida.')
-            story.append(Paragraph(descricao.replace('\n', '<br/>'), styles['BodyText']))
-            story.append(Spacer(1, 48)) # Extra space before signature
-
-            # Header and Footer function
-            def header_footer(canvas, doc):
-                canvas.saveState()
-                # Header
-                if os.path.exists(LOGO_PATH):
-                    try:
-                        logo = ImageReader(LOGO_PATH)
-                        img_width, img_height = logo.getSize()
-                        aspect = img_height / float(img_width)
-                        display_width = 1.5 * inch
-                        display_height = display_width * aspect
-                        canvas.drawImage(logo, doc.leftMargin, A4[1] - 1.0 * inch, width=display_width, height=display_height, mask='auto')
-                    except Exception as e:
-                        print(f"Erro ao desenhar logo no PDF: {e}")
-
-                now = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-                canvas.setFont('Helvetica', 9)
-                canvas.drawRightString(A4[0] - doc.rightMargin, A4[1] - 0.75 * inch, f"Gerado em: {now}")
-
-                # Footer (Signature Line)
-                canvas.setFont('Helvetica', 10)
-                canvas.drawString(doc.leftMargin, 0.75 * inch, "_________________________________________")
-                canvas.drawString(doc.leftMargin, 0.5 * inch, "Assinatura da Diretoria")
-                canvas.restoreState()
-
-            doc.build(story, onFirstPage=header_footer, onLaterPages=header_footer)
             messagebox.showinfo("Sucesso", f"PDF 'Sumário Executivo' gerado com sucesso em:\n{file_path}", parent=self.root)
 
         except Exception as e:
