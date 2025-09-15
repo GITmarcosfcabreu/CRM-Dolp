@@ -543,9 +543,37 @@ class DatabaseManager:
             conn.execute("UPDATE crm_tipos_equipe SET nome=?, servico_id=?, ativa=? WHERE id=?", (data['nome'], data['servico_id'], data['ativa'], team_id))
 
     # Métodos de Interações
-    def get_interactions_for_opportunity(self, op_id):
+    def get_interaction_types(self):
         with self._connect() as conn:
-            return conn.execute("SELECT * FROM crm_interacoes WHERE oportunidade_id = ? ORDER BY data_interacao DESC", (op_id,)).fetchall()
+            return [row['tipo'] for row in conn.execute("SELECT DISTINCT tipo FROM crm_interacoes ORDER BY tipo").fetchall()]
+
+    def get_interactions_for_opportunity(self, op_id, tipo=None, start_date_str=None, end_date_str=None):
+        with self._connect() as conn:
+            base_query = "SELECT * FROM crm_interacoes WHERE oportunidade_id = ?"
+            params = [op_id]
+
+            if tipo and tipo != 'Todos':
+                base_query += " AND tipo = ?"
+                params.append(tipo)
+
+            if start_date_str:
+                try:
+                    start_date_obj = datetime.strptime(start_date_str, '%d/%m/%Y')
+                    base_query += " AND substr(data_interacao, 7, 4) || '-' || substr(data_interacao, 4, 2) || '-' || substr(data_interacao, 1, 2) >= ?"
+                    params.append(start_date_obj.strftime('%Y-%m-%d'))
+                except ValueError:
+                    pass
+
+            if end_date_str:
+                try:
+                    end_date_obj = datetime.strptime(end_date_str, '%d/%m/%Y')
+                    base_query += " AND substr(data_interacao, 7, 4) || '-' || substr(data_interacao, 4, 2) || '-' || substr(data_interacao, 1, 2) <= ?"
+                    params.append(end_date_obj.strftime('%Y-%m-%d'))
+                except ValueError:
+                    pass
+
+            base_query += " ORDER BY substr(data_interacao, 7, 4) DESC, substr(data_interacao, 4, 2) DESC, substr(data_interacao, 1, 2) DESC, substr(data_interacao, 12) DESC"
+            return conn.execute(base_query, params).fetchall()
 
     def add_interaction(self, data):
         conn = None
@@ -564,9 +592,41 @@ class DatabaseManager:
                 conn.close()
 
     # Métodos de Tarefas
-    def get_tasks_for_opportunity(self, op_id):
+    def get_task_responsibles(self, op_id):
         with self._connect() as conn:
-            return conn.execute("SELECT * FROM crm_tarefas WHERE oportunidade_id = ? ORDER BY status, data_vencimento", (op_id,)).fetchall()
+            return [row['responsavel'] for row in conn.execute("SELECT DISTINCT responsavel FROM crm_tarefas WHERE oportunidade_id = ? ORDER BY responsavel", (op_id,)).fetchall()]
+
+    def get_tasks_for_opportunity(self, op_id, status=None, responsavel=None, start_date_str=None, end_date_str=None):
+        with self._connect() as conn:
+            base_query = "SELECT * FROM crm_tarefas WHERE oportunidade_id = ?"
+            params = [op_id]
+
+            if status and status != 'Todos':
+                base_query += " AND status = ?"
+                params.append(status)
+
+            if responsavel and responsavel != 'Todos':
+                base_query += " AND responsavel = ?"
+                params.append(responsavel)
+
+            if start_date_str:
+                try:
+                    start_date_obj = datetime.strptime(start_date_str, '%d/%m/%Y')
+                    base_query += " AND substr(data_vencimento, 7, 4) || '-' || substr(data_vencimento, 4, 2) || '-' || substr(data_vencimento, 1, 2) >= ?"
+                    params.append(start_date_obj.strftime('%Y-%m-%d'))
+                except ValueError:
+                    pass
+
+            if end_date_str:
+                try:
+                    end_date_obj = datetime.strptime(end_date_str, '%d/%m/%Y')
+                    base_query += " AND substr(data_vencimento, 7, 4) || '-' || substr(data_vencimento, 4, 2) || '-' || substr(data_vencimento, 1, 2) <= ?"
+                    params.append(end_date_obj.strftime('%Y-%m-%d'))
+                except ValueError:
+                    pass
+
+            base_query += " ORDER BY status, data_vencimento"
+            return conn.execute(base_query, params).fetchall()
 
     def add_task(self, data):
         with self._connect() as conn:
@@ -2317,9 +2377,10 @@ class CRMApp:
         notebook = ttk.Notebook(details_win, padding=10)
         notebook.pack(fill='both', expand=True, padx=20, pady=(0, 20))
 
+        # --- Refatoração para usar abas com rolagem ---
+
         # Aba 1: Análise Prévia de Viabilidade
-        analise_tab = ttk.Frame(notebook, padding=20, style='TFrame')
-        notebook.add(analise_tab, text='  Análise Prévia de Viabilidade  ')
+        analise_tab = self._create_scrollable_tab(notebook, '  Análise Prévia de Viabilidade  ')
 
         # Botão de Exportar
         export_analise_btn = ttk.Button(analise_tab, text="Exportar para PDF", command=lambda: self.export_analise_previa_pdf(op_id), style='Primary.TButton')
@@ -2343,7 +2404,6 @@ class CRMApp:
             ttk.Label(info_frame, text=label, style='Metric.White.TLabel').grid(row=i, column=0, sticky='w', pady=2)
             ttk.Label(info_frame, text=str(value), style='Value.White.TLabel', wraplength=400).grid(row=i, column=1, sticky='w', pady=2, padx=(10,0))
 
-        # Bases alocadas
         bases_nomes_json = op_data['bases_nomes'] if 'bases_nomes' in op_keys else None
         if bases_nomes_json:
             try:
@@ -2351,7 +2411,6 @@ class CRMApp:
                 if bases_nomes:
                     bases_frame = ttk.LabelFrame(analise_tab, text="Bases Alocadas", padding=15, style='White.TLabelframe')
                     bases_frame.pack(fill='x', pady=(10, 0))
-
                     for i, base in enumerate(bases_nomes, 1):
                         base_frame = ttk.Frame(bases_frame)
                         base_frame.pack(fill='x', pady=2)
@@ -2360,10 +2419,8 @@ class CRMApp:
             except (json.JSONDecodeError, TypeError):
                 print(f"Alerta: Falha ao carregar nomes de bases na tela de detalhes: {bases_nomes_json}")
 
-        # Formulário de Qualificação
         qual_frame = ttk.LabelFrame(analise_tab, text="Formulário de Análise de Qualificação da Oportunidade", padding=15, style='White.TLabelframe')
         qual_frame.pack(fill='x', pady=(10, 0))
-
         qualificacao_data_json = op_data['qualificacao_data'] if 'qualificacao_data' in op_keys else None
         qualificacao_answers = {}
         if qualificacao_data_json:
@@ -2371,16 +2428,12 @@ class CRMApp:
                 qualificacao_answers = json.loads(qualificacao_data_json)
             except (json.JSONDecodeError, TypeError):
                 pass
-
-        # Define the special questions again to check against
         q_diferenciais = "Quais são nossos diferenciais competitivos claros para esta oportunidade específica?"
         q_riscos = "Quais os principais riscos (técnicos, logísticos, regulatórios, políticos) associados ao projeto?"
-
         for section, questions in QUALIFICATION_CHECKLIST.items():
             section_frame = ttk.LabelFrame(qual_frame, text=section, padding=10, style='White.TLabelframe')
             section_frame.pack(fill='x', expand=True, pady=5)
             section_frame.columnconfigure(1, weight=1)
-
             row_idx = 0
             for question in questions:
                 if question == q_diferenciais:
@@ -2399,30 +2452,23 @@ class CRMApp:
                     ttk.Label(section_frame, text=answer, style='Value.White.TLabel').grid(row=row_idx, column=1, sticky='e', padx=10)
                     row_idx += 1
 
-
         # Aba 2: Sumário Executivo
-        sumario_tab = ttk.Frame(notebook, padding=20, style='TFrame')
-        notebook.add(sumario_tab, text='  Sumário Executivo  ')
+        sumario_tab = self._create_scrollable_tab(notebook, '  Sumário Executivo  ')
 
-        # Botão de Exportar
         export_sumario_btn = ttk.Button(sumario_tab, text="Exportar para PDF", command=lambda: self.export_sumario_executivo_pdf(op_id), style='Primary.TButton')
         export_sumario_btn.pack(anchor='ne', pady=(0, 10))
-
         edital_frame = ttk.LabelFrame(sumario_tab, text="Informações do Edital", padding=15, style='White.TLabelframe')
         edital_frame.pack(fill='x', pady=(0, 10))
-
         edital_info = [
             ("Número do Edital:", op_data['numero_edital'] if 'numero_edital' in op_keys else '---'),
             ("Data de Abertura:", op_data['data_abertura'] if 'data_abertura' in op_keys else '---'),
             ("Modalidade:", op_data['modalidade'] if 'modalidade' in op_keys else '---'),
             ("Contato Principal:", op_data['contato_principal'] if 'contato_principal' in op_keys else '---')
         ]
-
         edital_frame.columnconfigure(1, weight=1)
         for i, (label, value) in enumerate(edital_info):
             ttk.Label(edital_frame, text=label, style='Metric.White.TLabel').grid(row=i, column=0, sticky='w', pady=2)
             ttk.Label(edital_frame, text=str(value), style='Value.White.TLabel').grid(row=i, column=1, sticky='w', pady=2, padx=(10,0))
-
         link_docs = op_data['link_documentos'] if 'link_documentos' in op_keys else None
         if link_docs:
             row_index = len(edital_info)
@@ -2430,10 +2476,8 @@ class CRMApp:
             link_label = ttk.Label(edital_frame, text="Abrir Pasta", style='Link.White.TLabel', cursor="hand2")
             link_label.grid(row=row_index, column=1, sticky='w', pady=2, padx=(10,0))
             link_label.bind("<Button-1>", lambda e, url=link_docs: open_link(url))
-
         financeiro_frame = ttk.LabelFrame(sumario_tab, text="Informações Financeiras e de Pessoal", padding=15, style='White.TLabelframe')
         financeiro_frame.pack(fill='x', pady=(10, 10))
-
         financeiro_info = [
             ("Faturamento Estimado:", format_currency(op_data['faturamento_estimado'] if 'faturamento_estimado' in op_keys else 0)),
             ("Duração do Contrato:", f"{op_data['duracao_contrato']} meses" if 'duracao_contrato' in op_keys and op_data['duracao_contrato'] else "---"),
@@ -2442,13 +2486,10 @@ class CRMApp:
             ("Total de Pessoas:", op_data['total_pessoas'] if 'total_pessoas' in op_keys else '---'),
             ("Margem de Contribuição:", f"{op_data['margem_contribuicao']}%" if 'margem_contribuicao' in op_keys and op_data['margem_contribuicao'] else "---")
         ]
-
         financeiro_frame.columnconfigure(1, weight=1)
         for i, (label, value) in enumerate(financeiro_info):
             ttk.Label(financeiro_frame, text=label, style='Metric.White.TLabel').grid(row=i, column=0, sticky='w', pady=2)
             ttk.Label(financeiro_frame, text=str(value), style='Value.White.TLabel').grid(row=i, column=1, sticky='w', pady=2, padx=(10,0))
-
-        # Tipos de serviço e equipes (lendo da nova estrutura JSON)
         servicos_data_json_str = op_data['servicos_data'] if 'servicos_data' in op_keys else None
         if servicos_data_json_str:
             try:
@@ -2456,13 +2497,10 @@ class CRMApp:
                 if servicos_data:
                     servicos_frame = ttk.LabelFrame(sumario_tab, text="Serviços e Equipes Configurados", padding=15, style='White.TLabelframe')
                     servicos_frame.pack(fill='x', pady=(10,0))
-
                     for servico_info in servicos_data:
                         servico_nome = servico_info.get("servico_nome", "N/A")
                         equipes = servico_info.get("equipes", [])
-
                         ttk.Label(servicos_frame, text=servico_nome, style='Metric.White.TLabel', font=('Segoe UI', 11, 'bold')).pack(anchor='w', pady=(5,2))
-
                         if not equipes:
                             ttk.Label(servicos_frame, text="  - Nenhuma equipe configurada", style='Value.White.TLabel').pack(anchor='w', padx=(15,0))
                         else:
@@ -2475,64 +2513,148 @@ class CRMApp:
                                 ttk.Label(servicos_frame, text=info_text, style='Value.White.TLabel').pack(anchor='w', padx=(15,0))
             except (json.JSONDecodeError, TypeError):
                 print(f"Alerta: Falha ao carregar dados de serviço na tela de detalhes: {servicos_data_json_str}")
-
         descricao_detalhada = op_data['descricao_detalhada'] if 'descricao_detalhada' in op_keys else None
         if descricao_detalhada:
             desc_frame = ttk.LabelFrame(sumario_tab, text="Descrição Detalhada", padding=15, style='White.TLabelframe')
             desc_frame.pack(fill='both', expand=True, pady=(10, 0))
-
             desc_text = tk.Text(desc_frame, height=5, wrap='word', bg='white', font=('Segoe UI', 10), state='disabled')
             desc_scrollbar = ttk.Scrollbar(desc_frame, orient="vertical", command=desc_text.yview)
             desc_text.configure(yscrollcommand=desc_scrollbar.set)
             desc_text.pack(side="left", fill="both", expand=True)
             desc_scrollbar.pack(side="right", fill="y")
-
             desc_text.config(state='normal')
             desc_text.insert('1.0', descricao_detalhada)
             desc_text.config(state='disabled')
 
         # Aba 3: Histórico de Interações
-        interacoes_tab = ttk.Frame(notebook, padding=20, style='TFrame')
-        notebook.add(interacoes_tab, text='  Histórico de Interações  ')
+        interacoes_tab = self._create_scrollable_tab(notebook, '  Histórico de Interações  ')
 
-        ttk.Button(interacoes_tab, text="Nova Interação", command=lambda: self.add_interaction_dialog(op_id, details_win), style='Success.TButton').pack(anchor='ne', pady=(0, 10))
+        # --- Filtros para Interações ---
+        filters_interactions_frame = ttk.LabelFrame(interacoes_tab, text="Filtros", padding=15, style='White.TLabelframe')
+        filters_interactions_frame.pack(fill='x', pady=(0, 10))
 
-        interacoes = self.db.get_interactions_for_opportunity(op_id)
-        if interacoes:
-            for interacao in interacoes:
-                int_frame = ttk.LabelFrame(interacoes_tab, text=f"{interacao['tipo']} - {interacao['data_interacao']}", padding=10, style='White.TLabelframe')
-                int_frame.pack(fill='x', pady=5)
+        # Tipo
+        ttk.Label(filters_interactions_frame, text="Tipo:", style='TLabel').grid(row=0, column=0, sticky='w', padx=(0, 5))
+        interaction_types = ['Todos'] + self.db.get_interaction_types()
+        tipo_int_filter = ttk.Combobox(filters_interactions_frame, values=interaction_types, state='readonly')
+        tipo_int_filter.set('Todos')
+        tipo_int_filter.grid(row=0, column=1, padx=(0, 20))
 
-                ttk.Label(int_frame, text=f"Usuário: {interacao['usuario']}", style='Metric.White.TLabel').pack(anchor='w')
-                ttk.Label(int_frame, text=interacao['resumo'], style='Value.White.TLabel', wraplength=800).pack(anchor='w', pady=(5, 0))
-        else:
-            ttk.Label(interacoes_tab, text="Nenhuma interação registrada.", style='Value.White.TLabel').pack(pady=20)
+        # Data Início
+        ttk.Label(filters_interactions_frame, text="De:", style='TLabel').grid(row=0, column=2, sticky='w', padx=(0, 5))
+        start_date_int_filter = DateEntry(filters_interactions_frame, date_pattern='dd/mm/yyyy', width=12)
+        start_date_int_filter.delete(0, 'end') # Limpar campo inicial
+        start_date_int_filter.grid(row=0, column=3, padx=(0, 20))
+
+        # Data Fim
+        ttk.Label(filters_interactions_frame, text="Até:", style='TLabel').grid(row=0, column=4, sticky='w', padx=(0, 5))
+        end_date_int_filter = DateEntry(filters_interactions_frame, date_pattern='dd/mm/yyyy', width=12)
+        end_date_int_filter.delete(0, 'end') # Limpar campo inicial
+        end_date_int_filter.grid(row=0, column=5, padx=(0, 20))
+
+        # Container para os resultados
+        interactions_results_frame = ttk.Frame(interacoes_tab, style='TFrame')
+        interactions_results_frame.pack(fill='both', expand=True, pady=(10,0))
+
+        def _refilter_interactions():
+            # Limpar resultados antigos
+            for widget in interactions_results_frame.winfo_children():
+                widget.destroy()
+
+            # Obter valores dos filtros
+            tipo = tipo_int_filter.get()
+            start_date = start_date_int_filter.get()
+            end_date = end_date_int_filter.get()
+
+            interacoes = self.db.get_interactions_for_opportunity(op_id, tipo, start_date, end_date)
+
+            if interacoes:
+                for interacao in interacoes:
+                    int_frame = ttk.LabelFrame(interactions_results_frame, text=f"{interacao['tipo']} - {interacao['data_interacao']}", padding=10, style='White.TLabelframe')
+                    int_frame.pack(fill='x', pady=5)
+                    ttk.Label(int_frame, text=f"Usuário: {interacao['usuario']}", style='Metric.White.TLabel').pack(anchor='w')
+                    ttk.Label(int_frame, text=interacao['resumo'], style='Value.White.TLabel', wraplength=750, justify='left').pack(anchor='w', pady=(5, 0))
+            else:
+                ttk.Label(interactions_results_frame, text="Nenhuma interação encontrada para os filtros selecionados.", style='Value.White.TLabel').pack(pady=20)
+
+        # Botão de Filtrar
+        ttk.Button(filters_interactions_frame, text="🔍 Filtrar", command=_refilter_interactions, style='Primary.TButton').grid(row=0, column=6, padx=(20, 0))
+
+        # Botão de Nova Interação (movido para o frame de filtros para melhor layout)
+        ttk.Button(filters_interactions_frame, text="Nova Interação", command=lambda: self.add_interaction_dialog(op_id, details_win), style='Success.TButton').grid(row=0, column=7, padx=(10,0))
+
+        # Carregar interações iniciais
+        _refilter_interactions()
 
         # Aba 4: Tarefas
-        tarefas_tab = ttk.Frame(notebook, padding=20, style='TFrame')
-        notebook.add(tarefas_tab, text='  Tarefas  ')
+        tarefas_tab = self._create_scrollable_tab(notebook, '  Tarefas  ')
 
-        ttk.Button(tarefas_tab, text="Nova Tarefa", command=lambda: self.add_task_dialog(op_id, details_win), style='Success.TButton').pack(anchor='ne', pady=(0, 10))
+        # --- Filtros para Tarefas ---
+        filters_tasks_frame = ttk.LabelFrame(tarefas_tab, text="Filtros", padding=15, style='White.TLabelframe')
+        filters_tasks_frame.pack(fill='x', pady=(0, 10))
+        filters_tasks_frame.columnconfigure(7, weight=1) # Coluna do botão de nova tarefa
 
-        tarefas = self.db.get_tasks_for_opportunity(op_id)
-        if tarefas:
-            for tarefa in tarefas:
-                task_frame = ttk.LabelFrame(tarefas_tab, text=f"Tarefa - {tarefa['status']}", padding=10, style='White.TLabelframe')
-                task_frame.pack(fill='x', pady=5)
+        # Status
+        ttk.Label(filters_tasks_frame, text="Status:", style='TLabel').grid(row=0, column=0, sticky='w', padx=(0, 5))
+        status_task_filter = ttk.Combobox(filters_tasks_frame, values=['Todos', 'Pendente', 'Concluída'], state='readonly')
+        status_task_filter.set('Todos')
+        status_task_filter.grid(row=0, column=1, padx=(0, 20))
 
-                ttk.Label(task_frame, text=tarefa['descricao'], style='Value.White.TLabel', wraplength=800).pack(anchor='w')
+        # Responsável
+        ttk.Label(filters_tasks_frame, text="Responsável:", style='TLabel').grid(row=0, column=2, sticky='w', padx=(0, 5))
+        responsibles = ['Todos'] + self.db.get_task_responsibles(op_id)
+        responsavel_filter = ttk.Combobox(filters_tasks_frame, values=responsibles, state='readonly')
+        responsavel_filter.set('Todos')
+        responsavel_filter.grid(row=0, column=3, padx=(0, 20))
 
-                info_frame = ttk.Frame(task_frame)
-                info_frame.pack(fill='x', pady=(5, 0))
-                ttk.Label(info_frame, text=f"Responsável: {tarefa['responsavel']}", style='Metric.White.TLabel').pack(side='left')
-                ttk.Label(info_frame, text=f"Vencimento: {tarefa['data_vencimento']}", style='Metric.White.TLabel').pack(side='right')
+        # Data Vencimento Início
+        ttk.Label(filters_tasks_frame, text="Vencimento de:", style='TLabel').grid(row=0, column=4, sticky='w', padx=(0, 5))
+        start_date_task_filter = DateEntry(filters_tasks_frame, date_pattern='dd/mm/yyyy', width=12)
+        start_date_task_filter.delete(0, 'end')
+        start_date_task_filter.grid(row=0, column=5, padx=(0, 20))
 
-                if tarefa['status'] != 'Concluída':
-                    ttk.Button(task_frame, text="Marcar como Concluída",
-                             command=lambda t_id=tarefa['id'], op_id=op_id: self.complete_task(t_id, op_id, details_win),
-                             style='Success.TButton').pack(anchor='e', pady=(5, 0))
-        else:
-            ttk.Label(tarefas_tab, text="Nenhuma tarefa registrada.", style='Value.White.TLabel').pack(pady=20)
+        # Data Vencimento Fim
+        ttk.Label(filters_tasks_frame, text="Até:", style='TLabel').grid(row=0, column=6, sticky='w', padx=(0, 5))
+        end_date_task_filter = DateEntry(filters_tasks_frame, date_pattern='dd/mm/yyyy', width=12)
+        end_date_task_filter.delete(0, 'end')
+        end_date_task_filter.grid(row=0, column=7, padx=(0, 20))
+
+        # Container para os resultados das tarefas
+        tasks_results_frame = ttk.Frame(tarefas_tab, style='TFrame')
+        tasks_results_frame.pack(fill='both', expand=True, pady=(10,0))
+
+        def _refilter_tasks():
+            for widget in tasks_results_frame.winfo_children():
+                widget.destroy()
+
+            status = status_task_filter.get()
+            responsavel = responsavel_filter.get()
+            start_date = start_date_task_filter.get()
+            end_date = end_date_task_filter.get()
+
+            tarefas = self.db.get_tasks_for_opportunity(op_id, status, responsavel, start_date, end_date)
+
+            if tarefas:
+                for tarefa in tarefas:
+                    task_frame = ttk.LabelFrame(tasks_results_frame, text=f"Tarefa - {tarefa['status']}", padding=10, style='White.TLabelframe')
+                    task_frame.pack(fill='x', pady=5)
+                    ttk.Label(task_frame, text=tarefa['descricao'], style='Value.White.TLabel', wraplength=750, justify='left').pack(anchor='w')
+                    info_frame = ttk.Frame(task_frame)
+                    info_frame.pack(fill='x', pady=(5, 0))
+                    ttk.Label(info_frame, text=f"Responsável: {tarefa['responsavel']}", style='Metric.White.TLabel').pack(side='left')
+                    ttk.Label(info_frame, text=f"Vencimento: {tarefa['data_vencimento']}", style='Metric.White.TLabel').pack(side='right')
+                    if tarefa['status'] != 'Concluída':
+                        ttk.Button(task_frame, text="Marcar como Concluída",
+                                 command=lambda t_id=tarefa['id'], op_id=op_id: self.complete_task(t_id, op_id, details_win),
+                                 style='Success.TButton').pack(anchor='e', pady=(5, 0))
+            else:
+                ttk.Label(tasks_results_frame, text="Nenhuma tarefa encontrada para os filtros selecionados.", style='Value.White.TLabel').pack(pady=20)
+
+        ttk.Button(filters_tasks_frame, text="🔍 Filtrar", command=_refilter_tasks, style='Primary.TButton').grid(row=0, column=8, padx=(20, 0))
+        ttk.Button(filters_tasks_frame, text="Nova Tarefa", command=lambda: self.add_task_dialog(op_id, details_win), style='Success.TButton').grid(row=0, column=9, padx=(10,0))
+
+        # Carregar tarefas iniciais
+        _refilter_tasks()
 
     def export_analise_previa_pdf(self, op_id):
         op_data = self.db.get_opportunity_details(op_id)
