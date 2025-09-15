@@ -12,7 +12,7 @@ Funcionalidades implementadas:
 """
 
 import tkinter as tk
-from tkinter import ttk, messagebox, Toplevel, font
+from tkinter import ttk, messagebox, Toplevel, font, filedialog
 from PIL import Image, ImageTk
 import requests
 from io import BytesIO
@@ -28,6 +28,13 @@ from bs4 import BeautifulSoup
 import re
 import threading
 import time
+from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.lib.utils import ImageReader
+from reportlab.lib import colors
+from reportlab.lib.units import inch
 
 
 # --- 1. CONFIGURAÇÕES GERAIS ---
@@ -2154,7 +2161,7 @@ class CRMApp:
                                                parent=form_win)
 
                 # 4. Carregar dados do formulário de qualificação
-                qualificacao_data_json = op_data.get('qualificacao_data')
+                qualificacao_data_json = op_data['qualificacao_data'] if 'qualificacao_data' in op_keys else None
                 if qualificacao_data_json:
                     try:
                         qualificacao_answers = json.loads(qualificacao_data_json)
@@ -2166,9 +2173,9 @@ class CRMApp:
                         print(f"Erro ao carregar dados de qualificação: {e}")
 
                 # Carregar dados dos campos de texto
-                if 'diferenciais_competitivos' in entries and op_data.get('diferenciais_competitivos'):
+                if 'diferenciais_competitivos' in entries and 'diferenciais_competitivos' in op_keys and op_data['diferenciais_competitivos']:
                     entries['diferenciais_competitivos'].insert('1.0', op_data['diferenciais_competitivos'])
-                if 'principais_riscos' in entries and op_data.get('principais_riscos'):
+                if 'principais_riscos' in entries and 'principais_riscos' in op_keys and op_data['principais_riscos']:
                     entries['principais_riscos'].insert('1.0', op_data['principais_riscos'])
 
             except Exception as e:
@@ -2314,6 +2321,10 @@ class CRMApp:
         analise_tab = ttk.Frame(notebook, padding=20, style='TFrame')
         notebook.add(analise_tab, text='  Análise Prévia de Viabilidade  ')
 
+        # Botão de Exportar
+        export_analise_btn = ttk.Button(analise_tab, text="Exportar para PDF", command=lambda: self.export_analise_previa_pdf(op_id), style='Primary.TButton')
+        export_analise_btn.pack(anchor='ne', pady=(0, 10))
+
         info_frame = ttk.LabelFrame(analise_tab, text="Informações Básicas", padding=15, style='White.TLabelframe')
         info_frame.pack(fill='x', pady=(0, 10))
 
@@ -2353,7 +2364,7 @@ class CRMApp:
         qual_frame = ttk.LabelFrame(analise_tab, text="Formulário de Análise de Qualificação da Oportunidade", padding=15, style='White.TLabelframe')
         qual_frame.pack(fill='x', pady=(10, 0))
 
-        qualificacao_data_json = op_data.get('qualificacao_data')
+        qualificacao_data_json = op_data['qualificacao_data'] if 'qualificacao_data' in op_keys else None
         qualificacao_answers = {}
         if qualificacao_data_json:
             try:
@@ -2374,12 +2385,12 @@ class CRMApp:
             for question in questions:
                 if question == q_diferenciais:
                     ttk.Label(section_frame, text=question, style='Metric.White.TLabel').grid(row=row_idx, column=0, sticky='w', pady=2)
-                    diferenciais_text = op_data.get('diferenciais_competitivos') or "---"
+                    diferenciais_text = (op_data['diferenciais_competitivos'] if 'diferenciais_competitivos' in op_keys and op_data['diferenciais_competitivos'] else "---")
                     ttk.Label(section_frame, text=diferenciais_text, style='Value.White.TLabel', wraplength=600).grid(row=row_idx, column=1, sticky='w', pady=2, padx=(10,0))
                     row_idx +=1
                 elif question == q_riscos:
                     ttk.Label(section_frame, text=question, style='Metric.White.TLabel').grid(row=row_idx, column=0, sticky='w', pady=2)
-                    riscos_text = op_data.get('principais_riscos') or "---"
+                    riscos_text = (op_data['principais_riscos'] if 'principais_riscos' in op_keys and op_data['principais_riscos'] else "---")
                     ttk.Label(section_frame, text=riscos_text, style='Value.White.TLabel', wraplength=600).grid(row=row_idx, column=1, sticky='w', pady=2, padx=(10,0))
                     row_idx +=1
                 elif question in qualificacao_answers:
@@ -2392,6 +2403,10 @@ class CRMApp:
         # Aba 2: Sumário Executivo
         sumario_tab = ttk.Frame(notebook, padding=20, style='TFrame')
         notebook.add(sumario_tab, text='  Sumário Executivo  ')
+
+        # Botão de Exportar
+        export_sumario_btn = ttk.Button(sumario_tab, text="Exportar para PDF", command=lambda: self.export_sumario_executivo_pdf(op_id), style='Primary.TButton')
+        export_sumario_btn.pack(anchor='ne', pady=(0, 10))
 
         edital_frame = ttk.LabelFrame(sumario_tab, text="Informações do Edital", padding=15, style='White.TLabelframe')
         edital_frame.pack(fill='x', pady=(0, 10))
@@ -2518,6 +2533,354 @@ class CRMApp:
                              style='Success.TButton').pack(anchor='e', pady=(5, 0))
         else:
             ttk.Label(tarefas_tab, text="Nenhuma tarefa registrada.", style='Value.White.TLabel').pack(pady=20)
+
+    def export_analise_previa_pdf(self, op_id):
+        op_data = self.db.get_opportunity_details(op_id)
+        if not op_data:
+            messagebox.showerror("Erro", "Oportunidade não encontrada!")
+            return
+
+        op_keys = op_data.keys()
+
+        # Ask for save location
+        file_path = filedialog.asksaveasfilename(
+            defaultextension=".pdf",
+            filetypes=[("PDF files", "*.pdf"), ("All files", "*.*")],
+            title="Salvar Análise Prévia de Viabilidade",
+            initialfile=f"Analise_Previa_{op_data['numero_oportunidade'] if 'numero_oportunidade' in op_keys else 'NA'}_{op_data['titulo'] if 'titulo' in op_keys else 'SemTitulo'}.pdf".replace(" ", "_")
+        )
+
+        if not file_path:
+            return
+
+        try:
+            doc = SimpleDocTemplate(file_path, pagesize=A4,
+                                    rightMargin=72, leftMargin=72,
+                                    topMargin=90, bottomMargin=72) # Increased top/bottom margin for header/footer
+            story = []
+            styles = getSampleStyleSheet()
+            styles.add(ParagraphStyle(name='Justify', alignment=4)) # TA_JUSTIFY
+
+            # Title
+            story.append(Paragraph("Análise Prévia de Viabilidade", styles['h1']))
+            story.append(Spacer(1, 12))
+            story.append(Paragraph(f"Oportunidade: {op_data['titulo']}", styles['h2']))
+            story.append(Spacer(1, 24))
+
+            # Informações Básicas
+            story.append(Paragraph("1. Informações Básicas", styles['h3']))
+            story.append(Spacer(1, 12))
+
+            basic_info_data = [
+                ['Cliente:', op_data['nome_empresa']],
+                ['Estágio:', op_data['estagio_nome']],
+                ['Valor Estimado:', format_currency(op_data['valor'])],
+                ['Tempo de Contrato:', f"{op_data.get('tempo_contrato_meses')} meses" if op_data.get('tempo_contrato_meses') else "---"],
+                ['Regional:', op_data.get('regional') or "---"],
+                ['Polo:', op_data.get('polo') or "---"],
+                ['Empresa Referência:', op_data.get('empresa_referencia') or "---"],
+            ]
+
+            basic_info_table = Table(basic_info_data, colWidths=[1.5*inch, 4.5*inch])
+            basic_info_table.setStyle(TableStyle([
+                ('ALIGN', (0,0), (-1,-1), 'LEFT'),
+                ('FONTNAME', (0,0), (0,-1), 'Helvetica-Bold'),
+                ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+            ]))
+            story.append(basic_info_table)
+            story.append(Spacer(1, 24))
+
+            # Formulário de Análise de Qualificação
+            story.append(Paragraph("2. Formulário de Análise de Qualificação", styles['h3']))
+            story.append(Spacer(1, 12))
+
+            qualificacao_data_json = op_data.get('qualificacao_data')
+            if qualificacao_data_json:
+                try:
+                    qualificacao_answers = json.loads(qualificacao_data_json)
+                    for section, questions in QUALIFICATION_CHECKLIST.items():
+                        story.append(Paragraph(f"<b>{section}</b>", styles['h4']))
+                        story.append(Spacer(1, 6))
+
+                        question_data = []
+                        for question in questions:
+                            answer = "---" # Default answer
+                            if question == "Quais são nossos diferenciais competitivos claros para esta oportunidade específica?":
+                                answer = op_data.get('diferenciais_competitivos') or "---"
+                                question_data.append([Paragraph(question, styles['BodyText']), Paragraph(answer, styles['BodyText'])])
+                            elif question == "Quais os principais riscos (técnicos, logísticos, regulatórios, políticos) associados ao projeto?":
+                                answer = op_data.get('principais_riscos') or "---"
+                                question_data.append([Paragraph(question, styles['BodyText']), Paragraph(answer, styles['BodyText'])])
+                            else:
+                                answer = qualificacao_answers.get(question, "Não respondido")
+                                question_data.append([Paragraph(question, styles['BodyText']), answer])
+
+                        question_table = Table(question_data, colWidths=[5*inch, 1*inch])
+                        question_table.setStyle(TableStyle([
+                            ('ALIGN', (0,0), (-1,-1), 'LEFT'),
+                            ('VALIGN', (0,0), (-1,-1), 'TOP'),
+                            ('GRID', (0,0), (-1,-1), 0.25, colors.grey),
+                            ('LEFTPADDING', (0,0), (-1,-1), 6),
+                            ('RIGHTPADDING', (0,0), (-1,-1), 6),
+                            ('TOPPADDING', (0,0), (-1,-1), 6),
+                            ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+                        ]))
+                        story.append(question_table)
+                        story.append(Spacer(1, 12))
+
+                except (json.JSONDecodeError, TypeError):
+                    story.append(Paragraph("Erro ao carregar dados de qualificação.", styles['BodyText']))
+            else:
+                story.append(Paragraph("Dados de qualificação não preenchidos.", styles['BodyText']))
+            story.append(Spacer(1, 24))
+
+            # Bases
+            story.append(Paragraph("3. Bases Alocadas", styles['h3']))
+            story.append(Spacer(1, 12))
+            bases_nomes_json = op_data.get('bases_nomes')
+            if bases_nomes_json:
+                try:
+                    bases_nomes = json.loads(bases_nomes_json)
+                    if bases_nomes:
+                        for base in bases_nomes:
+                            story.append(Paragraph(f"- {base}", styles['BodyText']))
+                    else:
+                        story.append(Paragraph("Nenhuma base alocada.", styles['BodyText']))
+                except (json.JSONDecodeError, TypeError):
+                    story.append(Paragraph("Erro ao carregar nomes de bases.", styles['BodyText']))
+            else:
+                story.append(Paragraph("Nenhuma base alocada.", styles['BodyText']))
+            story.append(Spacer(1, 24))
+
+            # Serviços e Equipes
+            story.append(Paragraph("4. Serviços e Equipes", styles['h3']))
+            story.append(Spacer(1, 12))
+            servicos_data_json = op_data.get('servicos_data')
+            if servicos_data_json:
+                try:
+                    servicos_data = json.loads(servicos_data_json)
+                    if servicos_data:
+                        for servico_info in servicos_data:
+                            story.append(Paragraph(f"<b>Serviço: {servico_info.get('servico_nome', 'N/A')}</b>", styles['h4']))
+                            equipes = servico_info.get('equipes', [])
+                            if equipes:
+                                equipe_data = [['Tipo de Equipe', 'Qtd', 'Volumetria', 'Base']]
+                                for equipe in equipes:
+                                    equipe_data.append([
+                                        equipe.get('tipo_equipe', 'N/A'),
+                                        equipe.get('quantidade', 'N/A'),
+                                        equipe.get('volumetria', 'N/A'),
+                                        equipe.get('base', 'N/A')
+                                    ])
+                                equipe_table = Table(equipe_data)
+                                equipe_table.setStyle(TableStyle([
+                                    ('BACKGROUND', (0,0), (-1,0), colors.grey),
+                                    ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
+                                    ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+                                    ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+                                    ('BOTTOMPADDING', (0,0), (-1,0), 12),
+                                    ('BACKGROUND', (0,1), (-1,-1), colors.beige),
+                                    ('GRID', (0,0), (-1,-1), 1, colors.black)
+                                ]))
+                                story.append(equipe_table)
+                                story.append(Spacer(1, 12))
+                            else:
+                                story.append(Paragraph("Nenhuma equipe configurada para este serviço.", styles['BodyText']))
+                    else:
+                        story.append(Paragraph("Nenhum serviço configurado.", styles['BodyText']))
+                except (json.JSONDecodeError, TypeError):
+                    story.append(Paragraph("Erro ao carregar dados de serviços.", styles['BodyText']))
+            else:
+                story.append(Paragraph("Nenhum serviço configurado.", styles['BodyText']))
+
+            # Header and Footer function
+            def header_footer(canvas, doc):
+                canvas.saveState()
+                # Header
+                if os.path.exists(LOGO_PATH):
+                    try:
+                        logo = ImageReader(LOGO_PATH)
+                        img_width, img_height = logo.getSize()
+                        aspect = img_height / float(img_width)
+                        display_width = 1.5 * inch
+                        display_height = display_width * aspect
+                        canvas.drawImage(logo, doc.leftMargin, A4[1] - 1.0 * inch, width=display_width, height=display_height, mask='auto')
+                    except Exception as e:
+                        print(f"Erro ao desenhar logo no PDF: {e}")
+
+                now = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+                canvas.setFont('Helvetica', 9)
+                canvas.drawRightString(A4[0] - doc.rightMargin, A4[1] - 0.75 * inch, f"Gerado em: {now}")
+
+                # Footer (Signature Line)
+                canvas.setFont('Helvetica', 10)
+                canvas.drawString(doc.leftMargin, 0.75 * inch, "_________________________________________")
+                canvas.drawString(doc.leftMargin, 0.5 * inch, "Assinatura da Diretoria")
+                canvas.restoreState()
+
+            doc.build(story, onFirstPage=header_footer, onLaterPages=header_footer)
+            messagebox.showinfo("Sucesso", f"PDF 'Análise Prévia de Viabilidade' gerado com sucesso em:\n{file_path}", parent=self.root)
+
+        except Exception as e:
+            messagebox.showerror("Erro ao Gerar PDF", f"Ocorreu um erro: {e}", parent=self.root)
+
+    def export_sumario_executivo_pdf(self, op_id):
+        op_data = self.db.get_opportunity_details(op_id)
+        if not op_data:
+            messagebox.showerror("Erro", "Oportunidade não encontrada!")
+            return
+
+        op_keys = op_data.keys()
+
+        # Ask for save location
+        file_path = filedialog.asksaveasfilename(
+            defaultextension=".pdf",
+            filetypes=[("PDF files", "*.pdf"), ("All files", "*.*")],
+            title="Salvar Sumário Executivo",
+            initialfile=f"Sumario_Executivo_{op_data.get('numero_oportunidade', 'NA')}_{op_data.get('titulo', 'SemTitulo')}.pdf".replace(" ", "_")
+        )
+
+        if not file_path:
+            return
+
+        try:
+            doc = SimpleDocTemplate(file_path, pagesize=A4,
+                                    rightMargin=72, leftMargin=72,
+                                    topMargin=90, bottomMargin=72) # Increased margins
+            story = []
+            styles = getSampleStyleSheet()
+            styles.add(ParagraphStyle(name='Justify', alignment=4)) # TA_JUSTIFY
+
+            # Title
+            story.append(Paragraph("Sumário Executivo", styles['h1']))
+            story.append(Spacer(1, 12))
+            story.append(Paragraph(f"Oportunidade: {op_data.get('titulo', 'N/A')}", styles['h2']))
+            story.append(Spacer(1, 24))
+
+            # Informações do Edital
+            story.append(Paragraph("1. Informações do Edital", styles['h3']))
+            story.append(Spacer(1, 12))
+
+            edital_info_data = [
+                ['Número do Edital:', op_data.get('numero_edital') or "---"],
+                ['Data de Abertura:', op_data.get('data_abertura') or "---"],
+                ['Modalidade:', op_data.get('modalidade') or "---"],
+                ['Contato Principal:', op_data.get('contato_principal') or "---"],
+                ['Link dos Documentos:', op_data.get('link_documentos') or "---"],
+            ]
+
+            edital_info_table = Table(edital_info_data, colWidths=[1.5*inch, 4.5*inch])
+            edital_info_table.setStyle(TableStyle([
+                ('ALIGN', (0,0), (-1,-1), 'LEFT'),
+                ('FONTNAME', (0,0), (0,-1), 'Helvetica-Bold'),
+                ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+            ]))
+            story.append(edital_info_table)
+            story.append(Spacer(1, 24))
+
+            # Informações Financeiras e de Pessoal
+            story.append(Paragraph("2. Informações Financeiras e de Pessoal", styles['h3']))
+            story.append(Spacer(1, 12))
+
+            financeiro_info_data = [
+                ['Faturamento Estimado:', format_currency(op_data.get('faturamento_estimado'))],
+                ['Duração do Contrato:', f"{op_data.get('duracao_contrato')} meses" if op_data.get('duracao_contrato') else "---"],
+                ['MOD (Mão de Obra Direta):', op_data.get('mod') or "---"],
+                ['MOI (Mão de Obra Indireta):', op_data.get('moi') or "---"],
+                ['Total de Pessoas:', op_data.get('total_pessoas') or "---"],
+                ['Margem de Contribuição:', f"{op_data.get('margem_contribuicao')}%" if op_data.get('margem_contribuicao') else "---"],
+            ]
+
+            financeiro_info_table = Table(financeiro_info_data, colWidths=[2*inch, 4*inch])
+            financeiro_info_table.setStyle(TableStyle([
+                ('ALIGN', (0,0), (-1,-1), 'LEFT'),
+                ('FONTNAME', (0,0), (0,-1), 'Helvetica-Bold'),
+                ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+            ]))
+            story.append(financeiro_info_table)
+            story.append(Spacer(1, 24))
+
+            # Serviços e Equipes (reusing the same logic)
+            story.append(Paragraph("3. Detalhes de Serviços e Preços", styles['h3']))
+            story.append(Spacer(1, 12))
+            servicos_data_json = op_data.get('servicos_data')
+            if servicos_data_json:
+                try:
+                    servicos_data = json.loads(servicos_data_json)
+                    if servicos_data:
+                        # This could be refactored into a helper function if needed
+                        for servico_info in servicos_data:
+                            story.append(Paragraph(f"<b>Serviço: {servico_info.get('servico_nome', 'N/A')}</b>", styles['h4']))
+                            equipes = servico_info.get('equipes', [])
+                            if equipes:
+                                equipe_data = [['Tipo de Equipe', 'Qtd', 'Volumetria', 'Base']]
+                                for equipe in equipes:
+                                    equipe_data.append([
+                                        equipe.get('tipo_equipe', 'N/A'),
+                                        equipe.get('quantidade', 'N/A'),
+                                        equipe.get('volumetria', 'N/A'),
+                                        equipe.get('base', 'N/A')
+                                    ])
+                                equipe_table = Table(equipe_data)
+                                equipe_table.setStyle(TableStyle([
+                                    ('BACKGROUND', (0,0), (-1,0), colors.grey),
+                                    ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
+                                    ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+                                    ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+                                    ('BOTTOMPADDING', (0,0), (-1,0), 12),
+                                    ('BACKGROUND', (0,1), (-1,-1), colors.beige),
+                                    ('GRID', (0,0), (-1,-1), 1, colors.black)
+                                ]))
+                                story.append(equipe_table)
+                                story.append(Spacer(1, 12))
+                            else:
+                                story.append(Paragraph("Nenhuma equipe configurada para este serviço.", styles['BodyText']))
+                    else:
+                        story.append(Paragraph("Nenhum serviço configurado.", styles['BodyText']))
+                except (json.JSONDecodeError, TypeError):
+                    story.append(Paragraph("Erro ao carregar dados de serviços.", styles['BodyText']))
+            else:
+                story.append(Paragraph("Nenhum serviço configurado.", styles['BodyText']))
+            story.append(Spacer(1, 24))
+
+
+            # Descrição Detalhada
+            story.append(Paragraph("4. Descrição Detalhada", styles['h3']))
+            story.append(Spacer(1, 12))
+            descricao = (op_data.get('descricao_detalhada') or 'Nenhuma descrição fornecida.')
+            story.append(Paragraph(descricao.replace('\n', '<br/>'), styles['BodyText']))
+            story.append(Spacer(1, 48)) # Extra space before signature
+
+            # Header and Footer function
+            def header_footer(canvas, doc):
+                canvas.saveState()
+                # Header
+                if os.path.exists(LOGO_PATH):
+                    try:
+                        logo = ImageReader(LOGO_PATH)
+                        img_width, img_height = logo.getSize()
+                        aspect = img_height / float(img_width)
+                        display_width = 1.5 * inch
+                        display_height = display_width * aspect
+                        canvas.drawImage(logo, doc.leftMargin, A4[1] - 1.0 * inch, width=display_width, height=display_height, mask='auto')
+                    except Exception as e:
+                        print(f"Erro ao desenhar logo no PDF: {e}")
+
+                now = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+                canvas.setFont('Helvetica', 9)
+                canvas.drawRightString(A4[0] - doc.rightMargin, A4[1] - 0.75 * inch, f"Gerado em: {now}")
+
+                # Footer (Signature Line)
+                canvas.setFont('Helvetica', 10)
+                canvas.drawString(doc.leftMargin, 0.75 * inch, "_________________________________________")
+                canvas.drawString(doc.leftMargin, 0.5 * inch, "Assinatura da Diretoria")
+                canvas.restoreState()
+
+            doc.build(story, onFirstPage=header_footer, onLaterPages=header_footer)
+            messagebox.showinfo("Sucesso", f"PDF 'Sumário Executivo' gerado com sucesso em:\n{file_path}", parent=self.root)
+
+        except Exception as e:
+            messagebox.showerror("Erro ao Gerar PDF", f"Ocorreu um erro: {e}", parent=self.root)
 
     def add_interaction_dialog(self, op_id, parent_win):
         dialog = Toplevel(parent_win)
