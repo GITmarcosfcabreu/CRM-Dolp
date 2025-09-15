@@ -2555,8 +2555,7 @@ class CRMApp:
 
         try:
             doc = SimpleDocTemplate(file_path, pagesize=A4,
-                                    rightMargin=72, leftMargin=72,
-                                    topMargin=90, bottomMargin=72) # Increased top/bottom margin for header/footer
+
             story = []
             styles = getSampleStyleSheet()
             styles.add(ParagraphStyle(name='Justify', alignment=4)) # TA_JUSTIFY
@@ -2588,7 +2587,7 @@ class CRMApp:
                 ('BOTTOMPADDING', (0,0), (-1,-1), 6),
             ]))
             story.append(basic_info_table)
-            story.append(Spacer(1, 24))
+            story.append(Spacer(1, 24))]
 
             # Formulário de Análise de Qualificação
             story.append(Paragraph("2. Formulário de Análise de Qualificação", styles['h3']))
