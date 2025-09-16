@@ -1377,7 +1377,7 @@ class CRMApp:
                     client_card.configure(relief='solid', borderwidth=1)
 
                     # --- Lógica do clique para exibir o popup de resumo ---
-                    summary = client.get('resumo_atuacao', '')
+                    summary = client['resumo_atuacao'] if 'resumo_atuacao' in client.keys() else ''
                     click_handler = lambda e, s=summary: self._show_summary_popup(s, e)
                     client_card.bind("<Button-1>", click_handler)
                     # ----------------------------------------------------
@@ -3287,11 +3287,13 @@ class CRMApp:
                 for key, widget in entries.items():
                     # Tratamento especial para o widget de Texto
                     if key == 'resumo_atuacao':
-                        if client_data.get(key):
+                        if key in client_data.keys() and client_data[key]:
                             widget.insert('1.0', client_data[key])
                         continue
 
-                    value = client_data.get(key, '') or ''
+                    value = client_data[key] if key in client_data.keys() else ""
+                    value = value or ""
+
                     # Formata o CNPJ antes de exibir no formulário
                     if key == 'cnpj':
                         value = format_cnpj(value)
