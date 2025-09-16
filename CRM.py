@@ -167,7 +167,8 @@ class DatabaseManager:
                                 segmento_atuacao TEXT,
                                 data_atualizacao TEXT,
                                 link_portal TEXT,
-                                status TEXT
+                                status TEXT,
+                                resumo_atuacao TEXT
                            )''')
 
             cursor.execute('CREATE TABLE IF NOT EXISTS pipeline_estagios (id INTEGER PRIMARY KEY, nome TEXT UNIQUE NOT NULL, ordem INTEGER)')
@@ -259,6 +260,35 @@ class DatabaseManager:
         cursor = conn.cursor()
 
         try:
+            # Adicionar coluna 'resumo_atuacao' na tabela 'clientes'
+            cursor.execute("PRAGMA table_info(clientes)")
+            client_columns = [row['name'] for row in cursor.fetchall()]
+            if 'resumo_atuacao' not in client_columns:
+                print("Aplicando migração: Adicionando coluna 'resumo_atuacao' em clientes...")
+                cursor.execute("ALTER TABLE clientes ADD COLUMN resumo_atuacao TEXT")
+                print("Coluna 'resumo_atuacao' adicionada.")
+
+                # Populate data for existing clients
+                client_summaries = {
+                    'CPFL (RS)': 'Atuação principal no estado do Rio Grande do Sul (RS).',
+                    'CPFL (SP) - Paulista': 'Atuação principal no estado de São Paulo (SP).',
+                    'CPFL (SP) - Piratininga': 'Atuação principal no estado de São Paulo (SP).',
+                    'Energisa (PB)': 'Atuação principal no estado da Paraíba (PB).',
+                    'EDP Distribuição (ES)': 'Atuação principal no estado do Espírito Santo (ES).',
+                    'EDP Transmissão': 'Atuação em transmissão de energia em múltiplos estados.',
+                    'Cemig': 'Atuação principal no estado de Minas Gerais (MG).',
+                    'TAESA Transmissão': 'Grande transmissora de energia com presença nacional.',
+                    'State Grid Transmissão': 'Grande transmissora de energia com presença nacional.',
+                    'Eletrobrás Transmissão': 'Grande transmissora de energia com presença nacional.',
+                    'Eletrobrás Transmissão (Subsidiária)': 'Grande transmissora de energia com presença nacional.',
+                    'Engie Transmissão': 'Grande transmissora de energia com presença nacional.',
+                    'Ecovias': 'Concessão rodoviária no estado de São Paulo (SP).',
+                    'Consórcio Rota Verde': 'Concessão rodoviária no estado de Goiás (GO).'
+                }
+                for name, summary in client_summaries.items():
+                    cursor.execute("UPDATE clientes SET resumo_atuacao = ? WHERE nome_empresa = ?", (summary, name))
+                print(f"{len(client_summaries)} resumos de atuação de clientes foram pré-preenchidos.")
+
             # Etapa 1: Garantir que todas as colunas da tabela 'oportunidades' existam
             cursor.execute("PRAGMA table_info(oportunidades)")
             existing_columns = [row['name'] for row in cursor.fetchall()]
@@ -379,11 +409,11 @@ class DatabaseManager:
 
     def add_client(self, data):
         with self._connect() as conn:
-            conn.execute("INSERT INTO clientes (nome_empresa, cnpj, cidade, estado, setor_atuacao, segmento_atuacao, data_atualizacao, link_portal, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", (data['nome_empresa'], data['cnpj'], data['cidade'], data['estado'], data['setor_atuacao'], data['segmento_atuacao'], data['data_atualizacao'], data['link_portal'], data['status']))
+            conn.execute("INSERT INTO clientes (nome_empresa, cnpj, cidade, estado, setor_atuacao, segmento_atuacao, data_atualizacao, link_portal, status, resumo_atuacao) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (data['nome_empresa'], data['cnpj'], data['cidade'], data['estado'], data['setor_atuacao'], data['segmento_atuacao'], data['data_atualizacao'], data['link_portal'], data['status'], data.get('resumo_atuacao')))
 
     def update_client(self, client_id, data):
         with self._connect() as conn:
-            conn.execute("UPDATE clientes SET nome_empresa=?, cnpj=?, cidade=?, estado=?, setor_atuacao=?, segmento_atuacao=?, data_atualizacao=?, link_portal=?, status=? WHERE id=?", (data['nome_empresa'], data['cnpj'], data['cidade'], data['estado'], data['setor_atuacao'], data['segmento_atuacao'], data['data_atualizacao'], data['link_portal'], data['status'], client_id))
+            conn.execute("UPDATE clientes SET nome_empresa=?, cnpj=?, cidade=?, estado=?, setor_atuacao=?, segmento_atuacao=?, data_atualizacao=?, link_portal=?, status=?, resumo_atuacao=? WHERE id=?", (data['nome_empresa'], data['cnpj'], data['cidade'], data['estado'], data['setor_atuacao'], data['segmento_atuacao'], data['data_atualizacao'], data['link_portal'], data['status'], data.get('resumo_atuacao'), client_id))
 
     # Métodos de Pipeline
     def get_pipeline_data(self, setor=None, segmento=None):
@@ -1195,6 +1225,34 @@ class CRMApp:
             self.kanban_segmento_filter = self.segmento_filter.get()
         self.show_kanban_view()
 
+    def _show_summary_popup(self, summary_text, event):
+        """Exibe um popup com o resumo de atuação do cliente."""
+        if not summary_text or not summary_text.strip():
+            summary_text = "Nenhum resumo de atuação disponível."
+
+        popup = Toplevel(self.root)
+        popup.title("Resumo de Atuação")
+
+        # Posiciona o popup perto do cursor
+        popup_x = event.x_root
+        popup_y = event.y_root + 10
+        popup.geometry(f"400x150+{popup_x}+{popup_y}")
+        popup.configure(bg=DOLP_COLORS['white'])
+        popup.resizable(False, False)
+
+        main_frame = ttk.Frame(popup, padding=15, style='TFrame')
+        main_frame.pack(fill='both', expand=True)
+
+        summary_label = ttk.Label(main_frame, text=summary_text, wraplength=370, justify='left', style='Value.White.TLabel')
+        summary_label.pack(fill='both', expand=True, pady=(0, 10))
+
+        close_button = ttk.Button(main_frame, text="Fechar", command=popup.destroy, style='Primary.TButton')
+        close_button.pack()
+
+        popup.transient(self.root)
+        popup.grab_set()
+        self.root.wait_window(popup)
+
     def show_kanban_view(self):
         self.clear_content()
 
@@ -1314,21 +1372,33 @@ class CRMApp:
                     row = idx // col_count
                     col = idx % col_count
 
-                    client_card = ttk.Frame(clients_frame, style='TFrame', padding=10)
+                    client_card = ttk.Frame(clients_frame, style='TFrame', padding=10, cursor="hand2")
                     client_card.grid(row=row, column=col, padx=5, pady=5, sticky='ew')
                     client_card.configure(relief='solid', borderwidth=1)
 
+                    # --- Lógica do clique para exibir o popup de resumo ---
+                    summary = client.get('resumo_atuacao', '')
+                    click_handler = lambda e, s=summary: self._show_summary_popup(s, e)
+                    client_card.bind("<Button-1>", click_handler)
+                    # ----------------------------------------------------
+
                     # Nome da empresa
-                    ttk.Label(client_card, text=client['nome_empresa'], style='Value.White.TLabel',
-                             font=('Segoe UI', 10, 'bold')).pack(anchor='w')
+                    nome_label = ttk.Label(client_card, text=client['nome_empresa'], style='Value.White.TLabel',
+                                           font=('Segoe UI', 10, 'bold'))
+                    nome_label.pack(anchor='w')
+                    nome_label.bind("<Button-1>", click_handler)
 
                     # Status
                     status = client['status'] or 'Não cadastrado'
-                    ttk.Label(client_card, text=f"Status: {status}", style='Value.White.TLabel').pack(anchor='w')
+                    status_label = ttk.Label(client_card, text=f"Status: {status}", style='Value.White.TLabel')
+                    status_label.pack(anchor='w')
+                    status_label.bind("<Button-1>", click_handler)
 
                     # Setor
                     if client['setor_atuacao']:
-                        ttk.Label(client_card, text=f"Setor: {client['setor_atuacao']}", style='Value.White.TLabel').pack(anchor='w')
+                        setor_label = ttk.Label(client_card, text=f"Setor: {client['setor_atuacao']}", style='Value.White.TLabel')
+                        setor_label.pack(anchor='w')
+                        setor_label.bind("<Button-1>", click_handler)
 
                 # Configurar colunas para expandir igualmente
                 for col in range(col_count):
@@ -3161,7 +3231,7 @@ class CRMApp:
     def show_client_form(self, client_id=None):
         form_win = Toplevel(self.root)
         form_win.title("Novo Cliente" if not client_id else "Editar Cliente")
-        form_win.geometry("600x500")
+        form_win.geometry("600x600") # Aumentado para melhor visualização
         form_win.configure(bg=DOLP_COLORS['white'])
 
         main_frame = ttk.Frame(form_win, padding=20, style='TFrame')
@@ -3201,11 +3271,27 @@ class CRMApp:
             widget.pack(side='left', padx=(10, 0), fill='x', expand=True)
             entries[key] = widget
 
+        # Adicionar o novo campo de texto de múltiplas linhas para "Resumo de Atuação"
+        resumo_frame = ttk.Frame(main_frame, style='TFrame')
+        resumo_frame.pack(fill='both', pady=5, expand=True)
+        ttk.Label(resumo_frame, text="Resumo de Atuação:", style='TLabel', width=25).pack(side='left', anchor='n', pady=(5,0))
+
+        resumo_text = tk.Text(resumo_frame, height=5, wrap='word', bg='white', font=('Segoe UI', 10), borderwidth=1, relief='solid')
+        resumo_text.pack(side='left', padx=(10, 0), fill='both', expand=True)
+        entries['resumo_atuacao'] = resumo_text
+
+
         if client_id:
             client_data = self.db.get_client_by_id(client_id)
             if client_data:
                 for key, widget in entries.items():
-                    value = client_data[key] or ''
+                    # Tratamento especial para o widget de Texto
+                    if key == 'resumo_atuacao':
+                        if client_data.get(key):
+                            widget.insert('1.0', client_data[key])
+                        continue
+
+                    value = client_data.get(key, '') or ''
                     # Formata o CNPJ antes de exibir no formulário
                     if key == 'cnpj':
                         value = format_cnpj(value)
@@ -3213,6 +3299,7 @@ class CRMApp:
                     if hasattr(widget, 'set'):
                         widget.set(value)
                     else:
+                        widget.delete(0, 'end') # Limpa o campo antes de inserir
                         widget.insert(0, value)
         else:
             entries['data_atualizacao'].set_date(datetime.now().date())
@@ -3224,7 +3311,11 @@ class CRMApp:
             try:
                 data = {}
                 for key, widget in entries.items():
-                    data[key] = widget.get().strip()
+                    # Tratamento especial para obter o valor do widget de Texto
+                    if key == 'resumo_atuacao':
+                        data[key] = widget.get('1.0', 'end-1c').strip()
+                    else:
+                        data[key] = widget.get().strip()
 
                 # Garante que apenas os dígitos do CNPJ sejam salvos
                 if 'cnpj' in data:
