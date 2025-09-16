@@ -234,7 +234,20 @@ class DatabaseManager:
                             FOREIGN KEY (oportunidade_id) REFERENCES oportunidades(id) ON DELETE CASCADE)''')
             cursor.execute('''CREATE TABLE IF NOT EXISTS crm_bases_alocadas (id INTEGER PRIMARY KEY, oportunidade_id INTEGER NOT NULL, nome_base TEXT, equipes_alocadas TEXT,
                             FOREIGN KEY (oportunidade_id) REFERENCES oportunidades(id) ON DELETE CASCADE)''')
-            cursor.execute('''CREATE TABLE IF NOT EXISTS crm_empresas_referencia (id INTEGER PRIMARY KEY, nome_empresa TEXT NOT NULL, tipo_servico TEXT NOT NULL, valor_mensal REAL NOT NULL, volumetria_minima REAL NOT NULL, valor_por_pessoa REAL NOT NULL, ativa INTEGER DEFAULT 1, data_criacao TEXT DEFAULT CURRENT_TIMESTAMP)''')
+            cursor.execute('''CREATE TABLE IF NOT EXISTS crm_empresas_referencia (
+                                id INTEGER PRIMARY KEY,
+                                nome_empresa TEXT NOT NULL,
+                                tipo_servico TEXT NOT NULL,
+                                valor_mensal REAL NOT NULL,
+                                volumetria_minima REAL NOT NULL,
+                                valor_por_pessoa REAL NOT NULL,
+                                ativa INTEGER DEFAULT 1,
+                                data_criacao TEXT DEFAULT CURRENT_TIMESTAMP,
+                                estado TEXT,
+                                concessionaria TEXT,
+                                ano_referencia TEXT,
+                                observacoes TEXT
+                           )''')
             cursor.execute('CREATE TABLE IF NOT EXISTS crm_setores (id INTEGER PRIMARY KEY, nome TEXT UNIQUE NOT NULL)')
             cursor.execute('CREATE TABLE IF NOT EXISTS crm_segmentos (id INTEGER PRIMARY KEY, nome TEXT UNIQUE NOT NULL)')
 
@@ -325,6 +338,22 @@ class DatabaseManager:
 
             # A criação do índice UNIQUE deve vir após o preenchimento para evitar erros
             cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_numero_oportunidade ON oportunidades(numero_oportunidade)")
+
+            # Migração para crm_empresas_referencia
+            cursor.execute("PRAGMA table_info(crm_empresas_referencia)")
+            empresa_ref_columns = [row['name'] for row in cursor.fetchall()]
+            new_empresa_ref_columns = {
+                "estado": "TEXT",
+                "concessionaria": "TEXT",
+                "ano_referencia": "TEXT",
+                "observacoes": "TEXT"
+            }
+
+            for col_name, col_type in new_empresa_ref_columns.items():
+                if col_name not in empresa_ref_columns:
+                    print(f"Aplicando migração: Adicionando coluna '{col_name}' em crm_empresas_referencia...")
+                    cursor.execute(f"ALTER TABLE crm_empresas_referencia ADD COLUMN {col_name} {col_type}")
+                    print(f"Coluna '{col_name}' adicionada.")
 
             # Commit final de todas as alterações de dados e índice
             conn.commit()
@@ -705,9 +734,27 @@ class DatabaseManager:
             conn.execute("DELETE FROM crm_bases_alocadas WHERE oportunidade_id = ?", (op_id,))
 
     # Métodos de Empresas Referência
-    def get_all_empresas_referencia(self):
+    def get_all_empresas_referencia(self, estado=None, tipo_servico=None, concessionaria=None):
         with self._connect() as conn:
-            return conn.execute("SELECT * FROM crm_empresas_referencia ORDER BY nome_empresa, tipo_servico").fetchall()
+            base_query = "SELECT * FROM crm_empresas_referencia"
+            conditions = []
+            params = []
+
+            if estado and estado != 'Todos':
+                conditions.append("estado = ?")
+                params.append(estado)
+            if tipo_servico and tipo_servico != 'Todos':
+                conditions.append("tipo_servico = ?")
+                params.append(tipo_servico)
+            if concessionaria and concessionaria != 'Todos':
+                conditions.append("concessionaria = ?")
+                params.append(concessionaria)
+
+            if conditions:
+                base_query += " WHERE " + " AND ".join(conditions)
+
+            base_query += " ORDER BY nome_empresa, tipo_servico"
+            return conn.execute(base_query, params).fetchall()
 
     def get_empresa_referencia_by_id(self, empresa_id):
         with self._connect() as conn:
@@ -715,11 +762,29 @@ class DatabaseManager:
 
     def add_empresa_referencia(self, data):
         with self._connect() as conn:
-            conn.execute("INSERT INTO crm_empresas_referencia (nome_empresa, tipo_servico, valor_mensal, volumetria_minima, valor_por_pessoa, ativa) VALUES (?, ?, ?, ?, ?, ?)", (data['nome_empresa'], data['tipo_servico'], data['valor_mensal'], data['volumetria_minima'], data['valor_por_pessoa'], data['ativa']))
+            conn.execute("""
+                INSERT INTO crm_empresas_referencia
+                (nome_empresa, tipo_servico, valor_mensal, volumetria_minima, valor_por_pessoa, ativa, estado, concessionaria, ano_referencia, observacoes)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                data['nome_empresa'], data['tipo_servico'], data['valor_mensal'],
+                data['volumetria_minima'], data['valor_por_pessoa'], data['ativa'],
+                data.get('estado'), data.get('concessionaria'), data.get('ano_referencia'), data.get('observacoes')
+            ))
 
     def update_empresa_referencia(self, empresa_id, data):
         with self._connect() as conn:
-            conn.execute("UPDATE crm_empresas_referencia SET nome_empresa=?, tipo_servico=?, valor_mensal=?, volumetria_minima=?, valor_por_pessoa=?, ativa=? WHERE id=?", (data['nome_empresa'], data['tipo_servico'], data['valor_mensal'], data['volumetria_minima'], data['valor_por_pessoa'], data['ativa'], empresa_id))
+            conn.execute("""
+                UPDATE crm_empresas_referencia SET
+                nome_empresa=?, tipo_servico=?, valor_mensal=?, volumetria_minima=?, valor_por_pessoa=?, ativa=?,
+                estado=?, concessionaria=?, ano_referencia=?, observacoes=?
+                WHERE id=?
+            """, (
+                data['nome_empresa'], data['tipo_servico'], data['valor_mensal'],
+                data['volumetria_minima'], data['valor_por_pessoa'], data['ativa'],
+                data.get('estado'), data.get('concessionaria'), data.get('ano_referencia'), data.get('observacoes'),
+                empresa_id
+            ))
 
     def get_empresa_referencia_by_tipo(self, tipo_servico):
         with self._connect() as conn:
@@ -3625,52 +3690,104 @@ class CRMApp:
     def show_empresa_referencia_view(self):
         self.clear_content()
 
+        # --- Título e Botões de Ação ---
         title_frame = ttk.Frame(self.content_frame, style='TFrame')
-        title_frame.pack(fill='x', pady=(0, 20))
-
+        title_frame.pack(fill='x', pady=(0, 10))
         ttk.Label(title_frame, text="Empresas Referência", style='Title.TLabel').pack(side='left')
         ttk.Button(title_frame, text="Nova Empresa", command=self.show_empresa_referencia_form, style='Success.TButton').pack(side='right')
         ttk.Button(title_frame, text="← Voltar", command=self.show_crm_settings, style='TButton').pack(side='right', padx=(0, 10))
 
+        # --- Frame de Filtros ---
+        filters_frame = ttk.LabelFrame(self.content_frame, text="Filtros", padding=15, style='White.TLabelframe')
+        filters_frame.pack(fill='x', pady=(10, 20))
+
+        # Dados para os filtros
+        servicos = self.db.get_all_servicos()
+        service_names = ['Todos'] + [s['nome'] for s in servicos if s['ativa']]
+        clients = self.db.get_all_clients()
+        concessionaria_names = ['Todos'] + [c['nome_empresa'] for c in clients]
+
+        # Filtro Estado
+        ttk.Label(filters_frame, text="Estado:", style='TLabel').grid(row=0, column=0, padx=(0, 5), pady=5)
+        estado_filter = ttk.Combobox(filters_frame, values=['Todos'] + BRAZILIAN_STATES, state='readonly', width=15)
+        estado_filter.set('Todos')
+        estado_filter.grid(row=0, column=1, padx=(0, 20))
+
+        # Filtro Tipo de Serviço
+        ttk.Label(filters_frame, text="Tipo de Serviço:", style='TLabel').grid(row=0, column=2, padx=(0, 5), pady=5)
+        servico_filter = ttk.Combobox(filters_frame, values=service_names, state='readonly', width=25)
+        servico_filter.set('Todos')
+        servico_filter.grid(row=0, column=3, padx=(0, 20))
+
+        # Filtro Concessionária
+        ttk.Label(filters_frame, text="Concessionária:", style='TLabel').grid(row=0, column=4, padx=(0, 5), pady=5)
+        concessionaria_filter = ttk.Combobox(filters_frame, values=concessionaria_names, state='readonly', width=25)
+        concessionaria_filter.set('Todos')
+        concessionaria_filter.grid(row=0, column=5, padx=(0, 20))
+
+        # --- Frame da Tabela de Resultados ---
         empresas_frame = ttk.Frame(self.content_frame, style='TFrame')
         empresas_frame.pack(fill='both', expand=True)
+        empresas_frame.columnconfigure(0, weight=1)
+        empresas_frame.rowconfigure(0, weight=1)
 
-        columns = ('id', 'nome_empresa', 'tipo_servico', 'valor_mensal', 'volumetria_minima', 'valor_por_pessoa', 'ativa')
+        columns = ('id', 'nome_empresa', 'tipo_servico', 'estado', 'concessionaria', 'ano_referencia', 'valor_mensal', 'volumetria_minima', 'valor_por_pessoa', 'ativa', 'observacoes')
         tree = ttk.Treeview(empresas_frame, columns=columns, show='headings', height=15)
 
-        tree.heading('id', text='ID')
-        tree.heading('nome_empresa', text='Empresa')
-        tree.heading('tipo_servico', text='Tipo de Serviço')
-        tree.heading('valor_mensal', text='Valor Mensal (R$)')
-        tree.heading('volumetria_minima', text='Volumetria Mín.')
-        tree.heading('valor_por_pessoa', text='Valor/Pessoa (R$)')
-        tree.heading('ativa', text='Ativa')
+        # Configuração dos Cabeçalhos
+        headings = {
+            'id': ('ID', 50), 'nome_empresa': ('Empresa', 180), 'tipo_servico': ('Tipo de Serviço', 180),
+            'estado': ('UF', 50), 'concessionaria': ('Concessionária', 150), 'ano_referencia': ('Ano Ref.', 80),
+            'valor_mensal': ('Valor Mensal', 120), 'volumetria_minima': ('Vol. Mínima', 100),
+            'valor_por_pessoa': ('Valor/Pessoa', 120), 'ativa': ('Ativa', 60), 'observacoes': ('Obs.', 200)
+        }
+        for col, (text, width) in headings.items():
+            tree.heading(col, text=text)
+            tree.column(col, width=width, anchor='center')
 
-        tree.column('id', width=50, anchor='center')
-        tree.column('nome_empresa', width=200)
-        tree.column('tipo_servico', width=200)
-        tree.column('valor_mensal', width=120, anchor='center')
-        tree.column('volumetria_minima', width=120, anchor='center')
-        tree.column('valor_por_pessoa', width=120, anchor='center')
-        tree.column('ativa', width=80, anchor='center')
+        # Scrollbars
+        v_scrollbar = ttk.Scrollbar(empresas_frame, orient='vertical', command=tree.yview)
+        h_scrollbar = ttk.Scrollbar(empresas_frame, orient='horizontal', command=tree.xview)
+        tree.configure(yscrollcommand=v_scrollbar.set, xscrollcommand=h_scrollbar.set)
 
-        scrollbar = ttk.Scrollbar(empresas_frame, orient='vertical', command=tree.yview)
-        tree.configure(yscrollcommand=scrollbar.set)
+        tree.grid(row=0, column=0, sticky='nsew')
+        v_scrollbar.grid(row=0, column=1, sticky='ns')
+        h_scrollbar.grid(row=1, column=0, sticky='ew')
 
-        tree.pack(side='left', fill='both', expand=True)
-        scrollbar.pack(side='right', fill='y')
+        # --- Lógica de Carregamento e Filtragem ---
+        def load_data(estado=None, tipo_servico=None, concessionaria=None):
+            # Limpar a tabela
+            for item in tree.get_children():
+                tree.delete(item)
 
-        empresas = self.db.get_all_empresas_referencia()
-        for empresa in empresas:
-            tree.insert('', 'end', values=(
-                empresa['id'],
-                empresa['nome_empresa'],
-                empresa['tipo_servico'],
-                format_currency(empresa['valor_mensal']),
-                f"{empresa['volumetria_minima']:,.0f}",
-                format_currency(empresa['valor_por_pessoa']),
-                'Sim' if empresa['ativa'] else 'Não'
-            ))
+            # Buscar dados com filtros
+            empresas = self.db.get_all_empresas_referencia(estado, tipo_servico, concessionaria)
+            for empresa in empresas:
+                tree.insert('', 'end', values=(
+                    empresa['id'],
+                    empresa['nome_empresa'],
+                    empresa['tipo_servico'],
+                    empresa.get('estado', '---'),
+                    empresa.get('concessionaria', '---'),
+                    empresa.get('ano_referencia', '---'),
+                    format_currency(empresa['valor_mensal']),
+                    f"{empresa['volumetria_minima']:,.0f}" if empresa['volumetria_minima'] else '---',
+                    format_currency(empresa['valor_por_pessoa']),
+                    'Sim' if empresa['ativa'] else 'Não',
+                    empresa.get('observacoes', '')
+                ))
+
+        def apply_filters():
+            estado = estado_filter.get()
+            tipo_servico = servico_filter.get()
+            concessionaria = concessionaria_filter.get()
+            load_data(estado, tipo_servico, concessionaria)
+
+        # Botão de Filtrar
+        ttk.Button(filters_frame, text="🔍 Filtrar", style='Primary.TButton', command=apply_filters).grid(row=0, column=6, padx=(20, 0), pady=5)
+
+        # Carregar dados iniciais (sem filtros)
+        load_data()
 
         def on_double_click(event):
             selection = tree.selection()
@@ -3684,7 +3801,7 @@ class CRMApp:
     def show_empresa_referencia_form(self, empresa_id=None):
         form_win = Toplevel(self.root)
         form_win.title("Nova Empresa Referência" if not empresa_id else "Editar Empresa Referência")
-        form_win.geometry("600x500")
+        form_win.geometry("600x700") # Aumentado para caber os novos campos
         form_win.configure(bg=DOLP_COLORS['white'])
 
         main_frame = ttk.Frame(form_win, padding=20, style='TFrame')
@@ -3693,23 +3810,31 @@ class CRMApp:
         ttk.Label(main_frame, text="Nova Empresa Referência" if not empresa_id else "Editar Empresa Referência", style='Title.TLabel').pack(pady=(0, 20))
 
         entries = {}
+        # Dados para os comboboxes
         servicos = self.db.get_all_servicos()
         service_names = [s['nome'] for s in servicos if s['ativa']]
+        clients = self.db.get_all_clients()
+        concessionaria_names = [c['nome_empresa'] for c in clients]
 
+        # Definição dos campos do formulário
         fields = [
             ("Nome da Empresa:*", "nome_empresa", "entry"),
             ("Tipo de Serviço:*", "tipo_servico", "combobox", service_names),
+            ("Estado:", "estado", "combobox", BRAZILIAN_STATES),
+            ("Concessionária:", "concessionaria", "combobox", concessionaria_names),
+            ("Ano de Referência:", "ano_referencia", "entry"),
             ("Valor Mensal (R$):*", "valor_mensal", "entry"),
             ("Volumetria Mínima:*", "volumetria_minima", "entry"),
             ("Valor por Pessoa (R$):*", "valor_por_pessoa", "entry"),
-            ("Ativa:", "ativa", "checkbox")
+            ("Ativa:", "ativa", "checkbox"),
+            ("Observações:", "observacoes", "text")
         ]
 
         for text, key, widget_type, *args in fields:
             field_frame = ttk.Frame(main_frame, style='TFrame')
             field_frame.pack(fill='x', pady=5)
 
-            ttk.Label(field_frame, text=text, style='TLabel', width=20).pack(side='left')
+            ttk.Label(field_frame, text=text, style='TLabel', width=20).pack(side='left', anchor='n' if widget_type == 'text' else 'w')
 
             if widget_type == "combobox":
                 widget = ttk.Combobox(field_frame, values=args[0], state='readonly', width=40)
@@ -3717,23 +3842,40 @@ class CRMApp:
                 widget = tk.BooleanVar()
                 cb = ttk.Checkbutton(field_frame, variable=widget)
                 cb.pack(side='left', padx=(10, 0))
+            elif widget_type == "text":
+                # Frame para o widget de texto com scrollbar
+                text_frame = ttk.Frame(field_frame)
+                widget = tk.Text(text_frame, height=5, wrap='word', bg='white', font=('Segoe UI', 10))
+                scrollbar = ttk.Scrollbar(text_frame, orient="vertical", command=widget.yview)
+                widget.configure(yscrollcommand=scrollbar.set)
+                widget.pack(side="left", fill="both", expand=True)
+                scrollbar.pack(side="right", fill="y")
+                text_frame.pack(side='left', padx=(10, 0), fill='x', expand=True)
             else:
                 widget = ttk.Entry(field_frame, width=40)
 
-            if widget_type != "checkbox":
+            if widget_type not in ["checkbox", "text"]:
                 widget.pack(side='left', padx=(10, 0), fill='x', expand=True)
 
             entries[key] = widget
 
+        # Carregar dados existentes se estiver editando
         if empresa_id:
             empresa_data = self.db.get_empresa_referencia_by_id(empresa_id)
             if empresa_data:
+                op_keys = empresa_data.keys()
                 entries['nome_empresa'].insert(0, empresa_data['nome_empresa'] or '')
                 entries['tipo_servico'].set(empresa_data['tipo_servico'] or '')
                 entries['valor_mensal'].insert(0, str(empresa_data['valor_mensal'] or ''))
                 entries['volumetria_minima'].insert(0, str(empresa_data['volumetria_minima'] or ''))
                 entries['valor_por_pessoa'].insert(0, str(empresa_data['valor_por_pessoa'] or ''))
                 entries['ativa'].set(bool(empresa_data['ativa']))
+                # Carregar novos campos
+                if 'estado' in op_keys: entries['estado'].set(empresa_data['estado'] or '')
+                if 'concessionaria' in op_keys: entries['concessionaria'].set(empresa_data['concessionaria'] or '')
+                if 'ano_referencia' in op_keys: entries['ano_referencia'].insert(0, empresa_data['ano_referencia'] or '')
+                if 'observacoes' in op_keys and empresa_data['observacoes']:
+                    entries['observacoes'].insert('1.0', empresa_data['observacoes'])
         else:
             entries['ativa'].set(True)
 
@@ -3748,7 +3890,12 @@ class CRMApp:
                     'valor_mensal': float(entries['valor_mensal'].get().replace(',', '.')) if entries['valor_mensal'].get() else 0,
                     'volumetria_minima': float(entries['volumetria_minima'].get().replace(',', '.')) if entries['volumetria_minima'].get() else 0,
                     'valor_por_pessoa': float(entries['valor_por_pessoa'].get().replace(',', '.')) if entries['valor_por_pessoa'].get() else 0,
-                    'ativa': 1 if entries['ativa'].get() else 0
+                    'ativa': 1 if entries['ativa'].get() else 0,
+                    # Coletar dados dos novos campos
+                    'estado': entries['estado'].get(),
+                    'concessionaria': entries['concessionaria'].get(),
+                    'ano_referencia': entries['ano_referencia'].get().strip(),
+                    'observacoes': entries['observacoes'].get('1.0', 'end-1c').strip()
                 }
 
                 if not data['nome_empresa'] or not data['tipo_servico']:
