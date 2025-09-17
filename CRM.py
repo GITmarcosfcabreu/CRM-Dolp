@@ -1078,7 +1078,7 @@ class CRMApp:
         title_label = ttk.Label(header_frame, text="CRM Dolp Engenharia", style='Header.TLabel')
         title_label.pack(side='left')
 
-        version_label = ttk.Label(header_frame, text="v2.0", font=('Segoe UI', 9, 'italic'), foreground=DOLP_COLORS['medium_gray'], style='TLabel')
+        version_label = ttk.Label(header_frame, text="v53", font=('Segoe UI', 9, 'italic'), foreground=DOLP_COLORS['medium_gray'], style='TLabel')
         version_label.pack(side='left', padx=(10, 0), anchor='s', pady=(0, 4))
 
         # Área de conteúdo
@@ -1196,6 +1196,7 @@ class CRMApp:
         news_canvas = tk.Canvas(news_lf, bg=DOLP_COLORS['white'], highlightthickness=0)
         news_scrollbar = ttk.Scrollbar(news_lf, orient="vertical", command=news_canvas.yview)
         scrollable_news_frame = ttk.Frame(news_canvas, style='TFrame')
+        scrollable_news_frame.columnconfigure(0, weight=1)
 
         scrollable_news_frame.bind("<Configure>", lambda e: news_canvas.configure(scrollregion=news_canvas.bbox("all")))
 
@@ -1228,7 +1229,7 @@ class CRMApp:
     def create_news_card(self, parent, news_item, refresh_callback):
         """Cria um card para uma notícia."""
         card = ttk.Frame(parent, style='Card.TFrame', padding=15, relief='solid', borderwidth=1)
-        card.pack(pady=5, padx=5)
+        card.grid(sticky='ew', pady=5, padx=5)
 
         # Top frame for title and buttons
         top_frame = ttk.Frame(card, style='Card.TFrame')
@@ -1276,6 +1277,7 @@ class CRMApp:
         main_canvas = tk.Canvas(self.content_frame, bg=DOLP_COLORS['white'], highlightthickness=0)
         main_scrollbar = ttk.Scrollbar(self.content_frame, orient="vertical", command=main_canvas.yview)
         scrollable_frame = ttk.Frame(main_canvas, style='TFrame', padding=20)
+        scrollable_frame.columnconfigure(0, weight=1)
 
         scrollable_frame.bind("<Configure>", lambda e: main_canvas.configure(scrollregion=main_canvas.bbox("all")))
 
