@@ -1028,7 +1028,7 @@ class CRMApp:
 
         # Labels e outros elementos
         style.configure('TLabel', foreground='#000000', font=('Segoe UI', 10), background=DOLP_COLORS['white'])
-        style.configure('Header.TLabel', foreground=DOLP_COLORS['primary_blue'], font=('Segoe UI', 16, 'bold'), background=DOLP_COLORS['white'])
+        style.configure('Header.TLabel', foreground=DOLP_COLORS['primary_blue'], font=('Segoe UI', 24, 'bold'), background=DOLP_COLORS['white'])
         style.configure('Title.TLabel', foreground=DOLP_COLORS['dark_gray'], font=('Segoe UI', 14, 'bold'), background=DOLP_COLORS['white'])
 
         # Estilos para LabelFrames
@@ -1075,11 +1075,11 @@ class CRMApp:
             logo_label = ttk.Label(header_frame, image=self.logo_image, style='TLabel')
             logo_label.pack(side='left', padx=(0, 20))
 
-        title_label = ttk.Label(header_frame, text="CRM Dolp Engenharia", style='Header.TLabel')
+        title_label = ttk.Label(header_frame, text="Customer Relationship Management (CRM) - Dolp Engenharia", style='Header.TLabel')
         title_label.pack(side='left')
 
         version_label = ttk.Label(header_frame, text="v53", font=('Segoe UI', 9, 'italic'), foreground=DOLP_COLORS['medium_gray'], style='TLabel')
-        version_label.pack(side='left', padx=(10, 0), anchor='s', pady=(0, 4))
+        version_label.pack(side='right', padx=(10, 0), anchor='s', pady=(0, 4))
 
         # Área de conteúdo
         self.content_frame = ttk.Frame(self.main_container, style='TFrame')
