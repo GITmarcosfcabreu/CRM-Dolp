@@ -23,7 +23,7 @@ from tkcalendar import DateEntry
 from datetime import datetime, timedelta
 import json
 import google.generativeai as genai
-from ddgs.ddgs import DDGS
+from ddgs import DDGS
 from bs4 import BeautifulSoup
 import re
 import threading
@@ -1007,7 +1007,7 @@ class CRMApp:
         style.configure('Header.TFrame', background=DOLP_COLORS['white'], relief='flat', borderwidth=0)
 
         # Botões modernos com gradiente visual
-        style.configure('TButton', font=('Segoe UI', 11, 'normal'), padding=(15, 8), relief='flat', borderwidth=0)
+        style.configure('TButton', font=('Segoe UI', 11, 'normal'), padding=(15, 12), relief='flat', borderwidth=0)
         style.configure('Primary.TButton', background=DOLP_COLORS['primary_blue'], foreground='white', font=('Segoe UI', 11, 'bold'))
         style.map('Primary.TButton', background=[('active', DOLP_COLORS['secondary_blue']), ('pressed', DOLP_COLORS['gradient_start'])])
 
@@ -1019,6 +1019,12 @@ class CRMApp:
 
         style.configure('Danger.TButton', background=DOLP_COLORS['danger_red'], foreground='white', font=('Segoe UI', 11, 'bold'))
         style.map('Danger.TButton', background=[('active', '#dc2626'), ('pressed', '#b91c1c')])
+
+        # Estilos para botões do menu principal
+        style.configure('MainMenu.Primary.TButton', background=DOLP_COLORS['primary_blue'], foreground='white', font=('Segoe UI', 12, 'bold'), padding=(20, 18))
+        style.map('MainMenu.Primary.TButton', background=[('active', DOLP_COLORS['secondary_blue']), ('pressed', DOLP_COLORS['gradient_start'])])
+        style.configure('MainMenu.Warning.TButton', background=DOLP_COLORS['warning_orange'], foreground='white', font=('Segoe UI', 12, 'bold'), padding=(20, 18))
+        style.map('MainMenu.Warning.TButton', background=[('active', '#d97706'), ('pressed', '#b45309')])
 
         # Labels e outros elementos
         style.configure('TLabel', foreground='#000000', font=('Segoe UI', 10), background=DOLP_COLORS['white'])
@@ -1071,6 +1077,9 @@ class CRMApp:
 
         title_label = ttk.Label(header_frame, text="CRM Dolp Engenharia", style='Header.TLabel')
         title_label.pack(side='left')
+
+        version_label = ttk.Label(header_frame, text="v2.0", font=('Segoe UI', 9, 'italic'), foreground=DOLP_COLORS['medium_gray'], style='TLabel')
+        version_label.pack(side='left', padx=(10, 0), anchor='s', pady=(0, 4))
 
         # Área de conteúdo
         self.content_frame = ttk.Frame(self.main_container, style='TFrame')
@@ -1173,15 +1182,15 @@ class CRMApp:
 
         # Botões do menu principal
         menu_buttons = [
-            ("Funil de Vendas", self.show_kanban_view, 'Primary.TButton'),
-            ("Clientes", self.show_clients_view, 'Primary.TButton'),
-            ("Notícias Salvas", self.show_saved_news_view, 'Primary.TButton'),
-            ("Configurações do CRM", self.show_crm_settings, 'Warning.TButton')
+            ("📊 Funil de Vendas", self.show_kanban_view, 'MainMenu.Primary.TButton'),
+            ("👥 Clientes", self.show_clients_view, 'MainMenu.Primary.TButton'),
+            ("🔖 Notícias Salvas", self.show_saved_news_view, 'MainMenu.Primary.TButton'),
+            ("⚙️ Configurações do CRM", self.show_crm_settings, 'MainMenu.Warning.TButton')
         ]
 
         for i, (text, command, style) in enumerate(menu_buttons):
-            btn = ttk.Button(buttons_frame, text=text, command=command, style=style, width=25)
-            btn.pack(pady=10, anchor='n')
+            btn = ttk.Button(buttons_frame, text=text, command=command, style=style, width=28)
+            btn.pack(pady=10, anchor='n', fill='x')
 
         # --- Scrollable area for news ---
         news_canvas = tk.Canvas(news_lf, bg=DOLP_COLORS['white'], highlightthickness=0)
@@ -1189,7 +1198,13 @@ class CRMApp:
         scrollable_news_frame = ttk.Frame(news_canvas, style='TFrame')
 
         scrollable_news_frame.bind("<Configure>", lambda e: news_canvas.configure(scrollregion=news_canvas.bbox("all")))
-        news_canvas.create_window((0, 0), window=scrollable_news_frame, anchor="nw")
+
+        # Center the frame in the canvas
+        news_window = news_canvas.create_window((0, 0), window=scrollable_news_frame, anchor="n")
+        def _center_news_frame(event):
+            news_canvas.coords(news_window, event.width / 2, 0)
+        news_canvas.bind("<Configure>", _center_news_frame)
+
         news_canvas.configure(yscrollcommand=news_scrollbar.set)
 
         def _on_mousewheel(event):
@@ -1213,7 +1228,7 @@ class CRMApp:
     def create_news_card(self, parent, news_item, refresh_callback):
         """Cria um card para uma notícia."""
         card = ttk.Frame(parent, style='Card.TFrame', padding=15, relief='solid', borderwidth=1)
-        card.pack(fill='x', pady=5, padx=5)
+        card.pack(pady=5, padx=5)
 
         # Top frame for title and buttons
         top_frame = ttk.Frame(card, style='Card.TFrame')
@@ -1263,7 +1278,13 @@ class CRMApp:
         scrollable_frame = ttk.Frame(main_canvas, style='TFrame', padding=20)
 
         scrollable_frame.bind("<Configure>", lambda e: main_canvas.configure(scrollregion=main_canvas.bbox("all")))
-        main_canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+
+        # Center the frame in the canvas
+        saved_news_window = main_canvas.create_window((0, 0), window=scrollable_frame, anchor="n")
+        def _center_saved_news_frame(event):
+            main_canvas.coords(saved_news_window, event.width / 2, 0)
+        main_canvas.bind("<Configure>", _center_saved_news_frame)
+
         main_canvas.configure(yscrollcommand=main_scrollbar.set)
 
         def _on_mousewheel(event):
