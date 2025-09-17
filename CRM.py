@@ -12,7 +12,7 @@ Funcionalidades implementadas:
 """
 
 import tkinter as tk
-from tkinter import ttk, messagebox, Toplevel, font
+from tkinter import ttk, messagebox, Toplevel, font, filedialog
 from PIL import Image, ImageTk
 import requests
 from io import BytesIO
@@ -23,14 +23,22 @@ from tkcalendar import DateEntry
 from datetime import datetime, timedelta
 import json
 import google.generativeai as genai
-from ddgs.ddgs import DDGS
+from duckduckgo_search import DDGS
 from bs4 import BeautifulSoup
 import re
 import threading
 import time
+from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.lib.utils import ImageReader
+from reportlab.lib import colors
+from reportlab.lib.units import inch
 
 
 # --- 1. CONFIGURAÇÕES GERAIS ---
+APP_VERSION = "2.1.0"
 LAST_FETCH_FILE = 'last_fetch.log'
 FETCH_INTERVAL_HOURS = 4
 DB_NAME = 'dolp_crm_final.db'
@@ -91,10 +99,10 @@ QUALIFICATION_CHECKLIST = {
 
 # --- 2. FUNÇÕES UTILITÁRIAS ---
 ICON_URLS = {
-    'funnel': "https://cdn0.iconfinder.com/data/icons/phosphor-regular-vol-3/256/funnel-simple-64.png",
-    'clients': "https://cdn3.iconfinder.com/data/icons/feather-5/24/users-64.png",
-    'saved_news': "https://cdn3.iconfinder.com/data/icons/feather-5/24/bookmark-64.png",
-    'settings': "https://cdn0.iconfinder.com/data/icons/font-awesome-solid-vol-1/512/cog-64.png"
+    'funnel': "https://cdn-icons-png.flaticon.com/64/1589/1589621.png",
+    'clients': "https://cdn-icons-png.flaticon.com/64/3135/3135715.png",
+    'saved_news': "https://cdn-icons-png.flaticon.com/64/854/854933.png",
+    'settings': "https://cdn-icons-png.flaticon.com/64/2040/2040504.png"
 }
 
 def load_image_from_url(url, local_path, size=(24, 24)):
@@ -119,6 +127,21 @@ def load_image_from_url(url, local_path, size=(24, 24)):
 def load_logo_image(size=(200, 75)):
     """Wrapper específico para o logo para manter a compatibilidade."""
     return load_image_from_url(LOGO_URL, LOGO_PATH, size)
+
+def format_currency(value):
+    try:
+        if os.path.exists(LOGO_PATH):
+            img = Image.open(LOGO_PATH)
+        else:
+            response = requests.get(LOGO_URL, timeout=10)
+            response.raise_for_status()
+            img = Image.open(BytesIO(response.content))
+            img.save(LOGO_PATH)
+        img.thumbnail(size, Image.Resampling.LANCZOS)
+        return ImageTk.PhotoImage(img)
+    except Exception as e:
+        print(f"Erro ao carregar logo: {e}")
+        return None
 
 def format_currency(value):
     try:
@@ -175,7 +198,8 @@ class DatabaseManager:
                                 segmento_atuacao TEXT,
                                 data_atualizacao TEXT,
                                 link_portal TEXT,
-                                status TEXT
+                                status TEXT,
+                                resumo_atuacao TEXT
                            )''')
 
             cursor.execute('CREATE TABLE IF NOT EXISTS pipeline_estagios (id INTEGER PRIMARY KEY, nome TEXT UNIQUE NOT NULL, ordem INTEGER)')
@@ -241,7 +265,20 @@ class DatabaseManager:
                             FOREIGN KEY (oportunidade_id) REFERENCES oportunidades(id) ON DELETE CASCADE)''')
             cursor.execute('''CREATE TABLE IF NOT EXISTS crm_bases_alocadas (id INTEGER PRIMARY KEY, oportunidade_id INTEGER NOT NULL, nome_base TEXT, equipes_alocadas TEXT,
                             FOREIGN KEY (oportunidade_id) REFERENCES oportunidades(id) ON DELETE CASCADE)''')
-            cursor.execute('''CREATE TABLE IF NOT EXISTS crm_empresas_referencia (id INTEGER PRIMARY KEY, nome_empresa TEXT NOT NULL, tipo_servico TEXT NOT NULL, valor_mensal REAL NOT NULL, volumetria_minima REAL NOT NULL, valor_por_pessoa REAL NOT NULL, ativa INTEGER DEFAULT 1, data_criacao TEXT DEFAULT CURRENT_TIMESTAMP)''')
+            cursor.execute('''CREATE TABLE IF NOT EXISTS crm_empresas_referencia (
+                                id INTEGER PRIMARY KEY,
+                                nome_empresa TEXT NOT NULL,
+                                tipo_servico TEXT NOT NULL,
+                                valor_mensal REAL NOT NULL,
+                                volumetria_minima REAL NOT NULL,
+                                valor_por_pessoa REAL NOT NULL,
+                                ativa INTEGER DEFAULT 1,
+                                data_criacao TEXT DEFAULT CURRENT_TIMESTAMP,
+                                estado TEXT,
+                                concessionaria TEXT,
+                                ano_referencia TEXT,
+                                observacoes TEXT
+                           )''')
             cursor.execute('CREATE TABLE IF NOT EXISTS crm_setores (id INTEGER PRIMARY KEY, nome TEXT UNIQUE NOT NULL)')
             cursor.execute('CREATE TABLE IF NOT EXISTS crm_segmentos (id INTEGER PRIMARY KEY, nome TEXT UNIQUE NOT NULL)')
 
@@ -267,6 +304,35 @@ class DatabaseManager:
         cursor = conn.cursor()
 
         try:
+            # Adicionar coluna 'resumo_atuacao' na tabela 'clientes'
+            cursor.execute("PRAGMA table_info(clientes)")
+            client_columns = [row['name'] for row in cursor.fetchall()]
+            if 'resumo_atuacao' not in client_columns:
+                print("Aplicando migração: Adicionando coluna 'resumo_atuacao' em clientes...")
+                cursor.execute("ALTER TABLE clientes ADD COLUMN resumo_atuacao TEXT")
+                print("Coluna 'resumo_atuacao' adicionada.")
+
+                # Populate data for existing clients
+                client_summaries = {
+                    'CPFL (RS)': 'Atuação principal no estado do Rio Grande do Sul (RS).',
+                    'CPFL (SP) - Paulista': 'Atuação principal no estado de São Paulo (SP).',
+                    'CPFL (SP) - Piratininga': 'Atuação principal no estado de São Paulo (SP).',
+                    'Energisa (PB)': 'Atuação principal no estado da Paraíba (PB).',
+                    'EDP Distribuição (ES)': 'Atuação principal no estado do Espírito Santo (ES).',
+                    'EDP Transmissão': 'Atuação em transmissão de energia em múltiplos estados.',
+                    'Cemig': 'Atuação principal no estado de Minas Gerais (MG).',
+                    'TAESA Transmissão': 'Grande transmissora de energia com presença nacional.',
+                    'State Grid Transmissão': 'Grande transmissora de energia com presença nacional.',
+                    'Eletrobrás Transmissão': 'Grande transmissora de energia com presença nacional.',
+                    'Eletrobrás Transmissão (Subsidiária)': 'Grande transmissora de energia com presença nacional.',
+                    'Engie Transmissão': 'Grande transmissora de energia com presença nacional.',
+                    'Ecovias': 'Concessão rodoviária no estado de São Paulo (SP).',
+                    'Consórcio Rota Verde': 'Concessão rodoviária no estado de Goiás (GO).'
+                }
+                for name, summary in client_summaries.items():
+                    cursor.execute("UPDATE clientes SET resumo_atuacao = ? WHERE nome_empresa = ?", (summary, name))
+                print(f"{len(client_summaries)} resumos de atuação de clientes foram pré-preenchidos.")
+
             # Etapa 1: Garantir que todas as colunas da tabela 'oportunidades' existam
             cursor.execute("PRAGMA table_info(oportunidades)")
             existing_columns = [row['name'] for row in cursor.fetchall()]
@@ -303,6 +369,22 @@ class DatabaseManager:
 
             # A criação do índice UNIQUE deve vir após o preenchimento para evitar erros
             cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_numero_oportunidade ON oportunidades(numero_oportunidade)")
+
+            # Migração para crm_empresas_referencia
+            cursor.execute("PRAGMA table_info(crm_empresas_referencia)")
+            empresa_ref_columns = [row['name'] for row in cursor.fetchall()]
+            new_empresa_ref_columns = {
+                "estado": "TEXT",
+                "concessionaria": "TEXT",
+                "ano_referencia": "TEXT",
+                "observacoes": "TEXT"
+            }
+
+            for col_name, col_type in new_empresa_ref_columns.items():
+                if col_name not in empresa_ref_columns:
+                    print(f"Aplicando migração: Adicionando coluna '{col_name}' em crm_empresas_referencia...")
+                    cursor.execute(f"ALTER TABLE crm_empresas_referencia ADD COLUMN {col_name} {col_type}")
+                    print(f"Coluna '{col_name}' adicionada.")
 
             # Commit final de todas as alterações de dados e índice
             conn.commit()
@@ -387,11 +469,11 @@ class DatabaseManager:
 
     def add_client(self, data):
         with self._connect() as conn:
-            conn.execute("INSERT INTO clientes (nome_empresa, cnpj, cidade, estado, setor_atuacao, segmento_atuacao, data_atualizacao, link_portal, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", (data['nome_empresa'], data['cnpj'], data['cidade'], data['estado'], data['setor_atuacao'], data['segmento_atuacao'], data['data_atualizacao'], data['link_portal'], data['status']))
+            conn.execute("INSERT INTO clientes (nome_empresa, cnpj, cidade, estado, setor_atuacao, segmento_atuacao, data_atualizacao, link_portal, status, resumo_atuacao) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (data['nome_empresa'], data['cnpj'], data['cidade'], data['estado'], data['setor_atuacao'], data['segmento_atuacao'], data['data_atualizacao'], data['link_portal'], data['status'], data.get('resumo_atuacao')))
 
     def update_client(self, client_id, data):
         with self._connect() as conn:
-            conn.execute("UPDATE clientes SET nome_empresa=?, cnpj=?, cidade=?, estado=?, setor_atuacao=?, segmento_atuacao=?, data_atualizacao=?, link_portal=?, status=? WHERE id=?", (data['nome_empresa'], data['cnpj'], data['cidade'], data['estado'], data['setor_atuacao'], data['segmento_atuacao'], data['data_atualizacao'], data['link_portal'], data['status'], client_id))
+            conn.execute("UPDATE clientes SET nome_empresa=?, cnpj=?, cidade=?, estado=?, setor_atuacao=?, segmento_atuacao=?, data_atualizacao=?, link_portal=?, status=?, resumo_atuacao=? WHERE id=?", (data['nome_empresa'], data['cnpj'], data['cidade'], data['estado'], data['setor_atuacao'], data['segmento_atuacao'], data['data_atualizacao'], data['link_portal'], data['status'], data.get('resumo_atuacao'), client_id))
 
     # Métodos de Pipeline
     def get_pipeline_data(self, setor=None, segmento=None):
@@ -551,9 +633,37 @@ class DatabaseManager:
             conn.execute("UPDATE crm_tipos_equipe SET nome=?, servico_id=?, ativa=? WHERE id=?", (data['nome'], data['servico_id'], data['ativa'], team_id))
 
     # Métodos de Interações
-    def get_interactions_for_opportunity(self, op_id):
+    def get_interaction_types(self):
         with self._connect() as conn:
-            return conn.execute("SELECT * FROM crm_interacoes WHERE oportunidade_id = ? ORDER BY data_interacao DESC", (op_id,)).fetchall()
+            return [row['tipo'] for row in conn.execute("SELECT DISTINCT tipo FROM crm_interacoes ORDER BY tipo").fetchall()]
+
+    def get_interactions_for_opportunity(self, op_id, tipo=None, start_date_str=None, end_date_str=None):
+        with self._connect() as conn:
+            base_query = "SELECT * FROM crm_interacoes WHERE oportunidade_id = ?"
+            params = [op_id]
+
+            if tipo and tipo != 'Todos':
+                base_query += " AND tipo = ?"
+                params.append(tipo)
+
+            if start_date_str:
+                try:
+                    start_date_obj = datetime.strptime(start_date_str, '%d/%m/%Y')
+                    base_query += " AND substr(data_interacao, 7, 4) || '-' || substr(data_interacao, 4, 2) || '-' || substr(data_interacao, 1, 2) >= ?"
+                    params.append(start_date_obj.strftime('%Y-%m-%d'))
+                except ValueError:
+                    pass
+
+            if end_date_str:
+                try:
+                    end_date_obj = datetime.strptime(end_date_str, '%d/%m/%Y')
+                    base_query += " AND substr(data_interacao, 7, 4) || '-' || substr(data_interacao, 4, 2) || '-' || substr(data_interacao, 1, 2) <= ?"
+                    params.append(end_date_obj.strftime('%Y-%m-%d'))
+                except ValueError:
+                    pass
+
+            base_query += " ORDER BY substr(data_interacao, 7, 4) DESC, substr(data_interacao, 4, 2) DESC, substr(data_interacao, 1, 2) DESC, substr(data_interacao, 12) DESC"
+            return conn.execute(base_query, params).fetchall()
 
     def add_interaction(self, data):
         conn = None
@@ -572,9 +682,41 @@ class DatabaseManager:
                 conn.close()
 
     # Métodos de Tarefas
-    def get_tasks_for_opportunity(self, op_id):
+    def get_task_responsibles(self, op_id):
         with self._connect() as conn:
-            return conn.execute("SELECT * FROM crm_tarefas WHERE oportunidade_id = ? ORDER BY status, data_vencimento", (op_id,)).fetchall()
+            return [row['responsavel'] for row in conn.execute("SELECT DISTINCT responsavel FROM crm_tarefas WHERE oportunidade_id = ? ORDER BY responsavel", (op_id,)).fetchall()]
+
+    def get_tasks_for_opportunity(self, op_id, status=None, responsavel=None, start_date_str=None, end_date_str=None):
+        with self._connect() as conn:
+            base_query = "SELECT * FROM crm_tarefas WHERE oportunidade_id = ?"
+            params = [op_id]
+
+            if status and status != 'Todos':
+                base_query += " AND status = ?"
+                params.append(status)
+
+            if responsavel and responsavel != 'Todos':
+                base_query += " AND responsavel = ?"
+                params.append(responsavel)
+
+            if start_date_str:
+                try:
+                    start_date_obj = datetime.strptime(start_date_str, '%d/%m/%Y')
+                    base_query += " AND substr(data_vencimento, 7, 4) || '-' || substr(data_vencimento, 4, 2) || '-' || substr(data_vencimento, 1, 2) >= ?"
+                    params.append(start_date_obj.strftime('%Y-%m-%d'))
+                except ValueError:
+                    pass
+
+            if end_date_str:
+                try:
+                    end_date_obj = datetime.strptime(end_date_str, '%d/%m/%Y')
+                    base_query += " AND substr(data_vencimento, 7, 4) || '-' || substr(data_vencimento, 4, 2) || '-' || substr(data_vencimento, 1, 2) <= ?"
+                    params.append(end_date_obj.strftime('%Y-%m-%d'))
+                except ValueError:
+                    pass
+
+            base_query += " ORDER BY status, data_vencimento"
+            return conn.execute(base_query, params).fetchall()
 
     def add_task(self, data):
         with self._connect() as conn:
@@ -623,9 +765,27 @@ class DatabaseManager:
             conn.execute("DELETE FROM crm_bases_alocadas WHERE oportunidade_id = ?", (op_id,))
 
     # Métodos de Empresas Referência
-    def get_all_empresas_referencia(self):
+    def get_all_empresas_referencia(self, estado=None, tipo_servico=None, concessionaria=None):
         with self._connect() as conn:
-            return conn.execute("SELECT * FROM crm_empresas_referencia ORDER BY nome_empresa, tipo_servico").fetchall()
+            base_query = "SELECT * FROM crm_empresas_referencia"
+            conditions = []
+            params = []
+
+            if estado and estado != 'Todos':
+                conditions.append("estado = ?")
+                params.append(estado)
+            if tipo_servico and tipo_servico != 'Todos':
+                conditions.append("tipo_servico = ?")
+                params.append(tipo_servico)
+            if concessionaria and concessionaria != 'Todos':
+                conditions.append("concessionaria = ?")
+                params.append(concessionaria)
+
+            if conditions:
+                base_query += " WHERE " + " AND ".join(conditions)
+
+            base_query += " ORDER BY nome_empresa, tipo_servico"
+            return conn.execute(base_query, params).fetchall()
 
     def get_empresa_referencia_by_id(self, empresa_id):
         with self._connect() as conn:
@@ -633,11 +793,29 @@ class DatabaseManager:
 
     def add_empresa_referencia(self, data):
         with self._connect() as conn:
-            conn.execute("INSERT INTO crm_empresas_referencia (nome_empresa, tipo_servico, valor_mensal, volumetria_minima, valor_por_pessoa, ativa) VALUES (?, ?, ?, ?, ?, ?)", (data['nome_empresa'], data['tipo_servico'], data['valor_mensal'], data['volumetria_minima'], data['valor_por_pessoa'], data['ativa']))
+            conn.execute("""
+                INSERT INTO crm_empresas_referencia
+                (nome_empresa, tipo_servico, valor_mensal, volumetria_minima, valor_por_pessoa, ativa, estado, concessionaria, ano_referencia, observacoes)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                data['nome_empresa'], data['tipo_servico'], data['valor_mensal'],
+                data['volumetria_minima'], data['valor_por_pessoa'], data['ativa'],
+                data.get('estado'), data.get('concessionaria'), data.get('ano_referencia'), data.get('observacoes')
+            ))
 
     def update_empresa_referencia(self, empresa_id, data):
         with self._connect() as conn:
-            conn.execute("UPDATE crm_empresas_referencia SET nome_empresa=?, tipo_servico=?, valor_mensal=?, volumetria_minima=?, valor_por_pessoa=?, ativa=? WHERE id=?", (data['nome_empresa'], data['tipo_servico'], data['valor_mensal'], data['volumetria_minima'], data['valor_por_pessoa'], data['ativa'], empresa_id))
+            conn.execute("""
+                UPDATE crm_empresas_referencia SET
+                nome_empresa=?, tipo_servico=?, valor_mensal=?, volumetria_minima=?, valor_por_pessoa=?, ativa=?,
+                estado=?, concessionaria=?, ano_referencia=?, observacoes=?
+                WHERE id=?
+            """, (
+                data['nome_empresa'], data['tipo_servico'], data['valor_mensal'],
+                data['volumetria_minima'], data['valor_por_pessoa'], data['ativa'],
+                data.get('estado'), data.get('concessionaria'), data.get('ano_referencia'), data.get('observacoes'),
+                empresa_id
+            ))
 
     def get_empresa_referencia_by_tipo(self, tipo_servico):
         with self._connect() as conn:
@@ -841,8 +1019,8 @@ class CRMApp:
         self.root.minsize(1280, 720)
         self.root.configure(bg=DOLP_COLORS['white'])
         self.logo_image = load_logo_image()
-        self.button_icons = {}
-        self._load_button_icons()
+        self.icons = {}
+        self.load_menu_icons()
 
         # Inicializar estado dos filtros
         self.kanban_setor_filter = 'Todos'
@@ -853,13 +1031,12 @@ class CRMApp:
         self.show_main_menu()
         self.fetch_news_thread()
 
-    def _load_button_icons(self):
-        """Carrega os ícones dos botões principais e os armazena."""
-        for name, url in ICON_URLS.items():
-            local_path = os.path.join('icons', f'{name}_icon.png')
-            icon = load_image_from_url(url, local_path, size=(28, 28))
-            if icon:
-                self.button_icons[name] = icon
+    def load_menu_icons(self):
+        """Carrega os ícones para os botões do menu principal."""
+        icon_size = (32, 32)
+        for key, url in ICON_URLS.items():
+            local_path = f"icon_{key}.png"
+            self.icons[key] = load_image_from_url(url, local_path, size=icon_size)
 
     def _configure_styles(self):
         style = ttk.Style(self.root)
@@ -870,8 +1047,8 @@ class CRMApp:
         style.configure('Header.TFrame', background=DOLP_COLORS['white'], relief='flat', borderwidth=0)
 
         # Botões modernos com gradiente visual
-        style.configure('TButton', font=('Segoe UI', 12, 'normal'), padding=(20, 12), relief='flat', borderwidth=0)
-        style.configure('Primary.TButton', background=DOLP_COLORS['primary_blue'], foreground='white', font=('Segoe UI', 12, 'bold'))
+        style.configure('TButton', font=('Segoe UI', 11, 'normal'), padding=(15, 8), relief='flat', borderwidth=0)
+        style.configure('Primary.TButton', background=DOLP_COLORS['primary_blue'], foreground='white', font=('Segoe UI', 11, 'bold'))
         style.map('Primary.TButton', background=[('active', DOLP_COLORS['secondary_blue']), ('pressed', DOLP_COLORS['gradient_start'])])
 
         style.configure('Success.TButton', background=DOLP_COLORS['success_green'], foreground='white', font=('Segoe UI', 11, 'bold'))
@@ -885,9 +1062,8 @@ class CRMApp:
 
         # Labels e outros elementos
         style.configure('TLabel', foreground='#000000', font=('Segoe UI', 10), background=DOLP_COLORS['white'])
-        style.configure('Header.TLabel', foreground=DOLP_COLORS['primary_blue'], font=('Segoe UI', 24, 'bold'), background=DOLP_COLORS['white'])
+        style.configure('Header.TLabel', foreground=DOLP_COLORS['primary_blue'], font=('Segoe UI', 16, 'bold'), background=DOLP_COLORS['white'])
         style.configure('Title.TLabel', foreground=DOLP_COLORS['dark_gray'], font=('Segoe UI', 14, 'bold'), background=DOLP_COLORS['white'])
-        style.configure('Version.TLabel', foreground='grey', font=('Segoe UI', 9), background=DOLP_COLORS['white'])
 
         # Estilos para LabelFrames
         style.configure('White.TLabelframe', background=DOLP_COLORS['white'], borderwidth=1, relief='solid')
@@ -934,11 +1110,7 @@ class CRMApp:
             logo_label.pack(side='left', padx=(0, 20))
 
         title_label = ttk.Label(header_frame, text="CRM Dolp Engenharia", style='Header.TLabel')
-        title_label.pack(side='left', expand=True, fill='x')
-
-        version_label = ttk.Label(header_frame, text="v1.1.0", style='Version.TLabel')
-        version_label.pack(side='right', anchor='ne')
-
+        title_label.pack(side='left')
 
         # Área de conteúdo
         self.content_frame = ttk.Frame(self.main_container, style='TFrame')
@@ -1022,42 +1194,49 @@ class CRMApp:
     def show_main_menu(self):
         self.clear_content()
 
-        # Título da seção
-        title_label = ttk.Label(self.content_frame, text="Menu Principal", style='Title.TLabel')
-        title_label.pack(pady=(0, 20))
+        # --- Header ---
+        header_frame = ttk.Frame(self.content_frame, style='TFrame', padding=(0, 10))
+        header_frame.pack(fill='x')
+        ttk.Label(header_frame, text="Bem-vindo ao CRM da Dolp Engenharia",
+                  font=('Segoe UI', 22, 'bold'), foreground=DOLP_COLORS['primary_blue']
+                  ).pack(side='left')
 
-        # Main layout frame
-        main_layout_frame = ttk.Frame(self.content_frame, style='TFrame')
-        main_layout_frame.pack(fill='both', expand=True)
-
-        # Container for buttons on the right
-        buttons_frame = ttk.Frame(main_layout_frame, style='TFrame')
-        buttons_frame.pack(side='right', fill='y', padx=(10, 0), anchor='n')
-
-        # News frame on the left (more prominent)
-        news_lf = ttk.LabelFrame(main_layout_frame, text="Últimas Notícias do Setor", padding=15, style='White.TLabelframe')
-        news_lf.pack(side='left', fill='both', expand=True, padx=(0, 10))
+        # Version Label
+        ttk.Label(header_frame, text=f"v{APP_VERSION}", font=('Segoe UI', 9, 'italic'), foreground=DOLP_COLORS['medium_gray']).pack(side='right', anchor='ne')
 
 
-        # Botões do menu principal
+        # --- Menu de Ações Rápidas ---
+        actions_frame = ttk.Frame(self.content_frame, style='TFrame', padding=(0, 20))
+        actions_frame.pack(fill='x', pady=(20, 10))
+        actions_frame.columnconfigure([0, 1, 2, 3], weight=1) # Make columns expand equally
+
         menu_buttons = [
-            ("Funil de Vendas", self.show_kanban_view, 'Primary.TButton', 'funnel'),
-            ("Clientes", self.show_clients_view, 'Primary.TButton', 'clients'),
-            ("Notícias Salvas", self.show_saved_news_view, 'Primary.TButton', 'saved_news'),
-            ("Configurações do CRM", self.show_crm_settings, 'Warning.TButton', 'settings')
+            ("Funil de Vendas", self.show_kanban_view, 'funnel'),
+            ("Clientes", self.show_clients_view, 'clients'),
+            ("Notícias Salvas", self.show_saved_news_view, 'saved_news'),
+            ("Configurações", self.show_crm_settings, 'settings')
         ]
 
-        for i, (text, command, style, icon_name) in enumerate(menu_buttons):
-            icon = self.button_icons.get(icon_name)
+        # Aumentar o padding dos botões para torná-los maiores
+        style = ttk.Style(self.root)
+        style.configure('MainMenu.TButton', font=('Segoe UI', 12), padding=(20, 15))
+
+        for i, (text, command, icon_key) in enumerate(menu_buttons):
+            icon = self.icons.get(icon_key)
             btn = ttk.Button(
-                buttons_frame,
+                actions_frame,
                 text=text,
-                command=command,
                 image=icon,
-                compound='left',
-                style=style
+                command=command,
+                compound='top', # Icon on top of text
+                style='MainMenu.TButton'
             )
-            btn.pack(pady=10, anchor='n', fill='x')
+            btn.grid(row=0, column=i, sticky='ew', padx=15)
+
+
+        # --- Seção de Notícias ---
+        news_lf = ttk.LabelFrame(self.content_frame, text="Últimas Notícias do Setor", padding=20, style='White.TLabelframe')
+        news_lf.pack(fill='both', expand=True, pady=(10, 0))
 
         # --- Scrollable area for news ---
         news_canvas = tk.Canvas(news_lf, bg=DOLP_COLORS['white'], highlightthickness=0)
@@ -1165,6 +1344,34 @@ class CRMApp:
             self.kanban_setor_filter = self.setor_filter.get()
             self.kanban_segmento_filter = self.segmento_filter.get()
         self.show_kanban_view()
+
+    def _show_summary_popup(self, summary_text, event):
+        """Exibe um popup com o resumo de atuação do cliente."""
+        if not summary_text or not summary_text.strip():
+            summary_text = "Nenhum resumo de atuação disponível."
+
+        popup = Toplevel(self.root)
+        popup.title("Resumo de Atuação")
+
+        # Posiciona o popup perto do cursor
+        popup_x = event.x_root
+        popup_y = event.y_root + 10
+        popup.geometry(f"400x150+{popup_x}+{popup_y}")
+        popup.configure(bg=DOLP_COLORS['white'])
+        popup.resizable(False, False)
+
+        main_frame = ttk.Frame(popup, padding=15, style='TFrame')
+        main_frame.pack(fill='both', expand=True)
+
+        summary_label = ttk.Label(main_frame, text=summary_text, wraplength=370, justify='left', style='Value.White.TLabel')
+        summary_label.pack(fill='both', expand=True, pady=(0, 10))
+
+        close_button = ttk.Button(main_frame, text="Fechar", command=popup.destroy, style='Primary.TButton')
+        close_button.pack()
+
+        popup.transient(self.root)
+        popup.grab_set()
+        self.root.wait_window(popup)
 
     def show_kanban_view(self):
         self.clear_content()
@@ -1285,21 +1492,33 @@ class CRMApp:
                     row = idx // col_count
                     col = idx % col_count
 
-                    client_card = ttk.Frame(clients_frame, style='TFrame', padding=10)
+                    client_card = ttk.Frame(clients_frame, style='TFrame', padding=10, cursor="hand2")
                     client_card.grid(row=row, column=col, padx=5, pady=5, sticky='ew')
                     client_card.configure(relief='solid', borderwidth=1)
 
+                    # --- Lógica do clique para exibir o popup de resumo ---
+                    summary = client['resumo_atuacao'] if 'resumo_atuacao' in client.keys() else ''
+                    click_handler = lambda e, s=summary: self._show_summary_popup(s, e)
+                    client_card.bind("<Button-1>", click_handler)
+                    # ----------------------------------------------------
+
                     # Nome da empresa
-                    ttk.Label(client_card, text=client['nome_empresa'], style='Value.White.TLabel',
-                             font=('Segoe UI', 10, 'bold')).pack(anchor='w')
+                    nome_label = ttk.Label(client_card, text=client['nome_empresa'], style='Value.White.TLabel',
+                                           font=('Segoe UI', 10, 'bold'))
+                    nome_label.pack(anchor='w')
+                    nome_label.bind("<Button-1>", click_handler)
 
                     # Status
                     status = client['status'] or 'Não cadastrado'
-                    ttk.Label(client_card, text=f"Status: {status}", style='Value.White.TLabel').pack(anchor='w')
+                    status_label = ttk.Label(client_card, text=f"Status: {status}", style='Value.White.TLabel')
+                    status_label.pack(anchor='w')
+                    status_label.bind("<Button-1>", click_handler)
 
                     # Setor
                     if client['setor_atuacao']:
-                        ttk.Label(client_card, text=f"Setor: {client['setor_atuacao']}", style='Value.White.TLabel').pack(anchor='w')
+                        setor_label = ttk.Label(client_card, text=f"Setor: {client['setor_atuacao']}", style='Value.White.TLabel')
+                        setor_label.pack(anchor='w')
+                        setor_label.bind("<Button-1>", click_handler)
 
                 # Configurar colunas para expandir igualmente
                 for col in range(col_count):
@@ -2192,7 +2411,7 @@ class CRMApp:
                                                parent=form_win)
 
                 # 4. Carregar dados do formulário de qualificação
-                qualificacao_data_json = op_data.get('qualificacao_data')
+                qualificacao_data_json = op_data['qualificacao_data'] if 'qualificacao_data' in op_keys else None
                 if qualificacao_data_json:
                     try:
                         qualificacao_answers = json.loads(qualificacao_data_json)
@@ -2204,9 +2423,9 @@ class CRMApp:
                         print(f"Erro ao carregar dados de qualificação: {e}")
 
                 # Carregar dados dos campos de texto
-                if 'diferenciais_competitivos' in entries and op_data.get('diferenciais_competitivos'):
+                if 'diferenciais_competitivos' in entries and 'diferenciais_competitivos' in op_keys and op_data['diferenciais_competitivos']:
                     entries['diferenciais_competitivos'].insert('1.0', op_data['diferenciais_competitivos'])
-                if 'principais_riscos' in entries and op_data.get('principais_riscos'):
+                if 'principais_riscos' in entries and 'principais_riscos' in op_keys and op_data['principais_riscos']:
                     entries['principais_riscos'].insert('1.0', op_data['principais_riscos'])
 
             except Exception as e:
@@ -2348,9 +2567,14 @@ class CRMApp:
         notebook = ttk.Notebook(details_win, padding=10)
         notebook.pack(fill='both', expand=True, padx=20, pady=(0, 20))
 
+        # --- Refatoração para usar abas com rolagem ---
+
         # Aba 1: Análise Prévia de Viabilidade
-        analise_tab = ttk.Frame(notebook, padding=20, style='TFrame')
-        notebook.add(analise_tab, text='  Análise Prévia de Viabilidade  ')
+        analise_tab = self._create_scrollable_tab(notebook, '  Análise Prévia de Viabilidade  ')
+
+        # Botão de Exportar
+        export_analise_btn = ttk.Button(analise_tab, text="Exportar para PDF", command=lambda: self.export_analise_previa_pdf(op_id), style='Primary.TButton')
+        export_analise_btn.pack(anchor='ne', pady=(0, 10))
 
         info_frame = ttk.LabelFrame(analise_tab, text="Informações Básicas", padding=15, style='White.TLabelframe')
         info_frame.pack(fill='x', pady=(0, 10))
@@ -2370,7 +2594,6 @@ class CRMApp:
             ttk.Label(info_frame, text=label, style='Metric.White.TLabel').grid(row=i, column=0, sticky='w', pady=2)
             ttk.Label(info_frame, text=str(value), style='Value.White.TLabel', wraplength=400).grid(row=i, column=1, sticky='w', pady=2, padx=(10,0))
 
-        # Bases alocadas
         bases_nomes_json = op_data['bases_nomes'] if 'bases_nomes' in op_keys else None
         if bases_nomes_json:
             try:
@@ -2378,7 +2601,6 @@ class CRMApp:
                 if bases_nomes:
                     bases_frame = ttk.LabelFrame(analise_tab, text="Bases Alocadas", padding=15, style='White.TLabelframe')
                     bases_frame.pack(fill='x', pady=(10, 0))
-
                     for i, base in enumerate(bases_nomes, 1):
                         base_frame = ttk.Frame(bases_frame)
                         base_frame.pack(fill='x', pady=2)
@@ -2387,37 +2609,31 @@ class CRMApp:
             except (json.JSONDecodeError, TypeError):
                 print(f"Alerta: Falha ao carregar nomes de bases na tela de detalhes: {bases_nomes_json}")
 
-        # Formulário de Qualificação
         qual_frame = ttk.LabelFrame(analise_tab, text="Formulário de Análise de Qualificação da Oportunidade", padding=15, style='White.TLabelframe')
         qual_frame.pack(fill='x', pady=(10, 0))
-
-        qualificacao_data_json = op_data.get('qualificacao_data')
+        qualificacao_data_json = op_data['qualificacao_data'] if 'qualificacao_data' in op_keys else None
         qualificacao_answers = {}
         if qualificacao_data_json:
             try:
                 qualificacao_answers = json.loads(qualificacao_data_json)
             except (json.JSONDecodeError, TypeError):
                 pass
-
-        # Define the special questions again to check against
         q_diferenciais = "Quais são nossos diferenciais competitivos claros para esta oportunidade específica?"
         q_riscos = "Quais os principais riscos (técnicos, logísticos, regulatórios, políticos) associados ao projeto?"
-
         for section, questions in QUALIFICATION_CHECKLIST.items():
             section_frame = ttk.LabelFrame(qual_frame, text=section, padding=10, style='White.TLabelframe')
             section_frame.pack(fill='x', expand=True, pady=5)
             section_frame.columnconfigure(1, weight=1)
-
             row_idx = 0
             for question in questions:
                 if question == q_diferenciais:
                     ttk.Label(section_frame, text=question, style='Metric.White.TLabel').grid(row=row_idx, column=0, sticky='w', pady=2)
-                    diferenciais_text = op_data.get('diferenciais_competitivos') or "---"
+                    diferenciais_text = (op_data['diferenciais_competitivos'] if 'diferenciais_competitivos' in op_keys and op_data['diferenciais_competitivos'] else "---")
                     ttk.Label(section_frame, text=diferenciais_text, style='Value.White.TLabel', wraplength=600).grid(row=row_idx, column=1, sticky='w', pady=2, padx=(10,0))
                     row_idx +=1
                 elif question == q_riscos:
                     ttk.Label(section_frame, text=question, style='Metric.White.TLabel').grid(row=row_idx, column=0, sticky='w', pady=2)
-                    riscos_text = op_data.get('principais_riscos') or "---"
+                    riscos_text = (op_data['principais_riscos'] if 'principais_riscos' in op_keys and op_data['principais_riscos'] else "---")
                     ttk.Label(section_frame, text=riscos_text, style='Value.White.TLabel', wraplength=600).grid(row=row_idx, column=1, sticky='w', pady=2, padx=(10,0))
                     row_idx +=1
                 elif question in qualificacao_answers:
@@ -2426,26 +2642,23 @@ class CRMApp:
                     ttk.Label(section_frame, text=answer, style='Value.White.TLabel').grid(row=row_idx, column=1, sticky='e', padx=10)
                     row_idx += 1
 
-
         # Aba 2: Sumário Executivo
-        sumario_tab = ttk.Frame(notebook, padding=20, style='TFrame')
-        notebook.add(sumario_tab, text='  Sumário Executivo  ')
+        sumario_tab = self._create_scrollable_tab(notebook, '  Sumário Executivo  ')
 
+        export_sumario_btn = ttk.Button(sumario_tab, text="Exportar para PDF", command=lambda: self.export_sumario_executivo_pdf(op_id), style='Primary.TButton')
+        export_sumario_btn.pack(anchor='ne', pady=(0, 10))
         edital_frame = ttk.LabelFrame(sumario_tab, text="Informações do Edital", padding=15, style='White.TLabelframe')
         edital_frame.pack(fill='x', pady=(0, 10))
-
         edital_info = [
             ("Número do Edital:", op_data['numero_edital'] if 'numero_edital' in op_keys else '---'),
             ("Data de Abertura:", op_data['data_abertura'] if 'data_abertura' in op_keys else '---'),
             ("Modalidade:", op_data['modalidade'] if 'modalidade' in op_keys else '---'),
             ("Contato Principal:", op_data['contato_principal'] if 'contato_principal' in op_keys else '---')
         ]
-
         edital_frame.columnconfigure(1, weight=1)
         for i, (label, value) in enumerate(edital_info):
             ttk.Label(edital_frame, text=label, style='Metric.White.TLabel').grid(row=i, column=0, sticky='w', pady=2)
             ttk.Label(edital_frame, text=str(value), style='Value.White.TLabel').grid(row=i, column=1, sticky='w', pady=2, padx=(10,0))
-
         link_docs = op_data['link_documentos'] if 'link_documentos' in op_keys else None
         if link_docs:
             row_index = len(edital_info)
@@ -2453,10 +2666,8 @@ class CRMApp:
             link_label = ttk.Label(edital_frame, text="Abrir Pasta", style='Link.White.TLabel', cursor="hand2")
             link_label.grid(row=row_index, column=1, sticky='w', pady=2, padx=(10,0))
             link_label.bind("<Button-1>", lambda e, url=link_docs: open_link(url))
-
         financeiro_frame = ttk.LabelFrame(sumario_tab, text="Informações Financeiras e de Pessoal", padding=15, style='White.TLabelframe')
         financeiro_frame.pack(fill='x', pady=(10, 10))
-
         financeiro_info = [
             ("Faturamento Estimado:", format_currency(op_data['faturamento_estimado'] if 'faturamento_estimado' in op_keys else 0)),
             ("Duração do Contrato:", f"{op_data['duracao_contrato']} meses" if 'duracao_contrato' in op_keys and op_data['duracao_contrato'] else "---"),
@@ -2465,13 +2676,10 @@ class CRMApp:
             ("Total de Pessoas:", op_data['total_pessoas'] if 'total_pessoas' in op_keys else '---'),
             ("Margem de Contribuição:", f"{op_data['margem_contribuicao']}%" if 'margem_contribuicao' in op_keys and op_data['margem_contribuicao'] else "---")
         ]
-
         financeiro_frame.columnconfigure(1, weight=1)
         for i, (label, value) in enumerate(financeiro_info):
             ttk.Label(financeiro_frame, text=label, style='Metric.White.TLabel').grid(row=i, column=0, sticky='w', pady=2)
             ttk.Label(financeiro_frame, text=str(value), style='Value.White.TLabel').grid(row=i, column=1, sticky='w', pady=2, padx=(10,0))
-
-        # Tipos de serviço e equipes (lendo da nova estrutura JSON)
         servicos_data_json_str = op_data['servicos_data'] if 'servicos_data' in op_keys else None
         if servicos_data_json_str:
             try:
@@ -2479,13 +2687,10 @@ class CRMApp:
                 if servicos_data:
                     servicos_frame = ttk.LabelFrame(sumario_tab, text="Serviços e Equipes Configurados", padding=15, style='White.TLabelframe')
                     servicos_frame.pack(fill='x', pady=(10,0))
-
                     for servico_info in servicos_data:
                         servico_nome = servico_info.get("servico_nome", "N/A")
                         equipes = servico_info.get("equipes", [])
-
                         ttk.Label(servicos_frame, text=servico_nome, style='Metric.White.TLabel', font=('Segoe UI', 11, 'bold')).pack(anchor='w', pady=(5,2))
-
                         if not equipes:
                             ttk.Label(servicos_frame, text="  - Nenhuma equipe configurada", style='Value.White.TLabel').pack(anchor='w', padx=(15,0))
                         else:
@@ -2498,64 +2703,148 @@ class CRMApp:
                                 ttk.Label(servicos_frame, text=info_text, style='Value.White.TLabel').pack(anchor='w', padx=(15,0))
             except (json.JSONDecodeError, TypeError):
                 print(f"Alerta: Falha ao carregar dados de serviço na tela de detalhes: {servicos_data_json_str}")
-
         descricao_detalhada = op_data['descricao_detalhada'] if 'descricao_detalhada' in op_keys else None
         if descricao_detalhada:
             desc_frame = ttk.LabelFrame(sumario_tab, text="Descrição Detalhada", padding=15, style='White.TLabelframe')
             desc_frame.pack(fill='both', expand=True, pady=(10, 0))
-
             desc_text = tk.Text(desc_frame, height=5, wrap='word', bg='white', font=('Segoe UI', 10), state='disabled')
             desc_scrollbar = ttk.Scrollbar(desc_frame, orient="vertical", command=desc_text.yview)
             desc_text.configure(yscrollcommand=desc_scrollbar.set)
             desc_text.pack(side="left", fill="both", expand=True)
             desc_scrollbar.pack(side="right", fill="y")
-
             desc_text.config(state='normal')
             desc_text.insert('1.0', descricao_detalhada)
             desc_text.config(state='disabled')
 
         # Aba 3: Histórico de Interações
-        interacoes_tab = ttk.Frame(notebook, padding=20, style='TFrame')
-        notebook.add(interacoes_tab, text='  Histórico de Interações  ')
+        interacoes_tab = self._create_scrollable_tab(notebook, '  Histórico de Interações  ')
 
-        ttk.Button(interacoes_tab, text="Nova Interação", command=lambda: self.add_interaction_dialog(op_id, details_win), style='Success.TButton').pack(anchor='ne', pady=(0, 10))
+        # --- Filtros para Interações ---
+        filters_interactions_frame = ttk.LabelFrame(interacoes_tab, text="Filtros", padding=15, style='White.TLabelframe')
+        filters_interactions_frame.pack(fill='x', pady=(0, 10))
 
-        interacoes = self.db.get_interactions_for_opportunity(op_id)
-        if interacoes:
-            for interacao in interacoes:
-                int_frame = ttk.LabelFrame(interacoes_tab, text=f"{interacao['tipo']} - {interacao['data_interacao']}", padding=10, style='White.TLabelframe')
-                int_frame.pack(fill='x', pady=5)
+        # Tipo
+        ttk.Label(filters_interactions_frame, text="Tipo:", style='TLabel').grid(row=0, column=0, sticky='w', padx=(0, 5))
+        interaction_types = ['Todos'] + self.db.get_interaction_types()
+        tipo_int_filter = ttk.Combobox(filters_interactions_frame, values=interaction_types, state='readonly')
+        tipo_int_filter.set('Todos')
+        tipo_int_filter.grid(row=0, column=1, padx=(0, 20))
 
-                ttk.Label(int_frame, text=f"Usuário: {interacao['usuario']}", style='Metric.White.TLabel').pack(anchor='w')
-                ttk.Label(int_frame, text=interacao['resumo'], style='Value.White.TLabel', wraplength=800).pack(anchor='w', pady=(5, 0))
-        else:
-            ttk.Label(interacoes_tab, text="Nenhuma interação registrada.", style='Value.White.TLabel').pack(pady=20)
+        # Data Início
+        ttk.Label(filters_interactions_frame, text="De:", style='TLabel').grid(row=0, column=2, sticky='w', padx=(0, 5))
+        start_date_int_filter = DateEntry(filters_interactions_frame, date_pattern='dd/mm/yyyy', width=12)
+        start_date_int_filter.delete(0, 'end') # Limpar campo inicial
+        start_date_int_filter.grid(row=0, column=3, padx=(0, 20))
+
+        # Data Fim
+        ttk.Label(filters_interactions_frame, text="Até:", style='TLabel').grid(row=0, column=4, sticky='w', padx=(0, 5))
+        end_date_int_filter = DateEntry(filters_interactions_frame, date_pattern='dd/mm/yyyy', width=12)
+        end_date_int_filter.delete(0, 'end') # Limpar campo inicial
+        end_date_int_filter.grid(row=0, column=5, padx=(0, 20))
+
+        # Container para os resultados
+        interactions_results_frame = ttk.Frame(interacoes_tab, style='TFrame')
+        interactions_results_frame.pack(fill='both', expand=True, pady=(10,0))
+
+        def _refilter_interactions():
+            # Limpar resultados antigos
+            for widget in interactions_results_frame.winfo_children():
+                widget.destroy()
+
+            # Obter valores dos filtros
+            tipo = tipo_int_filter.get()
+            start_date = start_date_int_filter.get()
+            end_date = end_date_int_filter.get()
+
+            interacoes = self.db.get_interactions_for_opportunity(op_id, tipo, start_date, end_date)
+
+            if interacoes:
+                for interacao in interacoes:
+                    int_frame = ttk.LabelFrame(interactions_results_frame, text=f"{interacao['tipo']} - {interacao['data_interacao']}", padding=10, style='White.TLabelframe')
+                    int_frame.pack(fill='x', pady=5)
+                    ttk.Label(int_frame, text=f"Usuário: {interacao['usuario']}", style='Metric.White.TLabel').pack(anchor='w')
+                    ttk.Label(int_frame, text=interacao['resumo'], style='Value.White.TLabel', wraplength=750, justify='left').pack(anchor='w', pady=(5, 0))
+            else:
+                ttk.Label(interactions_results_frame, text="Nenhuma interação encontrada para os filtros selecionados.", style='Value.White.TLabel').pack(pady=20)
+
+        # Botão de Filtrar
+        ttk.Button(filters_interactions_frame, text="🔍 Filtrar", command=_refilter_interactions, style='Primary.TButton').grid(row=0, column=6, padx=(20, 0))
+
+        # Botão de Nova Interação (movido para o frame de filtros para melhor layout)
+        ttk.Button(filters_interactions_frame, text="Nova Interação", command=lambda: self.add_interaction_dialog(op_id, details_win), style='Success.TButton').grid(row=0, column=7, padx=(10,0))
+
+        # Carregar interações iniciais
+        _refilter_interactions()
 
         # Aba 4: Tarefas
-        tarefas_tab = ttk.Frame(notebook, padding=20, style='TFrame')
-        notebook.add(tarefas_tab, text='  Tarefas  ')
+        tarefas_tab = self._create_scrollable_tab(notebook, '  Tarefas  ')
 
-        ttk.Button(tarefas_tab, text="Nova Tarefa", command=lambda: self.add_task_dialog(op_id, details_win), style='Success.TButton').pack(anchor='ne', pady=(0, 10))
+        # --- Filtros para Tarefas ---
+        filters_tasks_frame = ttk.LabelFrame(tarefas_tab, text="Filtros", padding=15, style='White.TLabelframe')
+        filters_tasks_frame.pack(fill='x', pady=(0, 10))
+        filters_tasks_frame.columnconfigure(7, weight=1) # Coluna do botão de nova tarefa
 
-        tarefas = self.db.get_tasks_for_opportunity(op_id)
-        if tarefas:
-            for tarefa in tarefas:
-                task_frame = ttk.LabelFrame(tarefas_tab, text=f"Tarefa - {tarefa['status']}", padding=10, style='White.TLabelframe')
-                task_frame.pack(fill='x', pady=5)
+        # Status
+        ttk.Label(filters_tasks_frame, text="Status:", style='TLabel').grid(row=0, column=0, sticky='w', padx=(0, 5))
+        status_task_filter = ttk.Combobox(filters_tasks_frame, values=['Todos', 'Pendente', 'Concluída'], state='readonly')
+        status_task_filter.set('Todos')
+        status_task_filter.grid(row=0, column=1, padx=(0, 20))
 
-                ttk.Label(task_frame, text=tarefa['descricao'], style='Value.White.TLabel', wraplength=800).pack(anchor='w')
+        # Responsável
+        ttk.Label(filters_tasks_frame, text="Responsável:", style='TLabel').grid(row=0, column=2, sticky='w', padx=(0, 5))
+        responsibles = ['Todos'] + self.db.get_task_responsibles(op_id)
+        responsavel_filter = ttk.Combobox(filters_tasks_frame, values=responsibles, state='readonly')
+        responsavel_filter.set('Todos')
+        responsavel_filter.grid(row=0, column=3, padx=(0, 20))
 
-                info_frame = ttk.Frame(task_frame)
-                info_frame.pack(fill='x', pady=(5, 0))
-                ttk.Label(info_frame, text=f"Responsável: {tarefa['responsavel']}", style='Metric.White.TLabel').pack(side='left')
-                ttk.Label(info_frame, text=f"Vencimento: {tarefa['data_vencimento']}", style='Metric.White.TLabel').pack(side='right')
+        # Data Vencimento Início
+        ttk.Label(filters_tasks_frame, text="Vencimento de:", style='TLabel').grid(row=0, column=4, sticky='w', padx=(0, 5))
+        start_date_task_filter = DateEntry(filters_tasks_frame, date_pattern='dd/mm/yyyy', width=12)
+        start_date_task_filter.delete(0, 'end')
+        start_date_task_filter.grid(row=0, column=5, padx=(0, 20))
 
-                if tarefa['status'] != 'Concluída':
-                    ttk.Button(task_frame, text="Marcar como Concluída",
-                             command=lambda t_id=tarefa['id'], op_id=op_id: self.complete_task(t_id, op_id, details_win),
-                             style='Success.TButton').pack(anchor='e', pady=(5, 0))
-        else:
-            ttk.Label(tarefas_tab, text="Nenhuma tarefa registrada.", style='Value.White.TLabel').pack(pady=20)
+        # Data Vencimento Fim
+        ttk.Label(filters_tasks_frame, text="Até:", style='TLabel').grid(row=0, column=6, sticky='w', padx=(0, 5))
+        end_date_task_filter = DateEntry(filters_tasks_frame, date_pattern='dd/mm/yyyy', width=12)
+        end_date_task_filter.delete(0, 'end')
+        end_date_task_filter.grid(row=0, column=7, padx=(0, 20))
+
+        # Container para os resultados das tarefas
+        tasks_results_frame = ttk.Frame(tarefas_tab, style='TFrame')
+        tasks_results_frame.pack(fill='both', expand=True, pady=(10,0))
+
+        def _refilter_tasks():
+            for widget in tasks_results_frame.winfo_children():
+                widget.destroy()
+
+            status = status_task_filter.get()
+            responsavel = responsavel_filter.get()
+            start_date = start_date_task_filter.get()
+            end_date = end_date_task_filter.get()
+
+            tarefas = self.db.get_tasks_for_opportunity(op_id, status, responsavel, start_date, end_date)
+
+            if tarefas:
+                for tarefa in tarefas:
+                    task_frame = ttk.LabelFrame(tasks_results_frame, text=f"Tarefa - {tarefa['status']}", padding=10, style='White.TLabelframe')
+                    task_frame.pack(fill='x', pady=5)
+                    ttk.Label(task_frame, text=tarefa['descricao'], style='Value.White.TLabel', wraplength=750, justify='left').pack(anchor='w')
+                    info_frame = ttk.Frame(task_frame)
+                    info_frame.pack(fill='x', pady=(5, 0))
+                    ttk.Label(info_frame, text=f"Responsável: {tarefa['responsavel']}", style='Metric.White.TLabel').pack(side='left')
+                    ttk.Label(info_frame, text=f"Vencimento: {tarefa['data_vencimento']}", style='Metric.White.TLabel').pack(side='right')
+                    if tarefa['status'] != 'Concluída':
+                        ttk.Button(task_frame, text="Marcar como Concluída",
+                                 command=lambda t_id=tarefa['id'], op_id=op_id: self.complete_task(t_id, op_id, details_win),
+                                 style='Success.TButton').pack(anchor='e', pady=(5, 0))
+            else:
+                ttk.Label(tasks_results_frame, text="Nenhuma tarefa encontrada para os filtros selecionados.", style='Value.White.TLabel').pack(pady=20)
+
+        ttk.Button(filters_tasks_frame, text="🔍 Filtrar", command=_refilter_tasks, style='Primary.TButton').grid(row=0, column=8, padx=(20, 0))
+        ttk.Button(filters_tasks_frame, text="Nova Tarefa", command=lambda: self.add_task_dialog(op_id, details_win), style='Success.TButton').grid(row=0, column=9, padx=(10,0))
+
+        # Carregar tarefas iniciais
+        _refilter_tasks()
 
     def add_interaction_dialog(self, op_id, parent_win):
         dialog = Toplevel(parent_win)
@@ -2722,7 +3011,7 @@ class CRMApp:
     def show_client_form(self, client_id=None):
         form_win = Toplevel(self.root)
         form_win.title("Novo Cliente" if not client_id else "Editar Cliente")
-        form_win.geometry("600x500")
+        form_win.geometry("600x600") # Aumentado para melhor visualização
         form_win.configure(bg=DOLP_COLORS['white'])
 
         main_frame = ttk.Frame(form_win, padding=20, style='TFrame')
@@ -2762,11 +3051,29 @@ class CRMApp:
             widget.pack(side='left', padx=(10, 0), fill='x', expand=True)
             entries[key] = widget
 
+        # Adicionar o novo campo de texto de múltiplas linhas para "Resumo de Atuação"
+        resumo_frame = ttk.Frame(main_frame, style='TFrame')
+        resumo_frame.pack(fill='both', pady=5, expand=True)
+        ttk.Label(resumo_frame, text="Resumo de Atuação:", style='TLabel', width=25).pack(side='left', anchor='n', pady=(5,0))
+
+        resumo_text = tk.Text(resumo_frame, height=5, wrap='word', bg='white', font=('Segoe UI', 10), borderwidth=1, relief='solid')
+        resumo_text.pack(side='left', padx=(10, 0), fill='both', expand=True)
+        entries['resumo_atuacao'] = resumo_text
+
+
         if client_id:
             client_data = self.db.get_client_by_id(client_id)
             if client_data:
                 for key, widget in entries.items():
-                    value = client_data[key] or ''
+                    # Tratamento especial para o widget de Texto
+                    if key == 'resumo_atuacao':
+                        if key in client_data.keys() and client_data[key]:
+                            widget.insert('1.0', client_data[key])
+                        continue
+
+                    value = client_data[key] if key in client_data.keys() else ""
+                    value = value or ""
+
                     # Formata o CNPJ antes de exibir no formulário
                     if key == 'cnpj':
                         value = format_cnpj(value)
@@ -2774,6 +3081,7 @@ class CRMApp:
                     if hasattr(widget, 'set'):
                         widget.set(value)
                     else:
+                        widget.delete(0, 'end') # Limpa o campo antes de inserir
                         widget.insert(0, value)
         else:
             entries['data_atualizacao'].set_date(datetime.now().date())
@@ -2785,7 +3093,11 @@ class CRMApp:
             try:
                 data = {}
                 for key, widget in entries.items():
-                    data[key] = widget.get().strip()
+                    # Tratamento especial para obter o valor do widget de Texto
+                    if key == 'resumo_atuacao':
+                        data[key] = widget.get('1.0', 'end-1c').strip()
+                    else:
+                        data[key] = widget.get().strip()
 
                 # Garante que apenas os dígitos do CNPJ sejam salvos
                 if 'cnpj' in data:
@@ -3093,52 +3405,104 @@ class CRMApp:
     def show_empresa_referencia_view(self):
         self.clear_content()
 
+        # --- Título e Botões de Ação ---
         title_frame = ttk.Frame(self.content_frame, style='TFrame')
-        title_frame.pack(fill='x', pady=(0, 20))
-
+        title_frame.pack(fill='x', pady=(0, 10))
         ttk.Label(title_frame, text="Empresas Referência", style='Title.TLabel').pack(side='left')
         ttk.Button(title_frame, text="Nova Empresa", command=self.show_empresa_referencia_form, style='Success.TButton').pack(side='right')
         ttk.Button(title_frame, text="← Voltar", command=self.show_crm_settings, style='TButton').pack(side='right', padx=(0, 10))
 
+        # --- Frame de Filtros ---
+        filters_frame = ttk.LabelFrame(self.content_frame, text="Filtros", padding=15, style='White.TLabelframe')
+        filters_frame.pack(fill='x', pady=(10, 20))
+
+        # Dados para os filtros
+        servicos = self.db.get_all_servicos()
+        service_names = ['Todos'] + [s['nome'] for s in servicos if s['ativa']]
+        clients = self.db.get_all_clients()
+        concessionaria_names = ['Todos'] + [c['nome_empresa'] for c in clients]
+
+        # Filtro Estado
+        ttk.Label(filters_frame, text="Estado:", style='TLabel').grid(row=0, column=0, padx=(0, 5), pady=5)
+        estado_filter = ttk.Combobox(filters_frame, values=['Todos'] + BRAZILIAN_STATES, state='readonly', width=15)
+        estado_filter.set('Todos')
+        estado_filter.grid(row=0, column=1, padx=(0, 20))
+
+        # Filtro Tipo de Serviço
+        ttk.Label(filters_frame, text="Tipo de Serviço:", style='TLabel').grid(row=0, column=2, padx=(0, 5), pady=5)
+        servico_filter = ttk.Combobox(filters_frame, values=service_names, state='readonly', width=25)
+        servico_filter.set('Todos')
+        servico_filter.grid(row=0, column=3, padx=(0, 20))
+
+        # Filtro Concessionária
+        ttk.Label(filters_frame, text="Concessionária:", style='TLabel').grid(row=0, column=4, padx=(0, 5), pady=5)
+        concessionaria_filter = ttk.Combobox(filters_frame, values=concessionaria_names, state='readonly', width=25)
+        concessionaria_filter.set('Todos')
+        concessionaria_filter.grid(row=0, column=5, padx=(0, 20))
+
+        # --- Frame da Tabela de Resultados ---
         empresas_frame = ttk.Frame(self.content_frame, style='TFrame')
         empresas_frame.pack(fill='both', expand=True)
+        empresas_frame.columnconfigure(0, weight=1)
+        empresas_frame.rowconfigure(0, weight=1)
 
-        columns = ('id', 'nome_empresa', 'tipo_servico', 'valor_mensal', 'volumetria_minima', 'valor_por_pessoa', 'ativa')
+        columns = ('id', 'nome_empresa', 'tipo_servico', 'estado', 'concessionaria', 'ano_referencia', 'valor_mensal', 'volumetria_minima', 'valor_por_pessoa', 'ativa', 'observacoes')
         tree = ttk.Treeview(empresas_frame, columns=columns, show='headings', height=15)
 
-        tree.heading('id', text='ID')
-        tree.heading('nome_empresa', text='Empresa')
-        tree.heading('tipo_servico', text='Tipo de Serviço')
-        tree.heading('valor_mensal', text='Valor Mensal (R$)')
-        tree.heading('volumetria_minima', text='Volumetria Mín.')
-        tree.heading('valor_por_pessoa', text='Valor/Pessoa (R$)')
-        tree.heading('ativa', text='Ativa')
+        # Configuração dos Cabeçalhos
+        headings = {
+            'id': ('ID', 50), 'nome_empresa': ('Empresa', 180), 'tipo_servico': ('Tipo de Serviço', 180),
+            'estado': ('UF', 50), 'concessionaria': ('Concessionária', 150), 'ano_referencia': ('Ano Ref.', 80),
+            'valor_mensal': ('Valor Mensal', 120), 'volumetria_minima': ('Vol. Mínima', 100),
+            'valor_por_pessoa': ('Valor/Pessoa', 120), 'ativa': ('Ativa', 60), 'observacoes': ('Obs.', 200)
+        }
+        for col, (text, width) in headings.items():
+            tree.heading(col, text=text)
+            tree.column(col, width=width, anchor='center')
 
-        tree.column('id', width=50, anchor='center')
-        tree.column('nome_empresa', width=200)
-        tree.column('tipo_servico', width=200)
-        tree.column('valor_mensal', width=120, anchor='center')
-        tree.column('volumetria_minima', width=120, anchor='center')
-        tree.column('valor_por_pessoa', width=120, anchor='center')
-        tree.column('ativa', width=80, anchor='center')
+        # Scrollbars
+        v_scrollbar = ttk.Scrollbar(empresas_frame, orient='vertical', command=tree.yview)
+        h_scrollbar = ttk.Scrollbar(empresas_frame, orient='horizontal', command=tree.xview)
+        tree.configure(yscrollcommand=v_scrollbar.set, xscrollcommand=h_scrollbar.set)
 
-        scrollbar = ttk.Scrollbar(empresas_frame, orient='vertical', command=tree.yview)
-        tree.configure(yscrollcommand=scrollbar.set)
+        tree.grid(row=0, column=0, sticky='nsew')
+        v_scrollbar.grid(row=0, column=1, sticky='ns')
+        h_scrollbar.grid(row=1, column=0, sticky='ew')
 
-        tree.pack(side='left', fill='both', expand=True)
-        scrollbar.pack(side='right', fill='y')
+        # --- Lógica de Carregamento e Filtragem ---
+        def load_data(estado=None, tipo_servico=None, concessionaria=None):
+            # Limpar a tabela
+            for item in tree.get_children():
+                tree.delete(item)
 
-        empresas = self.db.get_all_empresas_referencia()
-        for empresa in empresas:
-            tree.insert('', 'end', values=(
-                empresa['id'],
-                empresa['nome_empresa'],
-                empresa['tipo_servico'],
-                format_currency(empresa['valor_mensal']),
-                f"{empresa['volumetria_minima']:,.0f}",
-                format_currency(empresa['valor_por_pessoa']),
-                'Sim' if empresa['ativa'] else 'Não'
-            ))
+            # Buscar dados com filtros
+            empresas = self.db.get_all_empresas_referencia(estado, tipo_servico, concessionaria)
+            for empresa in empresas:
+                tree.insert('', 'end', values=(
+                    empresa['id'],
+                    empresa['nome_empresa'],
+                    empresa['tipo_servico'],
+                    empresa.get('estado', '---'),
+                    empresa.get('concessionaria', '---'),
+                    empresa.get('ano_referencia', '---'),
+                    format_currency(empresa['valor_mensal']),
+                    f"{empresa['volumetria_minima']:,.0f}" if empresa['volumetria_minima'] else '---',
+                    format_currency(empresa['valor_por_pessoa']),
+                    'Sim' if empresa['ativa'] else 'Não',
+                    empresa.get('observacoes', '')
+                ))
+
+        def apply_filters():
+            estado = estado_filter.get()
+            tipo_servico = servico_filter.get()
+            concessionaria = concessionaria_filter.get()
+            load_data(estado, tipo_servico, concessionaria)
+
+        # Botão de Filtrar
+        ttk.Button(filters_frame, text="🔍 Filtrar", style='Primary.TButton', command=apply_filters).grid(row=0, column=6, padx=(20, 0), pady=5)
+
+        # Carregar dados iniciais (sem filtros)
+        load_data()
 
         def on_double_click(event):
             selection = tree.selection()
@@ -3152,7 +3516,7 @@ class CRMApp:
     def show_empresa_referencia_form(self, empresa_id=None):
         form_win = Toplevel(self.root)
         form_win.title("Nova Empresa Referência" if not empresa_id else "Editar Empresa Referência")
-        form_win.geometry("600x500")
+        form_win.geometry("600x700") # Aumentado para caber os novos campos
         form_win.configure(bg=DOLP_COLORS['white'])
 
         main_frame = ttk.Frame(form_win, padding=20, style='TFrame')
@@ -3161,23 +3525,31 @@ class CRMApp:
         ttk.Label(main_frame, text="Nova Empresa Referência" if not empresa_id else "Editar Empresa Referência", style='Title.TLabel').pack(pady=(0, 20))
 
         entries = {}
+        # Dados para os comboboxes
         servicos = self.db.get_all_servicos()
         service_names = [s['nome'] for s in servicos if s['ativa']]
+        clients = self.db.get_all_clients()
+        concessionaria_names = [c['nome_empresa'] for c in clients]
 
+        # Definição dos campos do formulário
         fields = [
             ("Nome da Empresa:*", "nome_empresa", "entry"),
             ("Tipo de Serviço:*", "tipo_servico", "combobox", service_names),
+            ("Estado:", "estado", "combobox", BRAZILIAN_STATES),
+            ("Concessionária:", "concessionaria", "combobox", concessionaria_names),
+            ("Ano de Referência:", "ano_referencia", "entry"),
             ("Valor Mensal (R$):*", "valor_mensal", "entry"),
             ("Volumetria Mínima:*", "volumetria_minima", "entry"),
             ("Valor por Pessoa (R$):*", "valor_por_pessoa", "entry"),
-            ("Ativa:", "ativa", "checkbox")
+            ("Ativa:", "ativa", "checkbox"),
+            ("Observações:", "observacoes", "text")
         ]
 
         for text, key, widget_type, *args in fields:
             field_frame = ttk.Frame(main_frame, style='TFrame')
             field_frame.pack(fill='x', pady=5)
 
-            ttk.Label(field_frame, text=text, style='TLabel', width=20).pack(side='left')
+            ttk.Label(field_frame, text=text, style='TLabel', width=20).pack(side='left', anchor='n' if widget_type == 'text' else 'w')
 
             if widget_type == "combobox":
                 widget = ttk.Combobox(field_frame, values=args[0], state='readonly', width=40)
@@ -3185,23 +3557,40 @@ class CRMApp:
                 widget = tk.BooleanVar()
                 cb = ttk.Checkbutton(field_frame, variable=widget)
                 cb.pack(side='left', padx=(10, 0))
+            elif widget_type == "text":
+                # Frame para o widget de texto com scrollbar
+                text_frame = ttk.Frame(field_frame)
+                widget = tk.Text(text_frame, height=5, wrap='word', bg='white', font=('Segoe UI', 10))
+                scrollbar = ttk.Scrollbar(text_frame, orient="vertical", command=widget.yview)
+                widget.configure(yscrollcommand=scrollbar.set)
+                widget.pack(side="left", fill="both", expand=True)
+                scrollbar.pack(side="right", fill="y")
+                text_frame.pack(side='left', padx=(10, 0), fill='x', expand=True)
             else:
                 widget = ttk.Entry(field_frame, width=40)
 
-            if widget_type != "checkbox":
+            if widget_type not in ["checkbox", "text"]:
                 widget.pack(side='left', padx=(10, 0), fill='x', expand=True)
 
             entries[key] = widget
 
+        # Carregar dados existentes se estiver editando
         if empresa_id:
             empresa_data = self.db.get_empresa_referencia_by_id(empresa_id)
             if empresa_data:
+                op_keys = empresa_data.keys()
                 entries['nome_empresa'].insert(0, empresa_data['nome_empresa'] or '')
                 entries['tipo_servico'].set(empresa_data['tipo_servico'] or '')
                 entries['valor_mensal'].insert(0, str(empresa_data['valor_mensal'] or ''))
                 entries['volumetria_minima'].insert(0, str(empresa_data['volumetria_minima'] or ''))
                 entries['valor_por_pessoa'].insert(0, str(empresa_data['valor_por_pessoa'] or ''))
                 entries['ativa'].set(bool(empresa_data['ativa']))
+                # Carregar novos campos
+                if 'estado' in op_keys: entries['estado'].set(empresa_data['estado'] or '')
+                if 'concessionaria' in op_keys: entries['concessionaria'].set(empresa_data['concessionaria'] or '')
+                if 'ano_referencia' in op_keys: entries['ano_referencia'].insert(0, empresa_data['ano_referencia'] or '')
+                if 'observacoes' in op_keys and empresa_data['observacoes']:
+                    entries['observacoes'].insert('1.0', empresa_data['observacoes'])
         else:
             entries['ativa'].set(True)
 
@@ -3216,7 +3605,12 @@ class CRMApp:
                     'valor_mensal': float(entries['valor_mensal'].get().replace(',', '.')) if entries['valor_mensal'].get() else 0,
                     'volumetria_minima': float(entries['volumetria_minima'].get().replace(',', '.')) if entries['volumetria_minima'].get() else 0,
                     'valor_por_pessoa': float(entries['valor_por_pessoa'].get().replace(',', '.')) if entries['valor_por_pessoa'].get() else 0,
-                    'ativa': 1 if entries['ativa'].get() else 0
+                    'ativa': 1 if entries['ativa'].get() else 0,
+                    # Coletar dados dos novos campos
+                    'estado': entries['estado'].get(),
+                    'concessionaria': entries['concessionaria'].get(),
+                    'ano_referencia': entries['ano_referencia'].get().strip(),
+                    'observacoes': entries['observacoes'].get('1.0', 'end-1c').strip()
                 }
 
                 if not data['nome_empresa'] or not data['tipo_servico']:
