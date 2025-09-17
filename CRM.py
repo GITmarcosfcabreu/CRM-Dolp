@@ -1021,9 +1021,9 @@ class CRMApp:
         style.map('Danger.TButton', background=[('active', '#dc2626'), ('pressed', '#b91c1c')])
 
         # Estilos para botões do menu principal
-        style.configure('MainMenu.Primary.TButton', background=DOLP_COLORS['primary_blue'], foreground='white', font=('Segoe UI', 12, 'bold'), padding=(20, 18))
+        style.configure('MainMenu.Primary.TButton', background=DOLP_COLORS['primary_blue'], foreground='white', font=('Segoe UI', 12, 'bold'), padding=(30, 18))
         style.map('MainMenu.Primary.TButton', background=[('active', DOLP_COLORS['secondary_blue']), ('pressed', DOLP_COLORS['gradient_start'])])
-        style.configure('MainMenu.Warning.TButton', background=DOLP_COLORS['warning_orange'], foreground='white', font=('Segoe UI', 12, 'bold'), padding=(20, 18))
+        style.configure('MainMenu.Warning.TButton', background=DOLP_COLORS['warning_orange'], foreground='white', font=('Segoe UI', 12, 'bold'), padding=(30, 18))
         style.map('MainMenu.Warning.TButton', background=[('active', '#d97706'), ('pressed', '#b45309')])
 
         # Labels e outros elementos
@@ -1199,11 +1199,11 @@ class CRMApp:
 
         scrollable_news_frame.bind("<Configure>", lambda e: news_canvas.configure(scrollregion=news_canvas.bbox("all")))
 
-        # Center the frame in the canvas
-        news_window = news_canvas.create_window((0, 0), window=scrollable_news_frame, anchor="n")
-        def _center_news_frame(event):
-            news_canvas.coords(news_window, event.width / 2, 0)
-        news_canvas.bind("<Configure>", _center_news_frame)
+        # Align the frame to the top-left and make it resize with the canvas
+        news_window = news_canvas.create_window((0, 0), window=scrollable_news_frame, anchor="nw")
+        def _resize_news_frame(event):
+            news_canvas.itemconfig(news_window, width=event.width)
+        news_canvas.bind("<Configure>", _resize_news_frame)
 
         news_canvas.configure(yscrollcommand=news_scrollbar.set)
 
@@ -1279,11 +1279,11 @@ class CRMApp:
 
         scrollable_frame.bind("<Configure>", lambda e: main_canvas.configure(scrollregion=main_canvas.bbox("all")))
 
-        # Center the frame in the canvas
-        saved_news_window = main_canvas.create_window((0, 0), window=scrollable_frame, anchor="n")
-        def _center_saved_news_frame(event):
-            main_canvas.coords(saved_news_window, event.width / 2, 0)
-        main_canvas.bind("<Configure>", _center_saved_news_frame)
+        # Align the frame to the top-left and make it resize with the canvas
+        saved_news_window = main_canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        def _resize_saved_news_frame(event):
+            main_canvas.itemconfig(saved_news_window, width=event.width)
+        main_canvas.bind("<Configure>", _resize_saved_news_frame)
 
         main_canvas.configure(yscrollcommand=main_scrollbar.set)
 
