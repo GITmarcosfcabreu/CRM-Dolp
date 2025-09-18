@@ -241,6 +241,7 @@ class DatabaseManager:
                                 valor_mensal REAL NOT NULL,
                                 volumetria_minima REAL NOT NULL,
                                 valor_por_pessoa REAL NOT NULL,
+                                valor_us_ups_upe_ponto REAL,
                                 ativa INTEGER DEFAULT 1,
                                 data_criacao TEXT DEFAULT CURRENT_TIMESTAMP,
                                 estado TEXT,
@@ -346,7 +347,8 @@ class DatabaseManager:
                 "estado": "TEXT",
                 "concessionaria": "TEXT",
                 "ano_referencia": "TEXT",
-                "observacoes": "TEXT"
+                "observacoes": "TEXT",
+                "valor_us_ups_upe_ponto": "REAL"
             }
 
             for col_name, col_type in new_empresa_ref_columns.items():
@@ -764,11 +766,11 @@ class DatabaseManager:
         with self._connect() as conn:
             conn.execute("""
                 INSERT INTO crm_empresas_referencia
-                (nome_empresa, tipo_servico, valor_mensal, volumetria_minima, valor_por_pessoa, ativa, estado, concessionaria, ano_referencia, observacoes)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (nome_empresa, tipo_servico, valor_mensal, volumetria_minima, valor_por_pessoa, valor_us_ups_upe_ponto, ativa, estado, concessionaria, ano_referencia, observacoes)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 data['nome_empresa'], data['tipo_servico'], data['valor_mensal'],
-                data['volumetria_minima'], data['valor_por_pessoa'], data['ativa'],
+                data['volumetria_minima'], data['valor_por_pessoa'], data['valor_us_ups_upe_ponto'], data['ativa'],
                 data.get('estado'), data.get('concessionaria'), data.get('ano_referencia'), data.get('observacoes')
             ))
 
@@ -776,12 +778,12 @@ class DatabaseManager:
         with self._connect() as conn:
             conn.execute("""
                 UPDATE crm_empresas_referencia SET
-                nome_empresa=?, tipo_servico=?, valor_mensal=?, volumetria_minima=?, valor_por_pessoa=?, ativa=?,
+                nome_empresa=?, tipo_servico=?, valor_mensal=?, volumetria_minima=?, valor_por_pessoa=?, valor_us_ups_upe_ponto=?, ativa=?,
                 estado=?, concessionaria=?, ano_referencia=?, observacoes=?
                 WHERE id=?
             """, (
                 data['nome_empresa'], data['tipo_servico'], data['valor_mensal'],
-                data['volumetria_minima'], data['valor_por_pessoa'], data['ativa'],
+                data['volumetria_minima'], data['valor_por_pessoa'], data['valor_us_ups_upe_ponto'], data['ativa'],
                 data.get('estado'), data.get('concessionaria'), data.get('ano_referencia'), data.get('observacoes'),
                 empresa_id
             ))
@@ -3754,7 +3756,7 @@ class CRMApp:
         empresas_frame.columnconfigure(0, weight=1)
         empresas_frame.rowconfigure(0, weight=1)
 
-        columns = ('id', 'nome_empresa', 'tipo_servico', 'estado', 'concessionaria', 'ano_referencia', 'valor_mensal', 'volumetria_minima', 'valor_por_pessoa', 'ativa', 'observacoes')
+        columns = ('id', 'nome_empresa', 'tipo_servico', 'estado', 'concessionaria', 'ano_referencia', 'valor_mensal', 'volumetria_minima', 'valor_por_pessoa', 'valor_us_ups_upe_ponto', 'ativa', 'observacoes')
         tree = ttk.Treeview(empresas_frame, columns=columns, show='headings', height=15)
 
         # Configuração dos Cabeçalhos
@@ -3762,7 +3764,7 @@ class CRMApp:
             'id': ('ID', 50), 'nome_empresa': ('Empresa', 180), 'tipo_servico': ('Tipo de Serviço', 180),
             'estado': ('UF', 50), 'concessionaria': ('Concessionária', 150), 'ano_referencia': ('Ano Ref.', 80),
             'valor_mensal': ('Valor Mensal', 120), 'volumetria_minima': ('Vol. Mínima', 100),
-            'valor_por_pessoa': ('Valor/Pessoa', 120), 'ativa': ('Ativa', 60), 'observacoes': ('Obs.', 200)
+            'valor_por_pessoa': ('Valor/Pessoa', 120), 'valor_us_ups_upe_ponto': ('Valor US/UPS/UPE/Ponto', 150), 'ativa': ('Ativa', 60), 'observacoes': ('Obs.', 200)
         }
         for col, (text, width) in headings.items():
             tree.heading(col, text=text)
@@ -3796,6 +3798,7 @@ class CRMApp:
                     format_currency(empresa['valor_mensal']),
                     f"{empresa['volumetria_minima']:,.0f}" if empresa['volumetria_minima'] else '---',
                     format_currency(empresa['valor_por_pessoa']),
+                    format_currency(empresa['valor_us_ups_upe_ponto']) if 'valor_us_ups_upe_ponto' in empresa.keys() and empresa['valor_us_ups_upe_ponto'] is not None else '---',
                     'Sim' if empresa['ativa'] else 'Não',
                     empresa.get('observacoes', '')
                 ))
@@ -3849,6 +3852,7 @@ class CRMApp:
             ("Valor Mensal (R$):*", "valor_mensal", "entry"),
             ("Volumetria Mínima:*", "volumetria_minima", "entry"),
             ("Valor por Pessoa (R$):*", "valor_por_pessoa", "entry"),
+            ("Valor US/UPS/UPE/Ponto (R$):", "valor_us_ups_upe_ponto", "entry"),
             ("Ativa:", "ativa", "checkbox"),
             ("Observações:", "observacoes", "text")
         ]
@@ -3897,6 +3901,7 @@ class CRMApp:
                 if 'estado' in op_keys: entries['estado'].set(empresa_data['estado'] or '')
                 if 'concessionaria' in op_keys: entries['concessionaria'].set(empresa_data['concessionaria'] or '')
                 if 'ano_referencia' in op_keys: entries['ano_referencia'].insert(0, empresa_data['ano_referencia'] or '')
+                if 'valor_us_ups_upe_ponto' in op_keys: entries['valor_us_ups_upe_ponto'].insert(0, str(empresa_data['valor_us_ups_upe_ponto'] or ''))
                 if 'observacoes' in op_keys and empresa_data['observacoes']:
                     entries['observacoes'].insert('1.0', empresa_data['observacoes'])
         else:
@@ -3913,6 +3918,7 @@ class CRMApp:
                     'valor_mensal': float(entries['valor_mensal'].get().replace(',', '.')) if entries['valor_mensal'].get() else 0,
                     'volumetria_minima': float(entries['volumetria_minima'].get().replace(',', '.')) if entries['volumetria_minima'].get() else 0,
                     'valor_por_pessoa': float(entries['valor_por_pessoa'].get().replace(',', '.')) if entries['valor_por_pessoa'].get() else 0,
+                    'valor_us_ups_upe_ponto': float(entries['valor_us_ups_upe_ponto'].get().replace(',', '.')) if entries['valor_us_ups_upe_ponto'].get() else 0,
                     'ativa': 1 if entries['ativa'].get() else 0,
                     # Coletar dados dos novos campos
                     'estado': entries['estado'].get(),
