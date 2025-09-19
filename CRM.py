@@ -35,6 +35,7 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Tabl
 from reportlab.lib.utils import ImageReader
 from reportlab.lib import colors
 from reportlab.lib.units import inch
+import locale
 
 
 # --- 1. CONFIGURAÇÕES GERAIS ---
@@ -117,6 +118,23 @@ def format_currency(value):
         return f"R$ {float(value):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
     except (ValueError, TypeError):
         return "R$ 0,00"
+
+def parse_brazilian_currency(value_str: str) -> float:
+    """Converts a Brazilian currency string (e.g., '1.234,56') to a float."""
+    if not isinstance(value_str, str) or not value_str.strip():
+        return 0.0
+    try:
+        # Remove thousands separator, then replace decimal comma with a dot
+        return float(value_str.replace('.', '').replace(',', '.'))
+    except (ValueError, TypeError):
+        return 0.0
+
+def format_brazilian_currency_for_entry(value) -> str:
+    """Formats a number into a Brazilian currency string for an Entry widget."""
+    try:
+        return locale.format_string('%.2f', float(value), grouping=True)
+    except (ValueError, TypeError):
+        return "0,00"
 
 def open_link(url):
     try:
@@ -2284,7 +2302,7 @@ class CRMApp:
 
                 # 1. Carregar todos os dados estáticos primeiro, usando a verificação de chaves
                 entries['titulo'].insert(0, str(op_data['titulo']) if 'titulo' in op_keys and op_data['titulo'] is not None else '')
-                entries['valor'].insert(0, str(op_data['valor']) if 'valor' in op_keys and op_data['valor'] is not None else '')
+                entries['valor'].insert(0, format_brazilian_currency_for_entry(op_data['valor']) if 'valor' in op_keys and op_data['valor'] is not None else '0,00')
 
                 cliente_id_val = op_data['cliente_id'] if 'cliente_id' in op_keys else None
                 for client in clients:
@@ -2314,12 +2332,12 @@ class CRMApp:
                 entries['modalidade'].insert(0, str(op_data['modalidade']) if 'modalidade' in op_keys and op_data['modalidade'] is not None else '')
                 entries['contato_principal'].insert(0, str(op_data['contato_principal']) if 'contato_principal' in op_keys and op_data['contato_principal'] is not None else '')
                 entries['link_documentos'].insert(0, str(op_data['link_documentos']) if 'link_documentos' in op_keys and op_data['link_documentos'] is not None else '')
-                entries['faturamento_estimado'].insert(0, str(op_data['faturamento_estimado']) if 'faturamento_estimado' in op_keys and op_data['faturamento_estimado'] is not None else '')
+                entries['faturamento_estimado'].insert(0, format_brazilian_currency_for_entry(op_data['faturamento_estimado']) if 'faturamento_estimado' in op_keys and op_data['faturamento_estimado'] is not None else '0,00')
                 entries['duracao_contrato'].insert(0, str(op_data['duracao_contrato']) if 'duracao_contrato' in op_keys and op_data['duracao_contrato'] is not None else '')
-                entries['mod'].insert(0, str(op_data['mod']) if 'mod' in op_keys and op_data['mod'] is not None else '')
-                entries['moi'].insert(0, str(op_data['moi']) if 'moi' in op_keys and op_data['moi'] is not None else '')
+                entries['mod'].insert(0, format_brazilian_currency_for_entry(op_data['mod']) if 'mod' in op_keys and op_data['mod'] is not None else '0,00')
+                entries['moi'].insert(0, format_brazilian_currency_for_entry(op_data['moi']) if 'moi' in op_keys and op_data['moi'] is not None else '0,00')
                 entries['total_pessoas'].insert(0, str(op_data['total_pessoas']) if 'total_pessoas' in op_keys and op_data['total_pessoas'] is not None else '')
-                entries['margem_contribuicao'].insert(0, str(op_data['margem_contribuicao']) if 'margem_contribuicao' in op_keys and op_data['margem_contribuicao'] is not None else '')
+                entries['margem_contribuicao'].insert(0, format_brazilian_currency_for_entry(op_data['margem_contribuicao']) if 'margem_contribuicao' in op_keys and op_data['margem_contribuicao'] is not None else '0,00')
 
                 descricao_detalhada = op_data['descricao_detalhada'] if 'descricao_detalhada' in op_keys else None
                 if descricao_detalhada:
@@ -2418,7 +2436,7 @@ class CRMApp:
             try:
                 data = {}
                 data['titulo'] = entries['titulo'].get().strip()
-                data['valor'] = entries['valor'].get().strip().replace('.','').replace(',', '.') or '0'
+                data['valor'] = parse_brazilian_currency(entries['valor'].get())
                 data['cliente_id'] = client_map.get(entries['cliente_id'].get())
                 data['estagio_id'] = estagio_map.get(entries['estagio_id'].get())
 
@@ -2477,12 +2495,12 @@ class CRMApp:
                 data['modalidade'] = entries['modalidade'].get().strip()
                 data['contato_principal'] = entries['contato_principal'].get().strip()
                 data['link_documentos'] = entries['link_documentos'].get().strip()
-                data['faturamento_estimado'] = entries['faturamento_estimado'].get().strip().replace('.','').replace(',', '.') or '0'
+                data['faturamento_estimado'] = parse_brazilian_currency(entries['faturamento_estimado'].get())
                 data['duracao_contrato'] = entries['duracao_contrato'].get().strip()
-                data['mod'] = entries['mod'].get().strip().replace(',', '.') or '0'
-                data['moi'] = entries['moi'].get().strip().replace(',', '.') or '0'
+                data['mod'] = parse_brazilian_currency(entries['mod'].get())
+                data['moi'] = parse_brazilian_currency(entries['moi'].get())
                 data['total_pessoas'] = entries['total_pessoas'].get().strip()
-                data['margem_contribuicao'] = entries['margem_contribuicao'].get().strip().replace(',', '.') or '0'
+                data['margem_contribuicao'] = parse_brazilian_currency(entries['margem_contribuicao'].get())
                 data['descricao_detalhada'] = entries['descricao_detalhada'].get('1.0', 'end-1c')
 
                 if op_id:
@@ -3893,15 +3911,15 @@ class CRMApp:
                 op_keys = empresa_data.keys()
                 entries['nome_empresa'].insert(0, empresa_data['nome_empresa'] or '')
                 entries['tipo_servico'].set(empresa_data['tipo_servico'] or '')
-                entries['valor_mensal'].insert(0, str(empresa_data['valor_mensal'] or ''))
-                entries['volumetria_minima'].insert(0, str(empresa_data['volumetria_minima'] or ''))
-                entries['valor_por_pessoa'].insert(0, str(empresa_data['valor_por_pessoa'] or ''))
+                entries['valor_mensal'].insert(0, format_brazilian_currency_for_entry(empresa_data['valor_mensal']))
+                entries['volumetria_minima'].insert(0, format_brazilian_currency_for_entry(empresa_data['volumetria_minima']))
+                entries['valor_por_pessoa'].insert(0, format_brazilian_currency_for_entry(empresa_data['valor_por_pessoa']))
                 entries['ativa'].set(bool(empresa_data['ativa']))
                 # Carregar novos campos
                 if 'estado' in op_keys: entries['estado'].set(empresa_data['estado'] or '')
                 if 'concessionaria' in op_keys: entries['concessionaria'].set(empresa_data['concessionaria'] or '')
                 if 'ano_referencia' in op_keys: entries['ano_referencia'].insert(0, empresa_data['ano_referencia'] or '')
-                if 'valor_us_ups_upe_ponto' in op_keys: entries['valor_us_ups_upe_ponto'].insert(0, str(empresa_data['valor_us_ups_upe_ponto'] or ''))
+                if 'valor_us_ups_upe_ponto' in op_keys: entries['valor_us_ups_upe_ponto'].insert(0, format_brazilian_currency_for_entry(empresa_data['valor_us_ups_upe_ponto']))
                 if 'observacoes' in op_keys and empresa_data['observacoes']:
                     entries['observacoes'].insert('1.0', empresa_data['observacoes'])
         else:
@@ -3915,10 +3933,10 @@ class CRMApp:
                 data = {
                     'nome_empresa': entries['nome_empresa'].get().strip(),
                     'tipo_servico': entries['tipo_servico'].get(),
-                    'valor_mensal': float(entries['valor_mensal'].get().replace(',', '.')) if entries['valor_mensal'].get() else 0,
-                    'volumetria_minima': float(entries['volumetria_minima'].get().replace(',', '.')) if entries['volumetria_minima'].get() else 0,
-                    'valor_por_pessoa': float(entries['valor_por_pessoa'].get().replace(',', '.')) if entries['valor_por_pessoa'].get() else 0,
-                    'valor_us_ups_upe_ponto': float(entries['valor_us_ups_upe_ponto'].get().replace(',', '.')) if entries['valor_us_ups_upe_ponto'].get() else 0,
+                    'valor_mensal': parse_brazilian_currency(entries['valor_mensal'].get()),
+                    'volumetria_minima': parse_brazilian_currency(entries['volumetria_minima'].get()),
+                    'valor_por_pessoa': parse_brazilian_currency(entries['valor_por_pessoa'].get()),
+                    'valor_us_ups_upe_ponto': parse_brazilian_currency(entries['valor_us_ups_upe_ponto'].get()),
                     'ativa': 1 if entries['ativa'].get() else 0,
                     # Coletar dados dos novos campos
                     'estado': entries['estado'].get(),
@@ -4016,6 +4034,18 @@ class CRMApp:
 
 # --- 5. EXECUÇÃO PRINCIPAL ---
 def main():
+    try:
+        # Define o locale para pt_BR para formatação de moeda correta
+        locale.setlocale(locale.LC_ALL, 'pt_BR.UTF-8')
+    except locale.Error:
+        try:
+            # Fallback para o locale padrão do sistema
+            locale.setlocale(locale.LC_ALL, '')
+            print("Aviso: Locale 'pt_BR.UTF-8' não encontrado. Usando o locale padrão do sistema.")
+        except locale.Error:
+            # Fallback final se nenhum locale puder ser definido
+            print("Aviso CRÍTICO: Não foi possível definir nenhum locale. A formatação de moeda pode estar incorreta.")
+
     root = tk.Tk()
     app = CRMApp(root)
     root.mainloop()
