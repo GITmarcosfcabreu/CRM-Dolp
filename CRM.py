@@ -3957,7 +3957,7 @@ class CRMApp:
                     messagebox.showinfo("Sucesso", "Empresa referência criada com sucesso!", parent=form_win)
 
                 form_win.destroy()
-                self.show_empresa_referencia_view()
+                self.root.after(50, self.show_empresa_referencia_view)
 
             except ValueError:
                 messagebox.showerror("Erro", "Valores numéricos inválidos!", parent=form_win)
