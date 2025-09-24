@@ -3810,15 +3810,15 @@ class CRMApp:
                     empresa['id'],
                     empresa['nome_empresa'],
                     empresa['tipo_servico'],
-                    empresa.get('estado', '---'),
-                    empresa.get('concessionaria', '---'),
-                    empresa.get('ano_referencia', '---'),
+                    empresa['estado'] if 'estado' in empresa.keys() and empresa['estado'] is not None else '---',
+                    empresa['concessionaria'] if 'concessionaria' in empresa.keys() and empresa['concessionaria'] is not None else '---',
+                    empresa['ano_referencia'] if 'ano_referencia' in empresa.keys() and empresa['ano_referencia'] is not None else '---',
                     format_currency(empresa['valor_mensal']),
                     f"{empresa['volumetria_minima']:,.0f}" if empresa['volumetria_minima'] else '---',
                     format_currency(empresa['valor_por_pessoa']),
                     format_currency(empresa['valor_us_ups_upe_ponto']) if 'valor_us_ups_upe_ponto' in empresa.keys() and empresa['valor_us_ups_upe_ponto'] is not None else '---',
                     'Sim' if empresa['ativa'] else 'Não',
-                    empresa.get('observacoes', '')
+                    empresa['observacoes'] if 'observacoes' in empresa.keys() and empresa['observacoes'] is not None else ''
                 ))
 
         def apply_filters():
