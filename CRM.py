@@ -256,6 +256,7 @@ class DatabaseManager:
                                 id INTEGER PRIMARY KEY,
                                 nome_empresa TEXT NOT NULL,
                                 tipo_servico TEXT NOT NULL,
+                                tipo_equipe_id INTEGER,
                                 valor_mensal REAL NOT NULL,
                                 volumetria_minima REAL NOT NULL,
                                 valor_por_pessoa REAL NOT NULL,
@@ -265,7 +266,8 @@ class DatabaseManager:
                                 estado TEXT,
                                 concessionaria TEXT,
                                 ano_referencia TEXT,
-                                observacoes TEXT
+                                observacoes TEXT,
+                                FOREIGN KEY (tipo_equipe_id) REFERENCES crm_tipos_equipe(id)
                            )''')
             cursor.execute('CREATE TABLE IF NOT EXISTS crm_setores (id INTEGER PRIMARY KEY, nome TEXT UNIQUE NOT NULL)')
             cursor.execute('CREATE TABLE IF NOT EXISTS crm_segmentos (id INTEGER PRIMARY KEY, nome TEXT UNIQUE NOT NULL)')
@@ -366,7 +368,8 @@ class DatabaseManager:
                 "concessionaria": "TEXT",
                 "ano_referencia": "TEXT",
                 "observacoes": "TEXT",
-                "valor_us_ups_upe_ponto": "REAL"
+                "valor_us_ups_upe_ponto": "REAL",
+                "tipo_equipe_id": "INTEGER"
             }
 
             for col_name, col_type in new_empresa_ref_columns.items():
@@ -756,24 +759,28 @@ class DatabaseManager:
     # Métodos de Empresas Referência
     def get_all_empresas_referencia(self, estado=None, tipo_servico=None, concessionaria=None):
         with self._connect() as conn:
-            base_query = "SELECT * FROM crm_empresas_referencia"
+            base_query = """
+                SELECT er.*, te.nome as tipo_equipe_nome
+                FROM crm_empresas_referencia er
+                LEFT JOIN crm_tipos_equipe te ON er.tipo_equipe_id = te.id
+            """
             conditions = []
             params = []
 
             if estado and estado != 'Todos':
-                conditions.append("estado = ?")
+                conditions.append("er.estado = ?")
                 params.append(estado)
             if tipo_servico and tipo_servico != 'Todos':
-                conditions.append("tipo_servico = ?")
+                conditions.append("er.tipo_servico = ?")
                 params.append(tipo_servico)
             if concessionaria and concessionaria != 'Todos':
-                conditions.append("concessionaria = ?")
+                conditions.append("er.concessionaria = ?")
                 params.append(concessionaria)
 
             if conditions:
                 base_query += " WHERE " + " AND ".join(conditions)
 
-            base_query += " ORDER BY nome_empresa, tipo_servico"
+            base_query += " ORDER BY er.nome_empresa, er.tipo_servico"
             return conn.execute(base_query, params).fetchall()
 
     def get_empresa_referencia_by_id(self, empresa_id):
@@ -784,10 +791,10 @@ class DatabaseManager:
         with self._connect() as conn:
             conn.execute("""
                 INSERT INTO crm_empresas_referencia
-                (nome_empresa, tipo_servico, valor_mensal, volumetria_minima, valor_por_pessoa, valor_us_ups_upe_ponto, ativa, estado, concessionaria, ano_referencia, observacoes)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (nome_empresa, tipo_servico, tipo_equipe_id, valor_mensal, volumetria_minima, valor_por_pessoa, valor_us_ups_upe_ponto, ativa, estado, concessionaria, ano_referencia, observacoes)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
-                data['nome_empresa'], data['tipo_servico'], data['valor_mensal'],
+                data['nome_empresa'], data['tipo_servico'], data.get('tipo_equipe_id'), data['valor_mensal'],
                 data['volumetria_minima'], data['valor_por_pessoa'], data['valor_us_ups_upe_ponto'], data['ativa'],
                 data.get('estado'), data.get('concessionaria'), data.get('ano_referencia'), data.get('observacoes')
             ))
@@ -796,11 +803,11 @@ class DatabaseManager:
         with self._connect() as conn:
             conn.execute("""
                 UPDATE crm_empresas_referencia SET
-                nome_empresa=?, tipo_servico=?, valor_mensal=?, volumetria_minima=?, valor_por_pessoa=?, valor_us_ups_upe_ponto=?, ativa=?,
+                nome_empresa=?, tipo_servico=?, tipo_equipe_id=?, valor_mensal=?, volumetria_minima=?, valor_por_pessoa=?, valor_us_ups_upe_ponto=?, ativa=?,
                 estado=?, concessionaria=?, ano_referencia=?, observacoes=?
                 WHERE id=?
             """, (
-                data['nome_empresa'], data['tipo_servico'], data['valor_mensal'],
+                data['nome_empresa'], data['tipo_servico'], data.get('tipo_equipe_id'), data['valor_mensal'],
                 data['volumetria_minima'], data['valor_por_pessoa'], data['valor_us_ups_upe_ponto'], data['ativa'],
                 data.get('estado'), data.get('concessionaria'), data.get('ano_referencia'), data.get('observacoes'),
                 empresa_id
@@ -2269,26 +2276,6 @@ class CRMApp:
         entries['descricao_detalhada'] = desc_text
 
 
-        # Função para carregar dados automaticamente quando a aba for selecionada
-        def on_tab_changed(event):
-            selected_tab = event.widget.tab('current')['text']
-            if 'Sumário Executivo' in selected_tab:
-                form_win.after(100, lambda: auto_load_analise_data())
-
-        def auto_load_analise_data():
-            """Carrega automaticamente dados da análise prévia no sumário executivo"""
-            try:
-                # Carregar tempo de contrato se disponível
-                if entries['tempo_contrato_meses'].get():
-                    entries['duracao_contrato'].delete(0, 'end')
-                    entries['duracao_contrato'].insert(0, entries['tempo_contrato_meses'].get())
-
-                tipos_selecionados = [tipo for tipo, var in tipos_vars.items() if var.get()]
-                if tipos_selecionados and entries['empresa_referencia'].get():
-                    calcular_precos_automaticos()
-            except:
-                pass
-
         # Carregar dados se editando oportunidade existente
         if op_id:
             try:
@@ -2521,9 +2508,6 @@ class CRMApp:
             except Exception as e:
                 messagebox.showerror("Erro Inesperado", f"Ocorreu um erro: {str(e)}", parent=form_win)
 
-
-        # Bind do evento de mudança de aba
-        notebook.bind("<<NotebookTabChanged>>", on_tab_changed)
 
         # Botões de Ação
         # Usar .pack() é mais robusto aqui. Os botões são empacotados da direita para a esquerda.
@@ -3777,12 +3761,12 @@ class CRMApp:
         empresas_frame.columnconfigure(0, weight=1)
         empresas_frame.rowconfigure(0, weight=1)
 
-        columns = ('id', 'nome_empresa', 'tipo_servico', 'estado', 'concessionaria', 'ano_referencia', 'valor_mensal', 'volumetria_minima', 'valor_por_pessoa', 'valor_us_ups_upe_ponto', 'ativa', 'observacoes')
+        columns = ('id', 'nome_empresa', 'tipo_servico', 'tipo_equipe', 'estado', 'concessionaria', 'ano_referencia', 'valor_mensal', 'volumetria_minima', 'valor_por_pessoa', 'valor_us_ups_upe_ponto', 'ativa', 'observacoes')
         tree = ttk.Treeview(empresas_frame, columns=columns, show='headings', height=15)
 
         # Configuração dos Cabeçalhos
         headings = {
-            'id': ('ID', 50), 'nome_empresa': ('Empresa', 180), 'tipo_servico': ('Tipo de Serviço', 180),
+            'id': ('ID', 50), 'nome_empresa': ('Empresa', 180), 'tipo_servico': ('Tipo de Serviço', 180), 'tipo_equipe': ('Tipo de Equipe', 180),
             'estado': ('UF', 50), 'concessionaria': ('Concessionária', 150), 'ano_referencia': ('Ano Ref.', 80),
             'valor_mensal': ('Valor Mensal', 120), 'volumetria_minima': ('Vol. Mínima', 100),
             'valor_por_pessoa': ('Valor/Pessoa', 120), 'valor_us_ups_upe_ponto': ('Valor US/UPS/UPE/Ponto', 150), 'ativa': ('Ativa', 60), 'observacoes': ('Obs.', 200)
@@ -3813,6 +3797,7 @@ class CRMApp:
                     empresa['id'],
                     empresa['nome_empresa'],
                     empresa['tipo_servico'],
+                    empresa['tipo_equipe_nome'] if 'tipo_equipe_nome' in empresa.keys() and empresa['tipo_equipe_nome'] is not None else '---',
                     empresa['estado'] if 'estado' in empresa.keys() and empresa['estado'] is not None else '---',
                     empresa['concessionaria'] if 'concessionaria' in empresa.keys() and empresa['concessionaria'] is not None else '---',
                     empresa['ano_referencia'] if 'ano_referencia' in empresa.keys() and empresa['ano_referencia'] is not None else '---',
@@ -3860,6 +3845,9 @@ class CRMApp:
         # Dados para os comboboxes
         servicos = self.db.get_all_servicos()
         service_names = [s['nome'] for s in servicos if s['ativa']]
+        team_types = self.db.get_all_team_types()
+        team_type_map = {tt['nome']: tt['id'] for tt in team_types}
+        team_type_names = list(team_type_map.keys())
         clients = self.db.get_all_clients()
         concessionaria_names = [c['nome_empresa'] for c in clients]
 
@@ -3867,6 +3855,7 @@ class CRMApp:
         fields = [
             ("Nome da Empresa:*", "nome_empresa", "entry"),
             ("Tipo de Serviço:*", "tipo_servico", "combobox", service_names),
+            ("Tipo de Equipe:", "tipo_equipe_id", "combobox", team_type_names),
             ("Estado:", "estado", "combobox", BRAZILIAN_STATES),
             ("Concessionária:", "concessionaria", "combobox", concessionaria_names),
             ("Ano de Referência:", "ano_referencia", "entry"),
@@ -3914,6 +3903,12 @@ class CRMApp:
                 op_keys = empresa_data.keys()
                 entries['nome_empresa'].insert(0, empresa_data['nome_empresa'] or '')
                 entries['tipo_servico'].set(empresa_data['tipo_servico'] or '')
+                if 'tipo_equipe_id' in op_keys and empresa_data['tipo_equipe_id']:
+                    # Find the team type name from the id
+                    for name, id in team_type_map.items():
+                        if id == empresa_data['tipo_equipe_id']:
+                            entries['tipo_equipe_id'].set(name)
+                            break
                 entries['valor_mensal'].insert(0, format_brazilian_currency_for_entry(empresa_data['valor_mensal']))
                 entries['volumetria_minima'].insert(0, format_brazilian_currency_for_entry(empresa_data['volumetria_minima']))
                 entries['valor_por_pessoa'].insert(0, format_brazilian_currency_for_entry(empresa_data['valor_por_pessoa']))
@@ -3933,9 +3928,13 @@ class CRMApp:
 
         def save_empresa():
             try:
+                selected_team_type_name = entries['tipo_equipe_id'].get()
+                team_type_id = team_type_map.get(selected_team_type_name)
+
                 data = {
                     'nome_empresa': entries['nome_empresa'].get().strip(),
                     'tipo_servico': entries['tipo_servico'].get(),
+                    'tipo_equipe_id': team_type_id,
                     'valor_mensal': parse_brazilian_currency(entries['valor_mensal'].get()),
                     'volumetria_minima': parse_brazilian_currency(entries['volumetria_minima'].get()),
                     'valor_por_pessoa': parse_brazilian_currency(entries['valor_por_pessoa'].get()),
