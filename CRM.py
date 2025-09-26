@@ -1813,42 +1813,24 @@ class CRMApp:
         self.clear_content()
         form_title = "Nova Oportunidade" if not op_id else "Editar Oportunidade"
 
+        # Configure grid layout for the main content frame
+        self.content_frame.rowconfigure(1, weight=1)
+        self.content_frame.columnconfigure(0, weight=1)
+
         # --- Header with Back button ---
         header_frame = ttk.Frame(self.content_frame, style='TFrame')
-        header_frame.pack(fill='x', pady=(0, 10), padx=20)
+        header_frame.grid(row=0, column=0, sticky='ew', pady=(0, 10))
         ttk.Label(header_frame, text=form_title, style='Title.TLabel').pack(side='left')
         if back_callback:
             ttk.Button(header_frame, text="← Voltar", command=back_callback, style='TButton').pack(side='right')
 
-        # The form is very long, so we make the entire content area scrollable.
-        main_canvas = tk.Canvas(self.content_frame, bg=DOLP_COLORS['white'], highlightthickness=0)
-        v_scrollbar = ttk.Scrollbar(self.content_frame, orient="vertical", command=main_canvas.yview)
-        scrollable_frame = ttk.Frame(main_canvas, style='TFrame')
+        # --- Action buttons at the bottom ---
+        buttons_frame = ttk.Frame(self.content_frame, padding=(10, 15, 10, 0))
+        buttons_frame.grid(row=2, column=0, sticky='ew')
 
-        scrollable_frame.bind("<Configure>", lambda e: main_canvas.configure(scrollregion=main_canvas.bbox("all")))
-
-        form_window = main_canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
-
-        def _resize_form_frame(event):
-            main_canvas.itemconfig(form_window, width=event.width)
-        main_canvas.bind("<Configure>", _resize_form_frame)
-
-        main_canvas.configure(yscrollcommand=v_scrollbar.set)
-
-        main_canvas.pack(side="left", fill="both", expand=True, padx=(20,0), pady=(0,20))
-        v_scrollbar.pack(side="right", fill="y", padx=(0,20), pady=(0,20))
-
-        def _on_mousewheel(event):
-            main_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
-        self.content_frame.bind('<Enter>', lambda e: self.root.bind_all("<MouseWheel>", _on_mousewheel))
-        self.content_frame.bind('<Leave>', lambda e: self.root.unbind_all("<MouseWheel>"))
-
-        # --- Form content goes into the scrollable_frame ---
-        notebook = ttk.Notebook(scrollable_frame)
-        notebook.pack(fill='both', expand=True, padx=10, pady=(10, 0))
-
-        buttons_frame = ttk.Frame(scrollable_frame, padding=(10, 15, 10, 15))
-        buttons_frame.pack(side='bottom', fill='x')
+        # --- Notebook for the tabs ---
+        notebook = ttk.Notebook(self.content_frame)
+        notebook.grid(row=1, column=0, sticky='nsew', pady=(0, 10))
 
         analise_frame = self._create_scrollable_tab(notebook, '  Análise Prévia de Viabilidade  ')
         sumario_frame = self._create_scrollable_tab(notebook, '  Sumário Executivo  ')
