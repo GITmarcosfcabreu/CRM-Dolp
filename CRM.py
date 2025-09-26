@@ -31,7 +31,7 @@ import time
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, KeepTogether
 from reportlab.lib.utils import ImageReader
 from reportlab.lib import colors
 from reportlab.lib.units import inch
@@ -1957,7 +1957,7 @@ class CRMApp:
 
             # Widgets da linha
             ttk.Label(row_frame, text="Tipo de Equipe:").pack(side='left', padx=(0,5))
-            tipo_combo = ttk.Combobox(row_frame, values=team_type_names, state='readonly', width=20)
+            tipo_combo = ttk.Combobox(row_frame, values=team_type_names, state='readonly', width=40)
             tipo_combo.pack(side='left', padx=5)
             row_widgets['tipo_combo'] = tipo_combo
 
@@ -2899,31 +2899,39 @@ class CRMApp:
                         story.append(Paragraph(f"<b>{section}</b>", styles['h4']))
                         story.append(Spacer(1, 6))
 
-                        question_data = []
-                        for question in questions:
-                            answer = "---"
-                            if question == "Quais são nossos diferenciais competitivos claros para esta oportunidade específica?":
-                                answer = op_data['diferenciais_competitivos'] if 'diferenciais_competitivos' in op_keys and op_data['diferenciais_competitivos'] else "---"
-                                question_data.append([Paragraph(question, styles['BodyText']), Paragraph(answer, styles['BodyText'])])
-                            elif question == "Quais os principais riscos (técnicos, logísticos, regulatórios, políticos) associados ao projeto?":
-                                answer = op_data['principais_riscos'] if 'principais_riscos' in op_keys and op_data['principais_riscos'] else "---"
-                                question_data.append([Paragraph(question, styles['BodyText']), Paragraph(answer, styles['BodyText'])])
-                            else:
+                        if section == "Análise Concorrencial e de Riscos":
+                            # Use a different layout for this specific section
+                            for question in questions:
+                                story.append(Paragraph(f"<b>{question}</b>", styles['BodyText']))
+                                story.append(Spacer(1, 4))
+                                if question == "Quais são nossos diferenciais competitivos claros para esta oportunidade específica?":
+                                    answer = op_data['diferenciais_competitivos'] if 'diferenciais_competitivos' in op_keys and op_data['diferenciais_competitivos'] else "---"
+                                elif question == "Quais os principais riscos (técnicos, logísticos, regulatórios, políticos) associados ao projeto?":
+                                    answer = op_data['principais_riscos'] if 'principais_riscos' in op_keys and op_data['principais_riscos'] else "---"
+                                else:
+                                    answer = "Não aplicável" # Should not happen for this section
+
+                                story.append(Paragraph(answer.replace('\n', '<br/>'), styles['Justify']))
+                                story.append(Spacer(1, 12))
+                        else:
+                            # Keep the original table layout for other sections
+                            question_data = []
+                            for question in questions:
                                 answer = qualificacao_answers.get(question, "Não respondido")
                                 question_data.append([Paragraph(question, styles['BodyText']), answer])
 
-                        question_table = Table(question_data, colWidths=[5*inch, 1*inch])
-                        question_table.setStyle(TableStyle([
-                            ('ALIGN', (0,0), (-1,-1), 'LEFT'),
-                            ('VALIGN', (0,0), (-1,-1), 'TOP'),
-                            ('GRID', (0,0), (-1,-1), 0.25, colors.grey),
-                            ('LEFTPADDING', (0,0), (-1,-1), 6),
-                            ('RIGHTPADDING', (0,0), (-1,-1), 6),
-                            ('TOPPADDING', (0,0), (-1,-1), 6),
-                            ('BOTTOMPADDING', (0,0), (-1,-1), 6),
-                        ]))
-                        story.append(question_table)
-                        story.append(Spacer(1, 12))
+                            question_table = Table(question_data, colWidths=[5*inch, 1*inch])
+                            question_table.setStyle(TableStyle([
+                                ('ALIGN', (0,0), (-1,-1), 'LEFT'),
+                                ('VALIGN', (0,0), (-1,-1), 'TOP'),
+                                ('GRID', (0,0), (-1,-1), 0.25, colors.grey),
+                                ('LEFTPADDING', (0,0), (-1,-1), 6),
+                                ('RIGHTPADDING', (0,0), (-1,-1), 6),
+                                ('TOPPADDING', (0,0), (-1,-1), 6),
+                                ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+                            ]))
+                            story.append(question_table)
+                            story.append(Spacer(1, 12))
 
                 except (json.JSONDecodeError, TypeError):
                     story.append(Paragraph("Erro ao carregar dados de qualificação.", styles['BodyText']))
@@ -3050,9 +3058,10 @@ class CRMApp:
             story.append(Spacer(1, 24))
 
             # Informações do Edital
-            story.append(Paragraph("1. Informações do Edital", styles['h3']))
-            story.append(Spacer(1, 12))
-
+            # Section 1: Informações do Edital
+            edital_content = []
+            edital_content.append(Paragraph("1. Informações do Edital", styles['h3']))
+            edital_content.append(Spacer(1, 12))
             edital_info_data = [
                 ['Número do Edital:', op_data['numero_edital'] if 'numero_edital' in op_keys and op_data['numero_edital'] else "---"],
                 ['Data de Abertura:', op_data['data_abertura'] if 'data_abertura' in op_keys and op_data['data_abertura'] else "---"],
@@ -3060,20 +3069,18 @@ class CRMApp:
                 ['Contato Principal:', op_data['contato_principal'] if 'contato_principal' in op_keys and op_data['contato_principal'] else "---"],
                 ['Link dos Documentos:', op_data['link_documentos'] if 'link_documentos' in op_keys and op_data['link_documentos'] else "---"],
             ]
-
             edital_info_table = Table(edital_info_data, colWidths=[1.5*inch, 4.5*inch])
             edital_info_table.setStyle(TableStyle([
-                ('ALIGN', (0,0), (-1,-1), 'LEFT'),
-                ('FONTNAME', (0,0), (0,-1), 'Helvetica-Bold'),
-                ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+                ('ALIGN', (0,0), (-1,-1), 'LEFT'), ('FONTNAME', (0,0), (0,-1), 'Helvetica-Bold'), ('BOTTOMPADDING', (0,0), (-1,-1), 6),
             ]))
-            story.append(edital_info_table)
+            edital_content.append(edital_info_table)
+            story.append(KeepTogether(edital_content))
             story.append(Spacer(1, 24))
 
-            # Informações Financeiras e de Pessoal
-            story.append(Paragraph("2. Informações Financeiras e de Pessoal", styles['h3']))
-            story.append(Spacer(1, 12))
-
+            # Section 2: Informações Financeiras e de Pessoal
+            financeiro_content = []
+            financeiro_content.append(Paragraph("2. Informações Financeiras e de Pessoal", styles['h3']))
+            financeiro_content.append(Spacer(1, 12))
             financeiro_info_data = [
                 ['Faturamento Estimado:', format_currency(op_data['faturamento_estimado'] if 'faturamento_estimado' in op_keys else None)],
                 ['Duração do Contrato:', f"{op_data['duracao_contrato']} meses" if 'duracao_contrato' in op_keys and op_data['duracao_contrato'] else "---"],
@@ -3082,66 +3089,62 @@ class CRMApp:
                 ['Total de Pessoas:', op_data['total_pessoas'] if 'total_pessoas' in op_keys and op_data['total_pessoas'] else "---"],
                 ['Margem de Contribuição:', f"{op_data['margem_contribuicao']}%" if 'margem_contribuicao' in op_keys and op_data['margem_contribuicao'] else "---"],
             ]
-
             financeiro_info_table = Table(financeiro_info_data, colWidths=[2*inch, 4*inch])
             financeiro_info_table.setStyle(TableStyle([
-                ('ALIGN', (0,0), (-1,-1), 'LEFT'),
-                ('FONTNAME', (0,0), (0,-1), 'Helvetica-Bold'),
-                ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+                ('ALIGN', (0,0), (-1,-1), 'LEFT'), ('FONTNAME', (0,0), (0,-1), 'Helvetica-Bold'), ('BOTTOMPADDING', (0,0), (-1,-1), 6),
             ]))
-            story.append(financeiro_info_table)
+            financeiro_content.append(financeiro_info_table)
+            story.append(KeepTogether(financeiro_content))
             story.append(Spacer(1, 24))
 
-            # Serviços e Equipes (reusing the same logic)
-            story.append(Paragraph("3. Detalhes de Serviços e Preços", styles['h3']))
-            story.append(Spacer(1, 12))
+            # Section 3: Detalhes de Serviços e Preços
+            servicos_content = []
+            servicos_content.append(Paragraph("3. Detalhes de Serviços e Preços", styles['h3']))
+            servicos_content.append(Spacer(1, 12))
             servicos_data_json = op_data['servicos_data'] if 'servicos_data' in op_keys else None
             if servicos_data_json:
                 try:
                     servicos_data = json.loads(servicos_data_json)
                     if servicos_data:
-                        # This could be refactored into a helper function if needed
                         for servico_info in servicos_data:
-                            story.append(Paragraph(f"<b>Serviço: {servico_info.get('servico_nome', 'N/A')}</b>", styles['h4']))
+                            servico_block = [Paragraph(f"<b>Serviço: {servico_info.get('servico_nome', 'N/A')}</b>", styles['h4'])]
                             equipes = servico_info.get('equipes', [])
                             if equipes:
                                 equipe_data = [['Tipo de Equipe', 'Qtd', 'Volumetria', 'Base']]
                                 for equipe in equipes:
                                     equipe_data.append([
-                                        equipe.get('tipo_equipe', 'N/A'),
-                                        equipe.get('quantidade', 'N/A'),
-                                        equipe.get('volumetria', 'N/A'),
-                                        equipe.get('base', 'N/A')
+                                        equipe.get('tipo_equipe', 'N/A'), equipe.get('quantidade', 'N/A'),
+                                        equipe.get('volumetria', 'N/A'), equipe.get('base', 'N/A')
                                     ])
                                 equipe_table = Table(equipe_data)
                                 equipe_table.setStyle(TableStyle([
-                                    ('BACKGROUND', (0,0), (-1,0), colors.grey),
-                                    ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
-                                    ('ALIGN', (0,0), (-1,-1), 'CENTER'),
-                                    ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
-                                    ('BOTTOMPADDING', (0,0), (-1,0), 12),
-                                    ('BACKGROUND', (0,1), (-1,-1), colors.beige),
+                                    ('BACKGROUND', (0,0), (-1,0), colors.grey), ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
+                                    ('ALIGN', (0,0), (-1,-1), 'CENTER'), ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+                                    ('BOTTOMPADDING', (0,0), (-1,0), 12), ('BACKGROUND', (0,1), (-1,-1), colors.beige),
                                     ('GRID', (0,0), (-1,-1), 1, colors.black)
                                 ]))
-                                story.append(equipe_table)
-                                story.append(Spacer(1, 12))
+                                servico_block.append(equipe_table)
                             else:
-                                story.append(Paragraph("Nenhuma equipe configurada para este serviço.", styles['BodyText']))
+                                servico_block.append(Paragraph("Nenhuma equipe configurada para este serviço.", styles['BodyText']))
+                            servicos_content.append(KeepTogether(servico_block))
+                            servicos_content.append(Spacer(1, 12))
                     else:
-                        story.append(Paragraph("Nenhum serviço configurado.", styles['BodyText']))
+                        servicos_content.append(Paragraph("Nenhum serviço configurado.", styles['BodyText']))
                 except (json.JSONDecodeError, TypeError):
-                    story.append(Paragraph("Erro ao carregar dados de serviços.", styles['BodyText']))
+                    servicos_content.append(Paragraph("Erro ao carregar dados de serviços.", styles['BodyText']))
             else:
-                story.append(Paragraph("Nenhum serviço configurado.", styles['BodyText']))
+                servicos_content.append(Paragraph("Nenhum serviço configurado.", styles['BodyText']))
+            story.append(KeepTogether(servicos_content))
             story.append(Spacer(1, 24))
 
-
-            # Descrição Detalhada
-            story.append(Paragraph("4. Descrição Detalhada", styles['h3']))
-            story.append(Spacer(1, 12))
+            # Section 4: Descrição Detalhada
+            descricao_content = []
+            descricao_content.append(Paragraph("4. Descrição Detalhada", styles['h3']))
+            descricao_content.append(Spacer(1, 12))
             descricao = (op_data['descricao_detalhada'] if 'descricao_detalhada' in op_keys and op_data['descricao_detalhada'] else 'Nenhuma descrição fornecida.')
-            story.append(Paragraph(descricao.replace('\n', '<br/>'), styles['BodyText']))
-            story.append(Spacer(1, 48)) # Extra space before signature
+            descricao_content.append(Paragraph(descricao.replace('\n', '<br/>'), styles['BodyText']))
+            story.append(KeepTogether(descricao_content))
+            story.append(Spacer(1, 48))
 
             # Header and Footer function
             def header_footer(canvas, doc):
