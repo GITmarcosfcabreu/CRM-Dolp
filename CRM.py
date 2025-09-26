@@ -1340,34 +1340,6 @@ class CRMApp:
             self.kanban_segmento_filter = self.segmento_filter.get()
         self.show_kanban_view()
 
-    def _show_summary_popup(self, summary_text, event):
-        """Exibe um popup com o resumo de atuação do cliente."""
-        if not summary_text or not summary_text.strip():
-            summary_text = "Nenhum resumo de atuação disponível."
-
-        popup = Toplevel(self.root)
-        popup.title("Resumo de Atuação")
-
-        # Posiciona o popup perto do cursor
-        popup_x = event.x_root
-        popup_y = event.y_root + 10
-        popup.geometry(f"400x150+{popup_x}+{popup_y}")
-        popup.configure(bg=DOLP_COLORS['white'])
-        popup.resizable(False, False)
-
-        main_frame = ttk.Frame(popup, padding=15, style='TFrame')
-        main_frame.pack(fill='both', expand=True)
-
-        summary_label = ttk.Label(main_frame, text=summary_text, wraplength=370, justify='left', style='Value.White.TLabel')
-        summary_label.pack(fill='both', expand=True, pady=(0, 10))
-
-        close_button = ttk.Button(main_frame, text="Fechar", command=popup.destroy, style='Primary.TButton')
-        close_button.pack()
-
-        popup.transient(self.root)
-        popup.grab_set()
-        self.root.wait_window(popup)
-
     def show_kanban_view(self):
         self.clear_content()
 
@@ -1377,7 +1349,7 @@ class CRMApp:
 
         ttk.Label(title_frame, text="Funil de Vendas", style='Title.TLabel').pack(side='left')
         ttk.Button(title_frame, text="Histórico", command=self.show_historico_view, style='Warning.TButton').pack(side='right')
-        ttk.Button(title_frame, text="Nova Oportunidade", command=lambda: self.show_opportunity_form(), style='Success.TButton').pack(side='right', padx=(0, 10))
+        ttk.Button(title_frame, text="Nova Oportunidade", command=lambda: self.show_opportunity_form(back_callback=self.show_kanban_view), style='Success.TButton').pack(side='right', padx=(0, 10))
         ttk.Button(title_frame, text="← Voltar", command=self.show_main_menu, style='TButton').pack(side='right', padx=(0, 10))
 
         # Frame de Filtros
@@ -1493,27 +1465,22 @@ class CRMApp:
 
                     # --- Lógica do clique para exibir o popup de resumo ---
                     summary = client['resumo_atuacao'] if 'resumo_atuacao' in client.keys() else ''
-                    click_handler = lambda e, s=summary: self._show_summary_popup(s, e)
-                    client_card.bind("<Button-1>", click_handler)
                     # ----------------------------------------------------
 
                     # Nome da empresa
                     nome_label = ttk.Label(client_card, text=client['nome_empresa'], style='Value.White.TLabel',
                                            font=('Segoe UI', 10, 'bold'))
                     nome_label.pack(anchor='w')
-                    nome_label.bind("<Button-1>", click_handler)
 
                     # Status
                     status = client['status'] or 'Não cadastrado'
                     status_label = ttk.Label(client_card, text=f"Status: {status}", style='Value.White.TLabel')
                     status_label.pack(anchor='w')
-                    status_label.bind("<Button-1>", click_handler)
 
                     # Setor
                     if client['setor_atuacao']:
                         setor_label = ttk.Label(client_card, text=f"Setor: {client['setor_atuacao']}", style='Value.White.TLabel')
                         setor_label.pack(anchor='w')
-                        setor_label.bind("<Button-1>", click_handler)
 
                 # Configurar colunas para expandir igualmente
                 for col in range(col_count):
@@ -1563,7 +1530,7 @@ class CRMApp:
 
                         # Bind duplo clique para ver detalhes
                         def on_double_click(event, op_id=oportunidade['id']):
-                            self.show_opportunity_details(op_id)
+                            self.show_opportunity_details(op_id, self.show_kanban_view)
 
                         op_card.bind("<Double-Button-1>", on_double_click)
                         title_label.bind("<Double-Button-1>", on_double_click)
@@ -1593,80 +1560,48 @@ class CRMApp:
         main_frame.bind('<Leave>', _unbind_scroll)
 
     def show_resultado_dialog(self, op_id, current_stage_id):
-        """Mostra dialog para aprovar ou reprovar oportunidade"""
-        dialog = Toplevel(self.root)
-        dialog.title("Resultado da Avaliação")
-        dialog.geometry("400x200")
-        dialog.configure(bg=DOLP_COLORS['white'])
-        dialog.transient(self.root)
-        dialog.grab_set()
+        """Mostra tela para aprovar ou reprovar oportunidade"""
+        self.clear_content()
 
-        # Centralizar dialog
-        dialog.geometry("+%d+%d" % (self.root.winfo_rootx() + 50, self.root.winfo_rooty() + 50))
+        title_frame = ttk.Frame(self.content_frame, style='TFrame')
+        title_frame.pack(fill='x', pady=(0, 20))
+        ttk.Label(title_frame, text="Resultado da Avaliação", style='Title.TLabel').pack(side='left')
+        ttk.Button(title_frame, text="← Voltar", command=self.show_kanban_view, style='TButton').pack(side='right')
 
-        main_frame = ttk.Frame(dialog, padding=20, style='TFrame')
+        main_frame = ttk.Frame(self.content_frame, padding=20, style='TFrame')
         main_frame.pack(fill='both', expand=True)
 
-        # Obter dados da oportunidade
         op_data = self.db.get_opportunity_details(op_id)
-
         ttk.Label(main_frame, text=f"Oportunidade: {op_data['titulo']}", style='Title.TLabel').pack(pady=(0, 10))
         ttk.Label(main_frame, text=f"Estágio Atual: {op_data['estagio_nome']}", style='Value.White.TLabel').pack(pady=(0, 20))
-
         ttk.Label(main_frame, text="Qual o resultado desta avaliação?", style='TLabel').pack(pady=(0, 20))
 
-        # Botões de resultado
         buttons_frame = ttk.Frame(main_frame, style='TFrame')
         buttons_frame.pack(fill='x')
 
         def aprovar():
-            # Mover para próximo estágio
             estagios = self.db.get_pipeline_data()[0]
-            current_order = None
-            for estagio in estagios:
-                if estagio['id'] == current_stage_id:
-                    current_order = estagio['ordem']
-                    break
-
-            # Encontrar próximo estágio
-            next_stage = None
-            for estagio in estagios:
-                if estagio['ordem'] == current_order + 1:
-                    next_stage = estagio
-                    break
-
-            if next_stage:
-                self.db.update_opportunity_stage(op_id, next_stage['id'])
-                # Registrar movimentação
-                self.add_movement_record(op_id, op_data['estagio_nome'], next_stage['nome'], "Aprovado")
-                messagebox.showinfo("Sucesso", f"Oportunidade aprovada e movida para: {next_stage['nome']}")
-            else:
-                messagebox.showinfo("Informação", "Esta oportunidade já está no último estágio.")
-
-            dialog.destroy()
+            current_order = next((e['ordem'] for e in estagios if e['id'] == current_stage_id), None)
+            if current_order is not None:
+                next_stage = next((e for e in estagios if e['ordem'] == current_order + 1), None)
+                if next_stage:
+                    self.db.update_opportunity_stage(op_id, next_stage['id'])
+                    self.add_movement_record(op_id, op_data['estagio_nome'], next_stage['nome'], "Aprovado")
+                    messagebox.showinfo("Sucesso", f"Oportunidade aprovada e movida para: {next_stage['nome']}", parent=self.root)
+                else:
+                    messagebox.showinfo("Informação", "Esta oportunidade já está no último estágio.", parent=self.root)
             self.show_kanban_view()
 
         def reprovar():
-            # Mover para Histórico
-            historico_stage = None
-            estagios = self.db.get_pipeline_data()[0]
-            for estagio in estagios:
-                if estagio['nome'] == "Histórico":
-                    historico_stage = estagio
-                    break
-
+            historico_stage = next((e for e in self.db.get_pipeline_data()[0] if e['nome'] == "Histórico"), None)
             if historico_stage:
                 self.db.update_opportunity_stage(op_id, historico_stage['id'])
-                # Registrar movimentação
                 self.add_movement_record(op_id, op_data['estagio_nome'], "Histórico", "Reprovado")
-                messagebox.showinfo("Sucesso", "Oportunidade reprovada e movida para o Histórico.")
-
-            dialog.destroy()
+                messagebox.showinfo("Sucesso", "Oportunidade reprovada e movida para o Histórico.", parent=self.root)
             self.show_kanban_view()
 
         ttk.Button(buttons_frame, text="✓ Aprovado", command=aprovar, style='Success.TButton').pack(side='left', padx=(0, 10))
         ttk.Button(buttons_frame, text="✗ Reprovado", command=reprovar, style='Danger.TButton').pack(side='left')
-        ttk.Button(buttons_frame, text="Cancelar", command=dialog.destroy, style='TButton').pack(side='right')
 
     def add_movement_record(self, op_id, from_stage, to_stage, result):
         """Adiciona registro de movimentação no histórico"""
@@ -1787,7 +1722,7 @@ class CRMApp:
             if selection:
                 item = results_tree.item(selection[0])
                 op_id = item['tags'][0]  # ID da oportunidade armazenado nas tags
-                self.show_opportunity_details(op_id)
+                self.show_opportunity_details(op_id, self.show_historico_view)
 
         results_tree.bind('<Double-1>', on_item_double_click)
 
@@ -1841,26 +1776,44 @@ class CRMApp:
                        ),
                        tags=(str(op['id']),))  # Armazenar ID nas tags
 
-    def show_opportunity_form(self, op_id=None, client_to_prefill=None):
-        form_win = Toplevel(self.root)
-        form_win.title("Nova Oportunidade" if not op_id else "Editar Oportunidade")
-        form_win.geometry("1100x800") # Aumentado para melhor visualização
-        form_win.configure(bg=DOLP_COLORS['white'])
+    def show_opportunity_form(self, op_id=None, client_to_prefill=None, back_callback=None):
+        self.clear_content()
+        form_title = "Nova Oportunidade" if not op_id else "Editar Oportunidade"
 
-        # --- Estrutura Principal da Janela ---
-        # Notebook para as abas (ocupa a maior parte da janela)
-        notebook = ttk.Notebook(form_win)
+        # --- Header with Back button ---
+        header_frame = ttk.Frame(self.content_frame, style='TFrame')
+        header_frame.pack(fill='x', pady=(0, 10), padx=20)
+        ttk.Label(header_frame, text=form_title, style='Title.TLabel').pack(side='left')
+        if back_callback:
+            ttk.Button(header_frame, text="← Voltar", command=back_callback, style='TButton').pack(side='right')
+
+        # The form is very long, so we make the entire content area scrollable.
+        main_canvas = tk.Canvas(self.content_frame, bg=DOLP_COLORS['white'], highlightthickness=0)
+        v_scrollbar = ttk.Scrollbar(self.content_frame, orient="vertical", command=main_canvas.yview)
+        scrollable_frame = ttk.Frame(main_canvas, style='TFrame')
+
+        scrollable_frame.bind("<Configure>", lambda e: main_canvas.configure(scrollregion=main_canvas.bbox("all")))
+        main_canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        main_canvas.configure(yscrollcommand=v_scrollbar.set)
+
+        main_canvas.pack(side="left", fill="both", expand=True, padx=(20,0), pady=(0,20))
+        v_scrollbar.pack(side="right", fill="y", padx=(0,20), pady=(0,20))
+
+        def _on_mousewheel(event):
+            main_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+        self.content_frame.bind('<Enter>', lambda e: self.root.bind_all("<MouseWheel>", _on_mousewheel))
+        self.content_frame.bind('<Leave>', lambda e: self.root.unbind_all("<MouseWheel>"))
+
+        # --- Form content goes into the scrollable_frame ---
+        notebook = ttk.Notebook(scrollable_frame)
         notebook.pack(fill='both', expand=True, padx=10, pady=(10, 0))
 
-        # Botões de Ação (sempre visíveis na parte inferior)
-        buttons_frame = ttk.Frame(form_win, padding=(10, 15, 10, 15))
+        buttons_frame = ttk.Frame(scrollable_frame, padding=(10, 15, 10, 15))
         buttons_frame.pack(side='bottom', fill='x')
 
-        # --- Criação das Abas com Rolagem ---
         analise_frame = self._create_scrollable_tab(notebook, '  Análise Prévia de Viabilidade  ')
         sumario_frame = self._create_scrollable_tab(notebook, '  Sumário Executivo  ')
 
-        # Preparar dados
         clients = self.db.get_all_clients()
         client_map = {c['nome_empresa']: c['id'] for c in clients}
         estagios = self.db.get_pipeline_data()[0]
@@ -1868,54 +1821,36 @@ class CRMApp:
         servicos = self.db.get_all_servicos()
         servico_map = {s['nome']: s['id'] for s in servicos}
         servico_names = [t['nome'] for t in servicos]
-
         entries = {}
 
-        # === ANÁLISE PRÉVIA DE VIABILIDADE (CONTEÚDO DENTRO DA ABA DE ROLAGEM) ===
         analise_frame.columnconfigure(1, weight=1)
-
-        # Informações Básicas
         info_basicas = ttk.LabelFrame(analise_frame, text="Informações Básicas", padding=15, style='White.TLabelframe')
         info_basicas.pack(fill='x', pady=(0, 10))
         info_basicas.columnconfigure(1, weight=1)
-
         basic_fields = [
-            ("Título:*", "titulo", "entry"),
-            ("Cliente:*", "cliente_id", "combobox", [c['nome_empresa'] for c in clients]),
+            ("Título:*", "titulo", "entry"), ("Cliente:*", "cliente_id", "combobox", [c['nome_empresa'] for c in clients]),
             ("Estágio:*", "estagio_id", "combobox", [e['nome'] for e in estagios if e['nome'] != 'Histórico']),
             ("Valor Estimado (R$):", "valor", "entry")
         ]
-
         for i, field_info in enumerate(basic_fields):
             text, key = field_info[0], field_info[1]
             ttk.Label(info_basicas, text=text, style='TLabel').grid(row=i, column=0, sticky='w', pady=5, padx=5)
-
-            if len(field_info) > 3:  # combobox com valores
-                widget = ttk.Combobox(info_basicas, values=field_info[3], state='readonly')
-            elif field_info[2] == "combobox":
-                widget = ttk.Combobox(info_basicas, state='readonly')
-            else:
-                widget = ttk.Entry(info_basicas)
-
+            if len(field_info) > 3: widget = ttk.Combobox(info_basicas, values=field_info[3], state='readonly')
+            elif field_info[2] == "combobox": widget = ttk.Combobox(info_basicas, state='readonly')
+            else: widget = ttk.Entry(info_basicas)
             widget.grid(row=i, column=1, sticky='ew', pady=5, padx=5)
             entries[key] = widget
 
-        # Formulário de Análise de Qualificação da Oportunidade
         qualificacao_frame = ttk.LabelFrame(analise_frame, text="Formulário de Análise de Qualificação da Oportunidade", padding=15, style='White.TLabelframe')
         qualificacao_frame.pack(fill='x', pady=(0, 10))
-
         qualificacao_vars = {}
         entries['qualificacao_data'] = qualificacao_vars
-
-        # Define the special questions
         q_diferenciais = "Quais são nossos diferenciais competitivos claros para esta oportunidade específica?"
         q_riscos = "Quais os principais riscos (técnicos, logísticos, regulatórios, políticos) associados ao projeto?"
-
         for section, questions in QUALIFICATION_CHECKLIST.items():
             section_frame = ttk.LabelFrame(qualificacao_frame, text=section, padding=10, style='White.TLabelframe')
             section_frame.pack(fill='x', expand=True, pady=5)
-            section_frame.columnconfigure(0, weight=1) # Allow question label to expand
-
+            section_frame.columnconfigure(0, weight=1)
             row_idx = 0
             for question in questions:
                 if question == q_diferenciais:
@@ -1945,70 +1880,52 @@ class CRMApp:
                     rb_nao.pack(side='left', padx=10)
                     row_idx += 1
 
-        # Dicionários para manter o estado da UI dinâmica
         servico_frames = {}
         servico_equipes_data = {}
         entries['servicos_data'] = servico_equipes_data
-
         def _add_equipe_row(servico_id, servico_nome, container):
             row_frame = ttk.Frame(container, padding=(0, 5))
             row_frame.pack(fill='x', expand=True, pady=2)
-
             row_widgets = {}
-
             team_types = self.db.get_team_types_for_service(servico_id)
             team_type_names = [t['nome'] for t in team_types]
-
             base_widgets = entries.get('bases_nomes_widgets', [])
             base_names = [b.get().strip() for b in base_widgets if b.get().strip()]
-
-            # Widgets da linha
             ttk.Label(row_frame, text="Tipo de Equipe:").pack(side='left', padx=(0,5))
             tipo_combo = ttk.Combobox(row_frame, values=team_type_names, state='readonly', width=40)
             tipo_combo.pack(side='left', padx=5)
             row_widgets['tipo_combo'] = tipo_combo
-
             ttk.Label(row_frame, text="Qtd:").pack(side='left', padx=(5,0))
             qtd_entry = ttk.Entry(row_frame, width=5)
             qtd_entry.pack(side='left', padx=5)
             row_widgets['qtd_entry'] = qtd_entry
-
             ttk.Label(row_frame, text="Volumetria:").pack(side='left', padx=(5,0))
             vol_entry = ttk.Entry(row_frame, width=8)
             vol_entry.pack(side='left', padx=5)
             row_widgets['vol_entry'] = vol_entry
-
             ttk.Label(row_frame, text="Base:").pack(side='left', padx=(5,0))
             base_combo = ttk.Combobox(row_frame, values=base_names, state='readonly', width=15)
             base_combo.pack(side='left', padx=5)
             row_widgets['base_combo'] = base_combo
-
             def remove_row():
                 servico_equipes_data[servico_nome].remove(row_widgets)
                 row_frame.destroy()
-
             remove_button = ttk.Button(row_frame, text="X", command=remove_row, style='Danger.TButton', width=3)
             remove_button.pack(side='right', padx=5)
-
             servico_equipes_data[servico_nome].append(row_widgets)
-
         def _update_servicos_ui():
             for servico_nome, var in tipos_vars.items():
                 if var.get():
                     if servico_nome not in servico_frames:
                         servico_id = servico_map[servico_nome]
-
                         frame = ttk.LabelFrame(servicos_config_frame, text=f"Configuração para: {servico_nome}", padding=10)
                         frame.pack(fill='x', expand=True, pady=5, padx=5)
                         servico_frames[servico_nome] = frame
-
                         equipes_container = ttk.Frame(frame)
                         equipes_container.pack(fill='x', expand=True)
-
                         add_button = ttk.Button(frame, text="Adicionar Equipe", style='Success.TButton',
                                                 command=lambda s_id=servico_id, s_nome=servico_nome, c=equipes_container: _add_equipe_row(s_id, s_nome, c))
                         add_button.pack(pady=5, anchor='w')
-
                         servico_equipes_data[servico_nome] = []
                 else:
                     if servico_nome in servico_frames:
@@ -2017,45 +1934,31 @@ class CRMApp:
                         if servico_nome in servico_equipes_data:
                             del servico_equipes_data[servico_nome]
 
-        # --- Início da UI do Checklist ---
-
-        # Container principal para toda a seção de serviços
         servicos_lf = ttk.LabelFrame(analise_frame, text="Configuração de Serviços e Equipes", padding=15, style='White.TLabelframe')
         servicos_lf.pack(fill='x', pady=(0, 10))
         servicos_lf.columnconfigure(1, weight=1)
-
-        # Container para os frames de equipe que são adicionados dinamicamente.
-        # Ele é criado aqui para estar no escopo das funções helper, e posicionado no grid mais tarde.
         servicos_config_frame = ttk.Frame(servicos_lf, padding=(0, 10))
-
         ttk.Label(servicos_lf, text="Tipos de Serviço:", font=('Segoe UI', 10, 'bold')).grid(row=0, column=0, sticky='nw', pady=5, padx=5)
         tipos_frame = ttk.Frame(servicos_lf)
         tipos_frame.grid(row=0, column=1, sticky='ew', pady=5, padx=5)
         tipos_vars = {}
         col_count = 3
-        row = 0
-        col = 0
+        row, col = 0, 0
         for name in servico_names:
             var = tk.BooleanVar()
             tipos_vars[name] = var
             cb = ttk.Checkbutton(tipos_frame, text=name, variable=var, command=_update_servicos_ui)
             cb.grid(row=row, column=col, sticky='w', padx=5, pady=2)
             col += 1
-            if col >= col_count:
-                col = 0
-                row += 1
+            if col >= col_count: col, row = 0, row + 1
         entries['tipos_servico_vars'] = tipos_vars
-        start_row_after_services = 1 # Começa na próxima linha
-
-        # Outros campos do checklist
+        start_row_after_services = 1
         checklist_fields = [("Tempo de Contrato (meses):", "tempo_contrato_meses", "entry"), ("Regional:", "regional", "entry"), ("Polo:", "polo", "entry")]
         for i, (text, key, widget_type) in enumerate(checklist_fields):
             ttk.Label(servicos_lf, text=text).grid(row=start_row_after_services + i, column=0, sticky='w', pady=5, padx=5)
             entry = ttk.Entry(servicos_lf)
             entry.grid(row=start_row_after_services + i, column=1, sticky='ew', pady=5, padx=5)
             entries[key] = entry
-
-        # Empresa Referência
         empresa_row = start_row_after_services + len(checklist_fields)
         ttk.Label(servicos_lf, text="Empresa Referência:", font=('Segoe UI', 10, 'bold')).grid(row=empresa_row, column=0, sticky='w', pady=5, padx=5)
         empresas_ref = self.db.get_all_empresas_referencia()
@@ -2063,31 +1966,21 @@ class CRMApp:
         empresa_combo = ttk.Combobox(servicos_lf, values=empresa_names, state='readonly')
         empresa_combo.grid(row=empresa_row, column=1, sticky='ew', pady=5, padx=5)
         entries['empresa_referencia'] = empresa_combo
-
-        # Quantidade de Bases
         bases_row = empresa_row + 1
         ttk.Label(servicos_lf, text="Quantidade de Bases:", font=('Segoe UI', 10, 'bold')).grid(row=bases_row, column=0, sticky='w', pady=5, padx=5)
         bases_input_frame = ttk.Frame(servicos_lf)
         bases_input_frame.grid(row=bases_row, column=1, sticky='ew', pady=5, padx=5)
         bases_fields_frame = ttk.Frame(servicos_lf)
         bases_fields_frame.grid(row=bases_row + 1, column=0, columnspan=2, sticky='ew', pady=5, padx=5)
-
-        # Posiciona o frame que conterá os serviços dinâmicos no final do grid estático
         next_row_for_dynamic_services = bases_row + 2
         servicos_config_frame.grid(row=next_row_for_dynamic_services, column=0, columnspan=2, sticky='ew', pady=(10, 0))
-
         base_name_entries = []
         entries['bases_nomes_widgets'] = base_name_entries
-
         def _update_base_fields_ui():
-            for widget in bases_fields_frame.winfo_children():
-                widget.destroy()
+            for widget in bases_fields_frame.winfo_children(): widget.destroy()
             base_name_entries.clear()
-            try:
-                num_bases = int(bases_spinbox.get())
-            except (ValueError, tk.TclError):
-                num_bases = 0
-
+            try: num_bases = int(bases_spinbox.get())
+            except (ValueError, tk.TclError): num_bases = 0
             for i in range(num_bases):
                 base_frame = ttk.Frame(bases_fields_frame)
                 base_frame.pack(fill='x', pady=2, padx=5)
@@ -2095,62 +1988,41 @@ class CRMApp:
                 entry = ttk.Entry(base_frame, width=30)
                 entry.pack(side='left', fill='x', expand=True, padx=5)
                 base_name_entries.append(entry)
-
         def _update_base_fields_ui_and_combos():
             _update_base_fields_ui()
-            # Atualizar comboboxes de base em todas as linhas de equipe existentes
             base_widgets = entries.get('bases_nomes_widgets', [])
             base_names = [b.get().strip() for b in base_widgets if b.get().strip()]
             for service, equipe_rows in servico_equipes_data.items():
                 for row in equipe_rows:
-                    if 'base_combo' in row:
-                        row['base_combo']['values'] = base_names
-
+                    if 'base_combo' in row: row['base_combo']['values'] = base_names
         bases_spinbox = ttk.Spinbox(bases_input_frame, from_=0, to=50, width=10, command=_update_base_fields_ui_and_combos)
         bases_spinbox.pack(side='left')
         entries['quantidade_bases'] = bases_spinbox
 
-
-        # === SUMÁRIO EXECUTIVO (CONTEÚDO DENTRO DA ABA DE ROLAGEM) ===
         sumario_frame.columnconfigure(1, weight=1)
-
-        # Informações do Edital
         edital_frame = ttk.LabelFrame(sumario_frame, text="Informações do Edital", padding=15, style='White.TLabelframe')
         edital_frame.pack(fill='x', pady=(0, 10))
         edital_frame.columnconfigure(1, weight=1)
-
         edital_fields = [
-            ("Número do Edital:", "numero_edital", "entry"),
-            ("Data de Abertura:", "data_abertura", "date"),
-            ("Modalidade:", "modalidade", "entry"),
-            ("Contato Principal:", "contato_principal", "entry"),
+            ("Número do Edital:", "numero_edital", "entry"), ("Data de Abertura:", "data_abertura", "date"),
+            ("Modalidade:", "modalidade", "entry"), ("Contato Principal:", "contato_principal", "entry"),
             ("Link da Pasta de Documentos:", "link_documentos", "entry")
         ]
-
         for i, (text, key, widget_type) in enumerate(edital_fields):
             ttk.Label(edital_frame, text=text).grid(row=i, column=0, sticky='w', pady=5, padx=5)
-            if widget_type == 'date':
-                entry = DateEntry(edital_frame, date_pattern='dd/mm/yyyy', width=20)
-            else:
-                entry = ttk.Entry(edital_frame)
+            if widget_type == 'date': entry = DateEntry(edital_frame, date_pattern='dd/mm/yyyy', width=20)
+            else: entry = ttk.Entry(edital_frame)
             entry.grid(row=i, column=1, sticky='ew', pady=5, padx=5)
             entries[key] = entry
 
-        # Informações de Cotação
         cotacao_frame = ttk.LabelFrame(sumario_frame, text="Informações de Cotação", padding=15, style='White.TLabelframe')
         cotacao_frame.pack(fill='x', pady=(0, 10))
         cotacao_frame.columnconfigure(1, weight=1)
-
         cotacao_fields = [
-            ("Faturamento Estimado (R$):", "faturamento_estimado", "entry"),
-            ("Duração do Contrato (meses):", "duracao_contrato", "entry"),
-            ("MOD (Mão de Obra Direta):", "mod", "entry"),
-            ("MOI (Mão de Obra Indireta):", "moi", "entry"),
-            ("Total de Pessoas:", "total_pessoas", "entry"),
-            ("Margem de Contribuição (%):", "margem_contribuicao", "entry"),
+            ("Faturamento Estimado (R$):", "faturamento_estimado", "entry"), ("Duração do Contrato (meses):", "duracao_contrato", "entry"),
+            ("MOD (Mão de Obra Direta):", "mod", "entry"), ("MOI (Mão de Obra Indireta):", "moi", "entry"),
+            ("Total de Pessoas:", "total_pessoas", "entry"), ("Margem de Contribuição (%):", "margem_contribuicao", "entry"),
         ]
-
-        # Função para calcular total de pessoas automaticamente
         def calcular_total_pessoas():
             try:
                 mod = float(entries['mod'].get() or '0')
@@ -2158,116 +2030,64 @@ class CRMApp:
                 total = mod + moi
                 entries['total_pessoas'].delete(0, 'end')
                 entries['total_pessoas'].insert(0, str(int(total)))
-            except ValueError:
-                pass
-
+            except ValueError: pass
         for i, (text, key, widget_type) in enumerate(cotacao_fields):
             ttk.Label(cotacao_frame, text=text).grid(row=i, column=0, sticky='w', pady=5, padx=5)
-            if widget_type == 'date':
-                entry = DateEntry(cotacao_frame, date_pattern='dd/mm/yyyy', width=20)
+            if widget_type == 'date': entry = DateEntry(cotacao_frame, date_pattern='dd/mm/yyyy', width=20)
             else:
                 entry = ttk.Entry(cotacao_frame)
-                # Bind para calcular total automaticamente quando MOD ou MOI mudarem
                 if key in ['mod', 'moi']:
                     entry.bind('<KeyRelease>', lambda e: calcular_total_pessoas())
                     entry.bind('<FocusOut>', lambda e: calcular_total_pessoas())
             entry.grid(row=i, column=1, sticky='ew', pady=5, padx=5)
             entries[key] = entry
 
-        # Detalhes dos Serviços e Preços (Automático baseado na Análise Prévia)
         servicos_frame = ttk.LabelFrame(sumario_frame, text="Detalhes dos Serviços e Preços (Calculado Automaticamente)", padding=15, style='White.TLabelframe')
         servicos_frame.pack(fill='x', pady=(0, 10))
-
-        # Informações sobre cálculo
         info_calculo = ttk.Label(servicos_frame, text="Os preços são calculados com base na Análise Prévia. Clique no botão para recalcular.", font=('Segoe UI', 9, 'italic'), foreground=DOLP_COLORS['medium_gray'])
         info_calculo.pack(pady=(0, 10))
-
-        # Botão para calcular preços
         calculo_frame = ttk.Frame(servicos_frame)
         calculo_frame.pack(fill='x', pady=(0, 10))
         ttk.Button(calculo_frame, text="Calcular Preços Automaticamente", command=lambda: calcular_precos_automaticos(), style='Primary.TButton').pack(side='left', padx=5)
-
-        # Lista de serviços calculados
         servicos_tree = ttk.Treeview(servicos_frame, columns=('servico', 'quantidade', 'volumetria', 'preco_unitario', 'preco_total'), show='headings', height=6)
-        servicos_tree.heading('servico', text='Serviço')
-        servicos_tree.heading('quantidade', text='Qtd Equipes')
-        servicos_tree.heading('volumetria', text='Volumetria')
-        servicos_tree.heading('preco_unitario', text='Preço Unit. (R$)')
-        servicos_tree.heading('preco_total', text='Preço Total (R$)')
-        servicos_tree.column('servico', width=200)
-        servicos_tree.column('quantidade', width=80, anchor='center')
-        servicos_tree.column('volumetria', width=100, anchor='center')
-        servicos_tree.column('preco_unitario', width=120, anchor='center')
-        servicos_tree.column('preco_total', width=120, anchor='center')
+        servicos_tree.heading('servico', text='Serviço'); servicos_tree.heading('quantidade', text='Qtd Equipes'); servicos_tree.heading('volumetria', text='Volumetria'); servicos_tree.heading('preco_unitario', text='Preço Unit. (R$)'); servicos_tree.heading('preco_total', text='Preço Total (R$)')
+        servicos_tree.column('servico', width=200); servicos_tree.column('quantidade', width=80, anchor='center'); servicos_tree.column('volumetria', width=100, anchor='center'); servicos_tree.column('preco_unitario', width=120, anchor='center'); servicos_tree.column('preco_total', width=120, anchor='center')
         servicos_tree.pack(fill='x', pady=5)
         entries['servicos_tree'] = servicos_tree
-
         def calcular_precos_automaticos():
-            # 1. Obter empresa de referência
             empresa_nome = entries['empresa_referencia'].get()
             if not empresa_nome:
-                messagebox.showwarning("Aviso", "Por favor, selecione uma Empresa Referência na aba 'Análise Prévia' primeiro.", parent=form_win)
+                messagebox.showwarning("Aviso", "Por favor, selecione uma Empresa Referência na aba 'Análise Prévia' primeiro.", parent=self.root)
                 return
-
-            # 2. Limpar a árvore de resultados e resetar o faturamento
-            for item in servicos_tree.get_children():
-                servicos_tree.delete(item)
-
+            for item in servicos_tree.get_children(): servicos_tree.delete(item)
             faturamento_total = 0.0
-
-            # 3. Iterar sobre os serviços configurados no formulário
             servico_equipes_data = entries.get('servicos_data', {})
             tipos_servico_vars = entries.get('tipos_servico_vars', {})
-
             for servico_nome, equipe_rows in servico_equipes_data.items():
-                # Verificar se o serviço está ativo (checkbox marcado)
-                if not (tipos_servico_vars.get(servico_nome) and tipos_servico_vars[servico_nome].get()):
-                    continue
-
-                # 4. Obter dados de referência para o serviço
+                if not (tipos_servico_vars.get(servico_nome) and tipos_servico_vars[servico_nome].get()): continue
                 ref_data = self.db.get_empresa_referencia_by_nome_e_tipo(empresa_nome, servico_nome)
                 if not ref_data:
                     servicos_tree.insert('', 'end', values=(servico_nome, '---', '---', 'N/A', 'Ref. não encontrada'))
                     continue
-
                 preco_unitario = ref_data['valor_mensal']
-
-                # 5. Calcular totais para o serviço
-                total_qtd_equipes = 0
-                total_volumetria = 0.0
-
+                total_qtd_equipes, total_volumetria = 0, 0.0
                 for row_widgets in equipe_rows:
                     try:
                         total_qtd_equipes += int(row_widgets['qtd_entry'].get() or 0)
                         total_volumetria += float(row_widgets['vol_entry'].get().replace(',', '.') or 0)
                     except (ValueError, TypeError):
-                        messagebox.showerror("Erro de Formato", f"Verifique os valores de Quantidade e Volumetria para o serviço '{servico_nome}'. Devem ser números.", parent=form_win)
+                        messagebox.showerror("Erro de Formato", f"Verifique os valores de Quantidade e Volumetria para o serviço '{servico_nome}'. Devem ser números.", parent=self.root)
                         return
-
-                # 6. Calcular preço total e adicionar ao faturamento
                 preco_total_servico = total_qtd_equipes * preco_unitario
                 faturamento_total += preco_total_servico
-
-                # 7. Inserir na árvore
-                servicos_tree.insert('', 'end', values=(
-                    servico_nome,
-                    total_qtd_equipes,
-                    f"{total_volumetria:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
-                    format_currency(preco_unitario),
-                    format_currency(preco_total_servico)
-                ))
-
-            # 8. Atualizar campo de faturamento estimado
+                servicos_tree.insert('', 'end', values=(servico_nome, total_qtd_equipes, f"{total_volumetria:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."), format_currency(preco_unitario), format_currency(preco_total_servico)))
             entries['faturamento_estimado'].delete(0, 'end')
             faturamento_estimado_str = f"{faturamento_total:.2f}".replace('.', ',')
             entries['faturamento_estimado'].insert(0, faturamento_estimado_str)
-            messagebox.showinfo("Sucesso", "Cálculo de preços concluído e Faturamento Estimado atualizado.", parent=form_win)
+            messagebox.showinfo("Sucesso", "Cálculo de preços concluído e Faturamento Estimado atualizado.", parent=self.root)
 
-
-        # Descrição Detalhada
         desc_frame = ttk.LabelFrame(sumario_frame, text="Descrição Detalhada", padding=15, style='White.TLabelframe')
         desc_frame.pack(fill='both', expand=True, pady=(0, 10))
-
         desc_text = tk.Text(desc_frame, height=8, wrap='word', bg='white', font=('Segoe UI', 10))
         desc_scrollbar = ttk.Scrollbar(desc_frame, orient="vertical", command=desc_text.yview)
         desc_text.configure(yscrollcommand=desc_scrollbar.set)
@@ -2275,47 +2095,32 @@ class CRMApp:
         desc_scrollbar.pack(side="right", fill="y")
         entries['descricao_detalhada'] = desc_text
 
-
-        # Carregar dados se editando oportunidade existente
         if op_id:
             try:
                 op_data = self.db.get_opportunity_details(op_id)
                 if not op_data:
-                    messagebox.showerror("Erro", f"Não foi possível encontrar os dados para a oportunidade com ID {op_id}.", parent=form_win)
+                    messagebox.showerror("Erro", f"Não foi possível encontrar os dados para a oportunidade com ID {op_id}.", parent=self.root)
                     return
-
                 op_keys = op_data.keys()
-                # --- Início da Lógica de Carregamento Robusta ---
-
-                # 1. Carregar todos os dados estáticos primeiro, usando a verificação de chaves
                 entries['titulo'].insert(0, str(op_data['titulo']) if 'titulo' in op_keys and op_data['titulo'] is not None else '')
                 entries['valor'].insert(0, format_brazilian_currency_for_entry(op_data['valor']) if 'valor' in op_keys and op_data['valor'] is not None else '0,00')
-
                 cliente_id_val = op_data['cliente_id'] if 'cliente_id' in op_keys else None
                 for client in clients:
-                    if client['id'] == cliente_id_val:
-                        entries['cliente_id'].set(client['nome_empresa'])
-                        break
-
+                    if client['id'] == cliente_id_val: entries['cliente_id'].set(client['nome_empresa']); break
                 estagio_id_val = op_data['estagio_id'] if 'estagio_id' in op_keys else None
                 for estagio in estagios:
-                    if estagio['id'] == estagio_id_val:
-                        entries['estagio_id'].set(estagio['nome'])
-                        break
-
+                    if estagio['id'] == estagio_id_val: entries['estagio_id'].set(estagio['nome']); break
                 entries['tempo_contrato_meses'].insert(0, str(op_data['tempo_contrato_meses']) if 'tempo_contrato_meses' in op_keys and op_data['tempo_contrato_meses'] is not None else '')
                 entries['regional'].insert(0, str(op_data['regional']) if 'regional' in op_keys and op_data['regional'] is not None else '')
                 entries['polo'].insert(0, str(op_data['polo']) if 'polo' in op_keys and op_data['polo'] is not None else '')
                 entries['empresa_referencia'].set(str(op_data['empresa_referencia']) if 'empresa_referencia' in op_keys and op_data['empresa_referencia'] is not None else '')
                 entries['numero_edital'].insert(0, str(op_data['numero_edital']) if 'numero_edital' in op_keys and op_data['numero_edital'] is not None else '')
-
                 data_abertura_str = op_data['data_abertura'] if 'data_abertura' in op_keys else None
                 if data_abertura_str:
                     try:
                         date_obj = datetime.strptime(data_abertura_str, '%d/%m/%Y').date()
                         entries['data_abertura'].set_date(date_obj)
                     except (ValueError, TypeError): pass
-
                 entries['modalidade'].insert(0, str(op_data['modalidade']) if 'modalidade' in op_keys and op_data['modalidade'] is not None else '')
                 entries['contato_principal'].insert(0, str(op_data['contato_principal']) if 'contato_principal' in op_keys and op_data['contato_principal'] is not None else '')
                 entries['link_documentos'].insert(0, str(op_data['link_documentos']) if 'link_documentos' in op_keys and op_data['link_documentos'] is not None else '')
@@ -2325,19 +2130,13 @@ class CRMApp:
                 entries['moi'].insert(0, format_brazilian_currency_for_entry(op_data['moi']) if 'moi' in op_keys and op_data['moi'] is not None else '0,00')
                 entries['total_pessoas'].insert(0, str(op_data['total_pessoas']) if 'total_pessoas' in op_keys and op_data['total_pessoas'] is not None else '')
                 entries['margem_contribuicao'].insert(0, format_brazilian_currency_for_entry(op_data['margem_contribuicao']) if 'margem_contribuicao' in op_keys and op_data['margem_contribuicao'] is not None else '0,00')
-
                 descricao_detalhada = op_data['descricao_detalhada'] if 'descricao_detalhada' in op_keys else None
-                if descricao_detalhada:
-                    entries['descricao_detalhada'].insert('1.0', str(descricao_detalhada))
-
-                form_win.update_idletasks()
-
-                # 2. Carregar dados das bases
+                if descricao_detalhada: entries['descricao_detalhada'].insert('1.0', str(descricao_detalhada))
+                scrollable_frame.update_idletasks()
                 num_bases = op_data['quantidade_bases'] if 'quantidade_bases' in op_keys else None
                 if num_bases is not None:
                     bases_spinbox.set(num_bases)
                     _update_base_fields_ui()
-
                     bases_nomes_json = op_data['bases_nomes'] if 'bases_nomes' in op_keys else None
                     if bases_nomes_json:
                         try:
@@ -2345,26 +2144,18 @@ class CRMApp:
                             base_widgets = entries.get('bases_nomes_widgets', [])
                             for i, nome in enumerate(bases_nomes_data):
                                 if i < len(base_widgets): base_widgets[i].insert(0, nome)
-                        except (json.JSONDecodeError, TypeError):
-                            print(f"Alerta: Falha ao carregar nomes de bases: {bases_nomes_json}")
-
-                form_win.update_idletasks()
-
-                # 3. Carregar dados de serviços e equipes
+                        except (json.JSONDecodeError, TypeError): print(f"Alerta: Falha ao carregar nomes de bases: {bases_nomes_json}")
+                scrollable_frame.update_idletasks()
                 servicos_data_json_str = op_data['servicos_data'] if 'servicos_data' in op_keys else None
                 if servicos_data_json_str:
                     try:
                         servicos_data_json = json.loads(servicos_data_json_str)
                         tipos_servico_vars = entries.get('tipos_servico_vars', {})
-
                         for servico_info in servicos_data_json:
                             servico_nome = servico_info.get('servico_nome')
-                            if servico_nome in tipos_servico_vars:
-                                tipos_servico_vars[servico_nome].set(True)
-
+                            if servico_nome in tipos_servico_vars: tipos_servico_vars[servico_nome].set(True)
                         _update_servicos_ui()
-                        form_win.update_idletasks()
-
+                        scrollable_frame.update_idletasks()
                         for servico_info in servicos_data_json:
                             servico_nome = servico_info.get('servico_nome')
                             equipes_data = servico_info.get('equipes', [])
@@ -2381,44 +2172,28 @@ class CRMApp:
                                         new_row_widgets['base_combo'].set(equipe_info.get('base', ''))
                     except (json.JSONDecodeError, TypeError) as e:
                         print(f"Erro ao carregar dados de serviços: {e}")
-                        messagebox.showwarning("Alerta de Carregamento",
-                                               "Não foi possível carregar os detalhes de serviços e equipes. Os dados podem estar corrompidos.",
-                                               parent=form_win)
-
-                # 4. Carregar dados do formulário de qualificação
+                        messagebox.showwarning("Alerta de Carregamento", "Não foi possível carregar os detalhes de serviços e equipes. Os dados podem estar corrompidos.", parent=self.root)
                 qualificacao_data_json = op_data['qualificacao_data'] if 'qualificacao_data' in op_keys else None
                 if qualificacao_data_json:
                     try:
                         qualificacao_answers = json.loads(qualificacao_data_json)
                         qualificacao_vars = entries.get('qualificacao_data', {})
                         for question, answer in qualificacao_answers.items():
-                            if question in qualificacao_vars:
-                                qualificacao_vars[question].set(answer)
-                    except (json.JSONDecodeError, TypeError) as e:
-                        print(f"Erro ao carregar dados de qualificação: {e}")
-
-                # Carregar dados dos campos de texto
+                            if question in qualificacao_vars: qualificacao_vars[question].set(answer)
+                    except (json.JSONDecodeError, TypeError) as e: print(f"Erro ao carregar dados de qualificação: {e}")
                 if 'diferenciais_competitivos' in entries and 'diferenciais_competitivos' in op_keys and op_data['diferenciais_competitivos']:
                     entries['diferenciais_competitivos'].insert('1.0', op_data['diferenciais_competitivos'])
                 if 'principais_riscos' in entries and 'principais_riscos' in op_keys and op_data['principais_riscos']:
                     entries['principais_riscos'].insert('1.0', op_data['principais_riscos'])
-
             except Exception as e:
                 import traceback
                 traceback.print_exc()
-                messagebox.showerror("Erro Crítico ao Carregar Dados",
-                                     f"Ocorreu um erro inesperado ao carregar os dados da oportunidade.\n\n"
-                                     f"Erro: {str(e)}\n\n"
-                                     "O formulário pode não exibir todos os dados corretamente.",
-                                     parent=form_win)
+                messagebox.showerror("Erro Crítico ao Carregar Dados", f"Ocorreu um erro inesperado ao carregar os dados da oportunidade.\n\nErro: {str(e)}\n\nO formulário pode não exibir todos os dados corretamente.", parent=self.root)
 
-
-        # Pré-preenchimento se criando nova oportunidade
         if client_to_prefill:
             entries['cliente_id'].set(client_to_prefill)
             entries['estagio_id'].set("Oportunidades")
 
-        # Função principal de salvamento
         def on_save():
             try:
                 data = {}
@@ -2426,57 +2201,34 @@ class CRMApp:
                 data['valor'] = parse_brazilian_currency(entries['valor'].get())
                 data['cliente_id'] = client_map.get(entries['cliente_id'].get())
                 data['estagio_id'] = estagio_map.get(entries['estagio_id'].get())
-
                 if not data['titulo'] or not data['cliente_id'] or not data['estagio_id']:
-                    messagebox.showerror("Erro", "Título, Cliente e Estágio são obrigatórios!", parent=form_win)
+                    messagebox.showerror("Erro", "Título, Cliente e Estágio são obrigatórios!", parent=self.root)
                     return
-
-                # Dados da análise prévia
                 data['tempo_contrato_meses'] = entries['tempo_contrato_meses'].get().strip()
                 data['regional'] = entries['regional'].get().strip()
                 data['polo'] = entries['polo'].get().strip()
                 data['quantidade_bases'] = entries['quantidade_bases'].get()
                 data['empresa_referencia'] = entries['empresa_referencia'].get()
-
                 base_widgets = entries.get('bases_nomes_widgets', [])
                 data['bases_nomes'] = json.dumps([entry.get().strip() for entry in base_widgets if entry.get().strip()])
-
-                # Coletar dados da nova estrutura dinâmica de serviços e equipes
                 servicos_data_to_save = []
                 tipos_servico_vars = entries.get('tipos_servico_vars', {})
                 servico_equipes_data = entries.get('servicos_data', {})
-
                 for servico_nome, equipe_rows in servico_equipes_data.items():
                     if tipos_servico_vars.get(servico_nome) and tipos_servico_vars[servico_nome].get():
                         equipes_to_save = []
                         for row_widgets in equipe_rows:
-                            equipe_data = {
-                                "tipo_equipe": row_widgets['tipo_combo'].get(),
-                                "quantidade": row_widgets['qtd_entry'].get(),
-                                "volumetria": row_widgets['vol_entry'].get(),
-                                "base": row_widgets['base_combo'].get()
-                            }
+                            equipe_data = {"tipo_equipe": row_widgets['tipo_combo'].get(), "quantidade": row_widgets['qtd_entry'].get(), "volumetria": row_widgets['vol_entry'].get(), "base": row_widgets['base_combo'].get()}
                             equipes_to_save.append(equipe_data)
-
                         servico_entry = { "servico_nome": servico_nome, "equipes": equipes_to_save }
                         servicos_data_to_save.append(servico_entry)
-
                 data['servicos_data'] = json.dumps(servicos_data_to_save)
-
-                # Coletar dados do formulário de qualificação
                 qualificacao_answers = {}
                 qualificacao_vars = entries.get('qualificacao_data', {})
-                for question, var in qualificacao_vars.items():
-                    qualificacao_answers[question] = var.get()
+                for question, var in qualificacao_vars.items(): qualificacao_answers[question] = var.get()
                 data['qualificacao_data'] = json.dumps(qualificacao_answers)
-
-                # Coletar dados dos novos campos de texto
-                if 'diferenciais_competitivos' in entries:
-                    data['diferenciais_competitivos'] = entries['diferenciais_competitivos'].get('1.0', 'end-1c').strip()
-                if 'principais_riscos' in entries:
-                    data['principais_riscos'] = entries['principais_riscos'].get('1.0', 'end-1c').strip()
-
-                # Dados do sumário executivo
+                if 'diferenciais_competitivos' in entries: data['diferenciais_competitivos'] = entries['diferenciais_competitivos'].get('1.0', 'end-1c').strip()
+                if 'principais_riscos' in entries: data['principais_riscos'] = entries['principais_riscos'].get('1.0', 'end-1c').strip()
                 data['numero_edital'] = entries['numero_edital'].get().strip()
                 data['data_abertura'] = entries['data_abertura'].get() if hasattr(entries['data_abertura'], 'get') else ''
                 data['modalidade'] = entries['modalidade'].get().strip()
@@ -2489,54 +2241,41 @@ class CRMApp:
                 data['total_pessoas'] = entries['total_pessoas'].get().strip()
                 data['margem_contribuicao'] = parse_brazilian_currency(entries['margem_contribuicao'].get())
                 data['descricao_detalhada'] = entries['descricao_detalhada'].get('1.0', 'end-1c')
-
                 if op_id:
                     self.db.update_opportunity(op_id, data)
-                    messagebox.showinfo("Sucesso", "Oportunidade atualizada com sucesso! A janela permanecerá aberta.", parent=form_win)
+                    messagebox.showinfo("Sucesso", "Oportunidade atualizada com sucesso!", parent=self.root)
                 else:
                     self.db.add_opportunity(data)
-                    messagebox.showinfo("Sucesso", "Oportunidade criada com sucesso! A janela permanecerá aberta.", parent=form_win)
-
-                # Atualiza a visão principal para refletir as mudanças
-                self.show_kanban_view()
-                # É crucial destruir a janela após salvar para evitar vazamento de estado
-                # entre formulários, que estava causando a corrupção de dados.
-                form_win.destroy()
-
+                    messagebox.showinfo("Sucesso", "Oportunidade criada com sucesso!", parent=self.root)
+                if back_callback:
+                    back_callback()
             except sqlite3.Error as e:
-                 messagebox.showerror("Erro de Banco de Dados", f"Erro ao salvar: {str(e)}", parent=form_win)
+                 messagebox.showerror("Erro de Banco de Dados", f"Erro ao salvar: {str(e)}", parent=self.root)
             except Exception as e:
-                messagebox.showerror("Erro Inesperado", f"Ocorreu um erro: {str(e)}", parent=form_win)
+                messagebox.showerror("Erro Inesperado", f"Ocorreu um erro: {str(e)}", parent=self.root)
 
-
-        # Botões de Ação
-        # Usar .pack() é mais robusto aqui. Os botões são empacotados da direita para a esquerda.
         ttk.Button(buttons_frame, text="Salvar Alterações" if op_id else "Criar Oportunidade", command=on_save, style='Success.TButton').pack(side='right')
-        ttk.Button(buttons_frame, text="Cancelar", command=form_win.destroy, style='TButton').pack(side='right', padx=(0, 10))
 
-    def show_opportunity_details(self, op_id):
-        details_win = Toplevel(self.root)
-        details_win.title("Detalhes da Oportunidade")
-        details_win.geometry("900x700")
-        details_win.configure(bg=DOLP_COLORS['white'])
+    def show_opportunity_details(self, op_id, back_callback):
+        self.clear_content()
 
         op_data = self.db.get_opportunity_details(op_id)
         if not op_data:
-            messagebox.showerror("Erro", "Oportunidade não encontrada!")
-            details_win.destroy()
+            messagebox.showerror("Erro", "Oportunidade não encontrada!", parent=self.root)
+            back_callback()
             return
 
         op_keys = op_data.keys()
 
-        header_frame = ttk.Frame(details_win, padding=20, style='TFrame')
+        header_frame = ttk.Frame(self.content_frame, padding=20, style='TFrame')
         header_frame.pack(fill='x')
 
         title_text = f"{op_data['numero_oportunidade'] if 'numero_oportunidade' in op_keys else 'OPP-?????'}: {op_data['titulo'] if 'titulo' in op_keys else 'Sem Título'}"
         ttk.Label(header_frame, text=title_text, style='Title.TLabel').pack(side='left')
-        ttk.Button(header_frame, text="Editar Detalhes", command=lambda: [details_win.destroy(), self.show_opportunity_form(op_id)], style='Primary.TButton').pack(side='right')
-        ttk.Button(header_frame, text="← Voltar", command=details_win.destroy, style='TButton').pack(side='right', padx=(0, 10))
+        ttk.Button(header_frame, text="Editar Detalhes", command=lambda: self.show_opportunity_form(op_id, back_callback=back_callback), style='Primary.TButton').pack(side='right')
+        ttk.Button(header_frame, text="← Voltar", command=back_callback, style='TButton').pack(side='right', padx=(0, 10))
 
-        notebook = ttk.Notebook(details_win, padding=10)
+        notebook = ttk.Notebook(self.content_frame, padding=10)
         notebook.pack(fill='both', expand=True, padx=20, pady=(0, 20))
 
         # --- Refatoração para usar abas com rolagem ---
@@ -2742,8 +2481,8 @@ class CRMApp:
         # Botão de Filtrar
         ttk.Button(filters_interactions_frame, text="🔍 Filtrar", command=_refilter_interactions, style='Primary.TButton').grid(row=0, column=6, padx=(20, 0))
 
-        # Botão de Nova Interação (movido para o frame de filtros para melhor layout)
-        ttk.Button(filters_interactions_frame, text="Nova Interação", command=lambda: self.add_interaction_dialog(op_id, details_win), style='Success.TButton').grid(row=0, column=7, padx=(10,0))
+        # Botão de Nova Interação
+        ttk.Button(filters_interactions_frame, text="Nova Interação", command=lambda: self.add_interaction_dialog(op_id, lambda: self.show_opportunity_details(op_id, back_callback)), style='Success.TButton').grid(row=0, column=7, padx=(10,0))
 
         # Carregar interações iniciais
         _refilter_interactions()
@@ -2807,13 +2546,13 @@ class CRMApp:
                     ttk.Label(info_frame, text=f"Vencimento: {tarefa['data_vencimento']}", style='Metric.White.TLabel').pack(side='right')
                     if tarefa['status'] != 'Concluída':
                         ttk.Button(task_frame, text="Marcar como Concluída",
-                                 command=lambda t_id=tarefa['id'], op_id=op_id: self.complete_task(t_id, op_id, details_win),
+                                 command=lambda t_id=tarefa['id']: self.complete_task(t_id, lambda: self.show_opportunity_details(op_id, back_callback)),
                                  style='Success.TButton').pack(anchor='e', pady=(5, 0))
             else:
                 ttk.Label(tasks_results_frame, text="Nenhuma tarefa encontrada para os filtros selecionados.", style='Value.White.TLabel').pack(pady=20)
 
         ttk.Button(filters_tasks_frame, text="🔍 Filtrar", command=_refilter_tasks, style='Primary.TButton').grid(row=0, column=8, padx=(20, 0))
-        ttk.Button(filters_tasks_frame, text="Nova Tarefa", command=lambda: self.add_task_dialog(op_id, details_win), style='Success.TButton').grid(row=0, column=9, padx=(10,0))
+        ttk.Button(filters_tasks_frame, text="Nova Tarefa", command=lambda: self.add_task_dialog(op_id, lambda: self.show_opportunity_details(op_id, back_callback)), style='Success.TButton').grid(row=0, column=9, padx=(10,0))
 
         # Carregar tarefas iniciais
         _refilter_tasks()
@@ -3161,92 +2900,83 @@ class CRMApp:
         except Exception as e:
             messagebox.showerror("Erro ao Gerar PDF", f"Ocorreu um erro: {e}", parent=self.root)
 
-    def add_interaction_dialog(self, op_id, parent_win):
-        dialog = Toplevel(parent_win)
-        dialog.title("Nova Interação")
-        dialog.geometry("500x400")
-        dialog.configure(bg=DOLP_COLORS['white'])
+    def add_interaction_dialog(self, op_id, back_callback):
+        self.clear_content()
+        title_frame = ttk.Frame(self.content_frame, style='TFrame')
+        title_frame.pack(fill='x', pady=(0, 20), padx=20)
+        ttk.Label(title_frame, text="Nova Interação", style='Title.TLabel').pack(side='left')
+        ttk.Button(title_frame, text="← Voltar", command=back_callback, style='TButton').pack(side='right')
 
-        ttk.Label(dialog, text="Tipo de Interação:", style='TLabel').pack(pady=5)
-        tipo_combo = ttk.Combobox(dialog, values=["Reunião", "Ligação", "E-mail", "Proposta", "Negociação", "Outro"], state='readonly')
+        main_frame = ttk.Frame(self.content_frame, padding=20, style='TFrame')
+        main_frame.pack(fill='both', expand=True, padx=20, pady=0)
+
+        ttk.Label(main_frame, text="Tipo de Interação:", style='TLabel').pack(pady=5)
+        tipo_combo = ttk.Combobox(main_frame, values=["Reunião", "Ligação", "E-mail", "Proposta", "Negociação", "Outro"], state='readonly')
         tipo_combo.pack(pady=5, padx=20, fill='x')
-
-        ttk.Label(dialog, text="Usuário:", style='TLabel').pack(pady=5)
-        usuario_entry = ttk.Entry(dialog)
+        ttk.Label(main_frame, text="Usuário:", style='TLabel').pack(pady=5)
+        usuario_entry = ttk.Entry(main_frame)
         usuario_entry.pack(pady=5, padx=20, fill='x')
-
-        ttk.Label(dialog, text="Resumo:", style='TLabel').pack(pady=5)
-        resumo_text = tk.Text(dialog, height=8, wrap='word', bg='white')
+        ttk.Label(main_frame, text="Resumo:", style='TLabel').pack(pady=5)
+        resumo_text = tk.Text(main_frame, height=8, wrap='word', bg='white')
         resumo_text.pack(pady=5, padx=20, fill='both', expand=True)
 
         def save_interaction():
             data = {
-                'oportunidade_id': op_id,
-                'data_interacao': datetime.now().strftime('%d/%m/%Y %H:%M'),
-                'tipo': tipo_combo.get(),
-                'resumo': resumo_text.get('1.0', 'end-1c'),
-                'usuario': usuario_entry.get()
+                'oportunidade_id': op_id, 'data_interacao': datetime.now().strftime('%d/%m/%Y %H:%M'),
+                'tipo': tipo_combo.get(), 'resumo': resumo_text.get('1.0', 'end-1c'), 'usuario': usuario_entry.get()
             }
-
             if not data['tipo'] or not data['resumo'] or not data['usuario']:
-                messagebox.showerror("Erro", "Todos os campos são obrigatórios!", parent=dialog)
+                messagebox.showerror("Erro", "Todos os campos são obrigatórios!", parent=self.root)
                 return
-
             self.db.add_interaction(data)
-            messagebox.showinfo("Sucesso", "Interação adicionada com sucesso!", parent=dialog)
-            parent_win.destroy()
-            self.show_opportunity_details(op_id)
-            dialog.destroy()
+            messagebox.showinfo("Sucesso", "Interação adicionada com sucesso!", parent=self.root)
+            back_callback()
 
+        buttons_frame = ttk.Frame(main_frame, style='TFrame')
+        buttons_frame.pack(pady=10)
+        ttk.Button(buttons_frame, text="Salvar", command=save_interaction, style='Success.TButton').pack()
 
-        ttk.Button(dialog, text="Salvar", command=save_interaction, style='Success.TButton').pack(pady=10)
+    def add_task_dialog(self, op_id, back_callback):
+        self.clear_content()
+        title_frame = ttk.Frame(self.content_frame, style='TFrame')
+        title_frame.pack(fill='x', pady=(0, 20), padx=20)
+        ttk.Label(title_frame, text="Nova Tarefa", style='Title.TLabel').pack(side='left')
+        ttk.Button(title_frame, text="← Voltar", command=back_callback, style='TButton').pack(side='right')
 
-    def add_task_dialog(self, op_id, parent_win):
-        dialog = Toplevel(parent_win)
-        dialog.title("Nova Tarefa")
-        dialog.geometry("500x350")
-        dialog.configure(bg=DOLP_COLORS['white'])
+        main_frame = ttk.Frame(self.content_frame, padding=20, style='TFrame')
+        main_frame.pack(fill='both', expand=True, padx=20, pady=0)
 
-        ttk.Label(dialog, text="Descrição:", style='TLabel').pack(pady=5)
-        desc_text = tk.Text(dialog, height=6, wrap='word', bg='white')
+        ttk.Label(main_frame, text="Descrição:", style='TLabel').pack(pady=5)
+        desc_text = tk.Text(main_frame, height=6, wrap='word', bg='white')
         desc_text.pack(pady=5, padx=20, fill='both', expand=True)
-
-        ttk.Label(dialog, text="Responsável:", style='TLabel').pack(pady=5)
-        responsavel_entry = ttk.Entry(dialog)
+        ttk.Label(main_frame, text="Responsável:", style='TLabel').pack(pady=5)
+        responsavel_entry = ttk.Entry(main_frame)
         responsavel_entry.pack(pady=5, padx=20, fill='x')
-
-        ttk.Label(dialog, text="Data de Vencimento:", style='TLabel').pack(pady=5)
-        vencimento_date = DateEntry(dialog, date_pattern='dd/mm/yyyy')
+        ttk.Label(main_frame, text="Data de Vencimento:", style='TLabel').pack(pady=5)
+        vencimento_date = DateEntry(main_frame, date_pattern='dd/mm/yyyy')
         vencimento_date.pack(pady=5, padx=20)
 
         def save_task():
             data = {
-                'oportunidade_id': op_id,
-                'descricao': desc_text.get('1.0', 'end-1c'),
-                'data_criacao': datetime.now().strftime('%d/%m/%Y'),
-                'data_vencimento': vencimento_date.get(),
-                'responsavel': responsavel_entry.get(),
-                'status': 'Pendente'
+                'oportunidade_id': op_id, 'descricao': desc_text.get('1.0', 'end-1c'),
+                'data_criacao': datetime.now().strftime('%d/%m/%Y'), 'data_vencimento': vencimento_date.get(),
+                'responsavel': responsavel_entry.get(), 'status': 'Pendente'
             }
-
             if not data['descricao'] or not data['responsavel']:
-                messagebox.showerror("Erro", "Descrição e responsável são obrigatórios!", parent=dialog)
+                messagebox.showerror("Erro", "Descrição e responsável são obrigatórios!", parent=self.root)
                 return
-
             self.db.add_task(data)
-            messagebox.showinfo("Sucesso", "Tarefa adicionada com sucesso!", parent=dialog)
-            parent_win.destroy()
-            self.show_opportunity_details(op_id)
-            dialog.destroy()
+            messagebox.showinfo("Sucesso", "Tarefa adicionada com sucesso!", parent=self.root)
+            back_callback()
 
+        buttons_frame = ttk.Frame(main_frame, style='TFrame')
+        buttons_frame.pack(pady=10)
+        ttk.Button(buttons_frame, text="Salvar", command=save_task, style='Success.TButton').pack()
 
-        ttk.Button(dialog, text="Salvar", command=save_task, style='Success.TButton').pack(pady=10)
-
-    def complete_task(self, task_id, op_id, parent_win):
+    def complete_task(self, task_id, refresh_callback):
         self.db.update_task_status(task_id, 'Concluída')
-        messagebox.showinfo("Sucesso", "Tarefa marcada como concluída!")
-        parent_win.destroy()
-        self.show_opportunity_details(op_id)
+        messagebox.showinfo("Sucesso", "Tarefa marcada como concluída!", parent=self.root)
+        refresh_callback()
 
     def show_clients_view(self):
         self.clear_content()
@@ -3318,133 +3048,111 @@ class CRMApp:
             if selection:
                 context_menu = tk.Menu(self.root, tearoff=0)
                 context_menu.add_command(label="Editar Cliente", command=lambda: self.show_client_form(tree.item(selection[0])['values'][0]))
-                context_menu.add_command(label="Nova Oportunidade", command=lambda: self.show_opportunity_form(client_to_prefill=tree.item(selection[0])['values'][1]))
+                context_menu.add_command(label="Nova Oportunidade", command=lambda: self.show_opportunity_form(client_to_prefill=tree.item(selection[0])['values'][1], back_callback=self.show_clients_view))
                 context_menu.tk_popup(event.x_root, event.y_root)
 
         tree.bind('<Button-3>', show_context_menu)
 
     def show_client_form(self, client_id=None):
-        form_win = Toplevel(self.root)
-        form_win.title("Novo Cliente" if not client_id else "Editar Cliente")
-        form_win.geometry("600x600") # Aumentado para melhor visualização
-        form_win.configure(bg=DOLP_COLORS['white'])
+        self.clear_content()
+        form_title = "Novo Cliente" if not client_id else "Editar Cliente"
 
-        main_frame = ttk.Frame(form_win, padding=20, style='TFrame')
-        main_frame.pack(fill='both', expand=True)
+        title_frame = ttk.Frame(self.content_frame, style='TFrame')
+        title_frame.pack(fill='x', pady=(0, 20))
+        ttk.Label(title_frame, text=form_title, style='Title.TLabel').pack(side='left')
+        ttk.Button(title_frame, text="← Voltar", command=self.show_clients_view, style='TButton').pack(side='right')
 
-        ttk.Label(main_frame, text="Novo Cliente" if not client_id else "Editar Cliente", style='Title.TLabel').pack(pady=(0, 20))
+        # --- Scrollable Frame ---
+        canvas = tk.Canvas(self.content_frame, bg=DOLP_COLORS['white'], highlightthickness=0)
+        scrollbar = ttk.Scrollbar(self.content_frame, orient="vertical", command=canvas.yview)
+        scrollable_frame = ttk.Frame(canvas, style='TFrame', padding=20)
+        scrollable_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+        def _on_mousewheel(event):
+            canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+        self.content_frame.bind('<Enter>', lambda e: self.root.bind_all("<MouseWheel>", _on_mousewheel))
+        self.content_frame.bind('<Leave>', lambda e: self.root.unbind_all("<MouseWheel>"))
+        # ------------------------
 
         entries = {}
-
         fields = [
-            ("Nome da Empresa:*", "nome_empresa", "entry"),
-            ("CNPJ:", "cnpj", "entry"),
-            ("Cidade:", "cidade", "entry"),
-            ("Estado:", "estado", "combobox", BRAZILIAN_STATES),
+            ("Nome da Empresa:*", "nome_empresa", "entry"), ("CNPJ:", "cnpj", "entry"),
+            ("Cidade:", "cidade", "entry"), ("Estado:", "estado", "combobox", BRAZILIAN_STATES),
             ("Setor de Atuação:", "setor_atuacao", "combobox", self.db.get_all_setores()),
             ("Segmento de Atuação:", "segmento_atuacao", "combobox", self.db.get_all_segmentos()),
-            ("Data de Atualização:", "data_atualizacao", "date"),
-            ("Link do Portal:", "link_portal", "entry"),
+            ("Data de Atualização:", "data_atualizacao", "date"), ("Link do Portal:", "link_portal", "entry"),
             ("Status:", "status", "combobox", CLIENT_STATUS_OPTIONS)
         ]
 
         for i, field_info in enumerate(fields):
             text, key = field_info[0], field_info[1]
-            field_frame = ttk.Frame(main_frame, style='TFrame')
+            field_frame = ttk.Frame(scrollable_frame, style='TFrame')
             field_frame.pack(fill='x', pady=5)
             ttk.Label(field_frame, text=text, style='TLabel', width=25).pack(side='left')
 
-            if len(field_info) > 3:
-                widget = ttk.Combobox(field_frame, values=field_info[3], state='readonly')
-            elif field_info[2] == "combobox":
-                widget = ttk.Combobox(field_frame, state='readonly')
-            elif field_info[2] == "date":
-                widget = DateEntry(field_frame, date_pattern='dd/mm/yyyy', width=20)
-            else:
-                widget = ttk.Entry(field_frame, width=40)
-
+            if len(field_info) > 3: widget = ttk.Combobox(field_frame, values=field_info[3], state='readonly')
+            elif field_info[2] == "combobox": widget = ttk.Combobox(field_frame, state='readonly')
+            elif field_info[2] == "date": widget = DateEntry(field_frame, date_pattern='dd/mm/yyyy', width=20)
+            else: widget = ttk.Entry(field_frame, width=40)
             widget.pack(side='left', padx=(10, 0), fill='x', expand=True)
             entries[key] = widget
 
-        # Adicionar o novo campo de texto de múltiplas linhas para "Resumo de Atuação"
-        resumo_frame = ttk.Frame(main_frame, style='TFrame')
+        resumo_frame = ttk.Frame(scrollable_frame, style='TFrame')
         resumo_frame.pack(fill='both', pady=5, expand=True)
         ttk.Label(resumo_frame, text="Resumo de Atuação:", style='TLabel', width=25).pack(side='left', anchor='n', pady=(5,0))
-
         resumo_text = tk.Text(resumo_frame, height=5, wrap='word', bg='white', font=('Segoe UI', 10), borderwidth=1, relief='solid')
         resumo_text.pack(side='left', padx=(10, 0), fill='both', expand=True)
         entries['resumo_atuacao'] = resumo_text
-
 
         if client_id:
             client_data = self.db.get_client_by_id(client_id)
             if client_data:
                 for key, widget in entries.items():
-                    # Tratamento especial para o widget de Texto
                     if key == 'resumo_atuacao':
-                        if key in client_data.keys() and client_data[key]:
-                            widget.insert('1.0', client_data[key])
+                        if key in client_data.keys() and client_data[key]: widget.insert('1.0', client_data[key])
                         continue
-
                     value = client_data[key] if key in client_data.keys() else ""
                     value = value or ""
-
-                    # Formata o CNPJ antes de exibir no formulário
-                    if key == 'cnpj':
-                        value = format_cnpj(value)
-
-                    if hasattr(widget, 'set'):
-                        widget.set(value)
+                    if key == 'cnpj': value = format_cnpj(value)
+                    if hasattr(widget, 'set'): widget.set(value)
                     else:
-                        widget.delete(0, 'end') # Limpa o campo antes de inserir
+                        widget.delete(0, 'end')
                         widget.insert(0, value)
         else:
             entries['data_atualizacao'].set_date(datetime.now().date())
 
-        buttons_frame = ttk.Frame(main_frame, style='TFrame')
+        buttons_frame = ttk.Frame(scrollable_frame, style='TFrame')
         buttons_frame.pack(fill='x', pady=(20, 0))
 
         def save_client():
             try:
                 data = {}
                 for key, widget in entries.items():
-                    # Tratamento especial para obter o valor do widget de Texto
-                    if key == 'resumo_atuacao':
-                        data[key] = widget.get('1.0', 'end-1c').strip()
-                    else:
-                        data[key] = widget.get().strip()
-
-                # Garante que apenas os dígitos do CNPJ sejam salvos
-                if 'cnpj' in data:
-                    data['cnpj'] = strip_cnpj(data['cnpj'])
-
+                    if key == 'resumo_atuacao': data[key] = widget.get('1.0', 'end-1c').strip()
+                    else: data[key] = widget.get().strip()
+                if 'cnpj' in data: data['cnpj'] = strip_cnpj(data['cnpj'])
                 if not data['nome_empresa']:
-                    messagebox.showerror("Erro", "Nome da empresa é obrigatório!", parent=form_win)
+                    messagebox.showerror("Erro", "Nome da empresa é obrigatório!", parent=self.root)
                     return
-
                 if client_id:
                     self.db.update_client(client_id, data)
-                    messagebox.showinfo("Sucesso", "Cliente atualizado com sucesso!", parent=form_win)
+                    messagebox.showinfo("Sucesso", "Cliente atualizado com sucesso!", parent=self.root)
                 else:
                     self.db.add_client(data)
-                    messagebox.showinfo("Sucesso", "Cliente criado com sucesso!", parent=form_win)
-
-                form_win.destroy()
+                    messagebox.showinfo("Sucesso", "Cliente criado com sucesso!", parent=self.root)
                 self.show_clients_view()
-
             except sqlite3.IntegrityError as e:
                 error_message = str(e).lower()
-                if 'clientes.cnpj' in error_message:
-                    messagebox.showerror("Erro de Duplicidade", "O CNPJ informado já está cadastrado para outro cliente.", parent=form_win)
-                elif 'clientes.nome_empresa' in error_message:
-                    messagebox.showerror("Erro de Duplicidade", "O Nome da Empresa informado já está cadastrado para outro cliente.", parent=form_win)
-                else:
-                    messagebox.showerror("Erro de Banco de Dados", f"Erro de integridade ao salvar: {str(e)}", parent=form_win)
+                if 'clientes.cnpj' in error_message: messagebox.showerror("Erro de Duplicidade", "O CNPJ informado já está cadastrado para outro cliente.", parent=self.root)
+                elif 'clientes.nome_empresa' in error_message: messagebox.showerror("Erro de Duplicidade", "O Nome da Empresa informado já está cadastrado para outro cliente.", parent=self.root)
+                else: messagebox.showerror("Erro de Banco de Dados", f"Erro de integridade ao salvar: {str(e)}", parent=self.root)
             except Exception as e:
-                messagebox.showerror("Erro Inesperado", f"Ocorreu um erro inesperado ao salvar: {str(e)}", parent=form_win)
+                messagebox.showerror("Erro Inesperado", f"Ocorreu um erro inesperado ao salvar: {str(e)}", parent=self.root)
 
         ttk.Button(buttons_frame, text="Salvar", command=save_client, style='Success.TButton').pack(side='right')
-        ttk.Button(buttons_frame, text="Cancelar", command=form_win.destroy, style='TButton').pack(side='right', padx=(0, 10))
 
     def show_crm_settings(self):
         self.clear_content()
@@ -3521,24 +3229,19 @@ class CRMApp:
         tree.bind('<Double-1>', on_double_click)
 
     def show_servico_form(self, servico_id=None):
-        form_win = Toplevel(self.root)
-        form_win.title("Novo Tipo de Serviço" if not servico_id else "Editar Tipo de Serviço")
-        form_win.geometry("500x400")
-        form_win.configure(bg=DOLP_COLORS['white'])
+        self.clear_content()
+        form_title = "Novo Tipo de Serviço" if not servico_id else "Editar Tipo de Serviço"
 
-        main_frame = ttk.Frame(form_win, padding=20, style='TFrame')
+        title_frame = ttk.Frame(self.content_frame, style='TFrame')
+        title_frame.pack(fill='x', pady=(0, 20))
+        ttk.Label(title_frame, text=form_title, style='Title.TLabel').pack(side='left')
+        ttk.Button(title_frame, text="← Voltar", command=self.show_servicos_view, style='TButton').pack(side='right')
+
+        main_frame = ttk.Frame(self.content_frame, padding=20, style='TFrame')
         main_frame.pack(fill='both', expand=True)
 
-        ttk.Label(main_frame, text="Novo Tipo de Serviço" if not servico_id else "Editar Tipo de Serviço", style='Title.TLabel').pack(pady=(0, 20))
-
         entries = {}
-
-        fields = [
-            ("Nome:*", "nome", "entry"),
-            ("Categoria:", "categoria", "entry"),
-            ("Descrição:", "descricao", "text"),
-            ("Ativa:", "ativa", "checkbox")
-        ]
+        fields = [("Nome:*", "nome", "entry"), ("Categoria:", "categoria", "entry"), ("Descrição:", "descricao", "text"), ("Ativa:", "ativa", "checkbox")]
 
         for text, key, widget_type in fields:
             field_frame = ttk.Frame(main_frame, style='TFrame')
@@ -3581,22 +3284,20 @@ class CRMApp:
                     'ativa': 1 if entries['ativa'].get() else 0
                 }
                 if not data['nome']:
-                    messagebox.showerror("Erro", "Nome é obrigatório!", parent=form_win)
+                    messagebox.showerror("Erro", "Nome é obrigatório!", parent=self.root)
                     return
 
                 if servico_id:
                     self.db.update_servico(servico_id, data)
-                    messagebox.showinfo("Sucesso", "Tipo de serviço atualizado com sucesso!", parent=form_win)
+                    messagebox.showinfo("Sucesso", "Tipo de serviço atualizado com sucesso!", parent=self.root)
                 else:
                     self.db.add_servico(data)
-                    messagebox.showinfo("Sucesso", "Tipo de serviço criado com sucesso!", parent=form_win)
-                form_win.destroy()
+                    messagebox.showinfo("Sucesso", "Tipo de serviço criado com sucesso!", parent=self.root)
                 self.show_servicos_view()
             except Exception as e:
-                messagebox.showerror("Erro de Banco de Dados", f"Erro ao salvar: {str(e)}", parent=form_win)
+                messagebox.showerror("Erro de Banco de Dados", f"Erro ao salvar: {str(e)}", parent=self.root)
 
         ttk.Button(buttons_frame, text="Salvar", command=save_servico, style='Success.TButton').pack(side='right')
-        ttk.Button(buttons_frame, text="Cancelar", command=form_win.destroy, style='TButton').pack(side='right', padx=(0, 10))
 
     def show_team_types_view(self):
         self.clear_content()
@@ -3637,13 +3338,16 @@ class CRMApp:
         tree.bind('<Double-1>', on_double_click)
 
     def show_team_type_form(self, team_id=None):
-        form_win = Toplevel(self.root)
-        form_win.title("Novo Tipo de Equipe" if not team_id else "Editar Tipo de Equipe")
-        form_win.geometry("500x300")
-        form_win.configure(bg=DOLP_COLORS['white'])
-        main_frame = ttk.Frame(form_win, padding=20, style='TFrame')
+        self.clear_content()
+        form_title = "Novo Tipo de Equipe" if not team_id else "Editar Tipo de Equipe"
+
+        title_frame = ttk.Frame(self.content_frame, style='TFrame')
+        title_frame.pack(fill='x', pady=(0, 20))
+        ttk.Label(title_frame, text=form_title, style='Title.TLabel').pack(side='left')
+        ttk.Button(title_frame, text="← Voltar", command=self.show_team_types_view, style='TButton').pack(side='right')
+
+        main_frame = ttk.Frame(self.content_frame, padding=20, style='TFrame')
         main_frame.pack(fill='both', expand=True)
-        ttk.Label(main_frame, text="Novo Tipo de Equipe" if not team_id else "Editar Tipo de Equipe", style='Title.TLabel').pack(pady=(0, 20))
 
         entries = {}
         servicos = self.db.get_all_servicos()
@@ -3691,7 +3395,7 @@ class CRMApp:
             try:
                 servico_nome = entries['servico_id'].get()
                 if not servico_nome:
-                    messagebox.showerror("Erro", "Tipo de Serviço é obrigatório!", parent=form_win)
+                    messagebox.showerror("Erro", "Tipo de Serviço é obrigatório!", parent=self.root)
                     return
 
                 data = {
@@ -3700,22 +3404,20 @@ class CRMApp:
                     'ativa': 1 if entries['ativa'].get() else 0
                 }
                 if not data['nome']:
-                    messagebox.showerror("Erro", "Nome da equipe é obrigatório!", parent=form_win)
+                    messagebox.showerror("Erro", "Nome da equipe é obrigatório!", parent=self.root)
                     return
 
                 if team_id:
                     self.db.update_team_type(team_id, data)
-                    messagebox.showinfo("Sucesso", "Tipo de equipe atualizado com sucesso!", parent=form_win)
+                    messagebox.showinfo("Sucesso", "Tipo de equipe atualizado com sucesso!", parent=self.root)
                 else:
                     self.db.add_team_type(data)
-                    messagebox.showinfo("Sucesso", "Tipo de equipe criado com sucesso!", parent=form_win)
-                form_win.destroy()
+                    messagebox.showinfo("Sucesso", "Tipo de equipe criado com sucesso!", parent=self.root)
                 self.show_team_types_view()
             except Exception as e:
-                messagebox.showerror("Erro de Banco de Dados", f"Erro ao salvar: {str(e)}", parent=form_win)
+                messagebox.showerror("Erro de Banco de Dados", f"Erro ao salvar: {str(e)}", parent=self.root)
 
         ttk.Button(buttons_frame, text="Salvar", command=save_team_type, style='Success.TButton').pack(side='right')
-        ttk.Button(buttons_frame, text="Cancelar", command=form_win.destroy, style='TButton').pack(side='right', padx=(0, 10))
 
     def show_empresa_referencia_view(self):
         self.clear_content()
@@ -3831,15 +3533,31 @@ class CRMApp:
         tree.bind('<Double-1>', on_double_click)
 
     def show_empresa_referencia_form(self, empresa_id=None):
-        form_win = Toplevel(self.root)
-        form_win.title("Nova Empresa Referência" if not empresa_id else "Editar Empresa Referência")
-        form_win.geometry("600x700") # Aumentado para caber os novos campos
-        form_win.configure(bg=DOLP_COLORS['white'])
+        self.clear_content()
+        form_title = "Nova Empresa Referência" if not empresa_id else "Editar Empresa Referência"
 
-        main_frame = ttk.Frame(form_win, padding=20, style='TFrame')
-        main_frame.pack(fill='both', expand=True)
+        # --- Título e Botão Voltar ---
+        title_frame = ttk.Frame(self.content_frame, style='TFrame')
+        title_frame.pack(fill='x', pady=(0, 10))
+        ttk.Label(title_frame, text=form_title, style='Title.TLabel').pack(side='left')
+        ttk.Button(title_frame, text="← Voltar", command=self.show_empresa_referencia_view, style='TButton').pack(side='right')
 
-        ttk.Label(main_frame, text="Nova Empresa Referência" if not empresa_id else "Editar Empresa Referência", style='Title.TLabel').pack(pady=(0, 20))
+        # --- Frame Principal com Rolagem ---
+        form_canvas = tk.Canvas(self.content_frame, bg=DOLP_COLORS['white'], highlightthickness=0)
+        form_scrollbar = ttk.Scrollbar(self.content_frame, orient="vertical", command=form_canvas.yview)
+        scrollable_form_frame = ttk.Frame(form_canvas, style='TFrame', padding=20)
+
+        scrollable_form_frame.bind("<Configure>", lambda e: form_canvas.configure(scrollregion=form_canvas.bbox("all")))
+        form_canvas.create_window((0, 0), window=scrollable_form_frame, anchor="nw")
+        form_canvas.configure(yscrollcommand=form_scrollbar.set)
+
+        form_canvas.pack(side="left", fill="both", expand=True)
+        form_scrollbar.pack(side="right", fill="y")
+
+        # Bind da rolagem do mouse
+        def _on_mousewheel(event):
+            form_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+        form_canvas.bind_all("<MouseWheel>", _on_mousewheel)
 
         entries = {}
         # Dados para os comboboxes
@@ -3853,24 +3571,17 @@ class CRMApp:
 
         # Definição dos campos do formulário
         fields = [
-            ("Nome da Empresa:*", "nome_empresa", "entry"),
-            ("Tipo de Serviço:*", "tipo_servico", "combobox", service_names),
-            ("Tipo de Equipe:", "tipo_equipe_id", "combobox", team_type_names),
-            ("Estado:", "estado", "combobox", BRAZILIAN_STATES),
-            ("Concessionária:", "concessionaria", "combobox", concessionaria_names),
-            ("Ano de Referência:", "ano_referencia", "entry"),
-            ("Valor Mensal (R$):*", "valor_mensal", "entry"),
-            ("Volumetria Mínima:*", "volumetria_minima", "entry"),
-            ("Valor por Pessoa (R$):*", "valor_por_pessoa", "entry"),
-            ("Valor US/UPS/UPE/Ponto (R$):", "valor_us_ups_upe_ponto", "entry"),
-            ("Ativa:", "ativa", "checkbox"),
-            ("Observações:", "observacoes", "text")
+            ("Nome da Empresa:*", "nome_empresa", "entry"), ("Tipo de Serviço:*", "tipo_servico", "combobox", service_names),
+            ("Tipo de Equipe:", "tipo_equipe_id", "combobox", team_type_names), ("Estado:", "estado", "combobox", BRAZILIAN_STATES),
+            ("Concessionária:", "concessionaria", "combobox", concessionaria_names), ("Ano de Referência:", "ano_referencia", "entry"),
+            ("Valor Mensal (R$):*", "valor_mensal", "entry"), ("Volumetria Mínima:*", "volumetria_minima", "entry"),
+            ("Valor por Pessoa (R$):*", "valor_por_pessoa", "entry"), ("Valor US/UPS/UPE/Ponto (R$):", "valor_us_ups_upe_ponto", "entry"),
+            ("Ativa:", "ativa", "checkbox"), ("Observações:", "observacoes", "text")
         ]
 
         for text, key, widget_type, *args in fields:
-            field_frame = ttk.Frame(main_frame, style='TFrame')
+            field_frame = ttk.Frame(scrollable_form_frame, style='TFrame')
             field_frame.pack(fill='x', pady=5)
-
             ttk.Label(field_frame, text=text, style='TLabel', width=20).pack(side='left', anchor='n' if widget_type == 'text' else 'w')
 
             if widget_type == "combobox":
@@ -3880,7 +3591,6 @@ class CRMApp:
                 cb = ttk.Checkbutton(field_frame, variable=widget)
                 cb.pack(side='left', padx=(10, 0))
             elif widget_type == "text":
-                # Frame para o widget de texto com scrollbar
                 text_frame = ttk.Frame(field_frame)
                 widget = tk.Text(text_frame, height=5, wrap='word', bg='white', font=('Segoe UI', 10))
                 scrollbar = ttk.Scrollbar(text_frame, orient="vertical", command=widget.yview)
@@ -3893,10 +3603,8 @@ class CRMApp:
 
             if widget_type not in ["checkbox", "text"]:
                 widget.pack(side='left', padx=(10, 0), fill='x', expand=True)
-
             entries[key] = widget
 
-        # Carregar dados existentes se estiver editando
         if empresa_id:
             empresa_data = self.db.get_empresa_referencia_by_id(empresa_id)
             if empresa_data:
@@ -3904,7 +3612,6 @@ class CRMApp:
                 entries['nome_empresa'].insert(0, empresa_data['nome_empresa'] or '')
                 entries['tipo_servico'].set(empresa_data['tipo_servico'] or '')
                 if 'tipo_equipe_id' in op_keys and empresa_data['tipo_equipe_id']:
-                    # Find the team type name from the id
                     for name, id in team_type_map.items():
                         if id == empresa_data['tipo_equipe_id']:
                             entries['tipo_equipe_id'].set(name)
@@ -3913,7 +3620,6 @@ class CRMApp:
                 entries['volumetria_minima'].insert(0, format_brazilian_currency_for_entry(empresa_data['volumetria_minima']))
                 entries['valor_por_pessoa'].insert(0, format_brazilian_currency_for_entry(empresa_data['valor_por_pessoa']))
                 entries['ativa'].set(bool(empresa_data['ativa']))
-                # Carregar novos campos
                 if 'estado' in op_keys: entries['estado'].set(empresa_data['estado'] or '')
                 if 'concessionaria' in op_keys: entries['concessionaria'].set(empresa_data['concessionaria'] or '')
                 if 'ano_referencia' in op_keys: entries['ano_referencia'].insert(0, empresa_data['ano_referencia'] or '')
@@ -3923,62 +3629,48 @@ class CRMApp:
         else:
             entries['ativa'].set(True)
 
-        buttons_frame = ttk.Frame(main_frame, style='TFrame')
+        buttons_frame = ttk.Frame(scrollable_form_frame, style='TFrame')
         buttons_frame.pack(fill='x', pady=(20, 0))
 
         def save_empresa():
             try:
                 selected_team_type_name = entries['tipo_equipe_id'].get()
                 team_type_id = team_type_map.get(selected_team_type_name)
-
                 data = {
-                    'nome_empresa': entries['nome_empresa'].get().strip(),
-                    'tipo_servico': entries['tipo_servico'].get(),
-                    'tipo_equipe_id': team_type_id,
-                    'valor_mensal': parse_brazilian_currency(entries['valor_mensal'].get()),
-                    'volumetria_minima': parse_brazilian_currency(entries['volumetria_minima'].get()),
-                    'valor_por_pessoa': parse_brazilian_currency(entries['valor_por_pessoa'].get()),
-                    'valor_us_ups_upe_ponto': parse_brazilian_currency(entries['valor_us_ups_upe_ponto'].get()),
-                    'ativa': 1 if entries['ativa'].get() else 0,
-                    # Coletar dados dos novos campos
-                    'estado': entries['estado'].get(),
-                    'concessionaria': entries['concessionaria'].get(),
-                    'ano_referencia': entries['ano_referencia'].get().strip(),
+                    'nome_empresa': entries['nome_empresa'].get().strip(), 'tipo_servico': entries['tipo_servico'].get(),
+                    'tipo_equipe_id': team_type_id, 'valor_mensal': parse_brazilian_currency(entries['valor_mensal'].get()),
+                    'volumetria_minima': parse_brazilian_currency(entries['volumetria_minima'].get()), 'valor_por_pessoa': parse_brazilian_currency(entries['valor_por_pessoa'].get()),
+                    'valor_us_ups_upe_ponto': parse_brazilian_currency(entries['valor_us_ups_upe_ponto'].get()), 'ativa': 1 if entries['ativa'].get() else 0,
+                    'estado': entries['estado'].get(), 'concessionaria': entries['concessionaria'].get(), 'ano_referencia': entries['ano_referencia'].get().strip(),
                     'observacoes': entries['observacoes'].get('1.0', 'end-1c').strip()
                 }
-
                 if not data['nome_empresa'] or not data['tipo_servico']:
-                    messagebox.showerror("Erro", "Nome da empresa e tipo de serviço são obrigatórios!", parent=form_win)
+                    messagebox.showerror("Erro", "Nome da empresa e tipo de serviço são obrigatórios!", parent=self.root)
                     return
-
                 if empresa_id:
                     self.db.update_empresa_referencia(empresa_id, data)
-                    messagebox.showinfo("Sucesso", "Empresa referência atualizada com sucesso!", parent=form_win)
+                    messagebox.showinfo("Sucesso", "Empresa referência atualizada com sucesso!", parent=self.root)
                 else:
                     self.db.add_empresa_referencia(data)
-                    messagebox.showinfo("Sucesso", "Empresa referência criada com sucesso!", parent=form_win)
-
-                form_win.destroy()
+                    messagebox.showinfo("Sucesso", "Empresa referência criada com sucesso!", parent=self.root)
                 self.root.after(50, self.show_empresa_referencia_view)
-
             except ValueError:
-                messagebox.showerror("Erro", "Valores numéricos inválidos!", parent=form_win)
+                messagebox.showerror("Erro", "Valores numéricos inválidos!", parent=self.root)
             except Exception as e:
-                messagebox.showerror("Erro de Banco de Dados", f"Erro ao salvar: {str(e)}", parent=form_win)
+                messagebox.showerror("Erro de Banco de Dados", f"Erro ao salvar: {str(e)}", parent=self.root)
 
         ttk.Button(buttons_frame, text="Salvar", command=save_empresa, style='Success.TButton').pack(side='right')
-        ttk.Button(buttons_frame, text="Cancelar", command=form_win.destroy, style='TButton').pack(side='right', padx=(0, 10))
 
     def show_list_manager(self, title, get_func, add_func, delete_func):
-        manager_win = Toplevel(self.root)
-        manager_win.title(f"Gerenciar {title}")
-        manager_win.geometry("500x400")
-        manager_win.configure(bg=DOLP_COLORS['white'])
+        self.clear_content()
 
-        main_frame = ttk.Frame(manager_win, padding=20, style='TFrame')
+        title_frame = ttk.Frame(self.content_frame, style='TFrame')
+        title_frame.pack(fill='x', pady=(0, 20))
+        ttk.Label(title_frame, text=f"Gerenciar {title}", style='Title.TLabel').pack(side='left')
+        ttk.Button(title_frame, text="← Voltar", command=self.show_crm_settings, style='TButton').pack(side='right')
+
+        main_frame = ttk.Frame(self.content_frame, padding=20, style='TFrame')
         main_frame.pack(fill='both', expand=True)
-
-        ttk.Label(main_frame, text=f"Gerenciar {title}", style='Title.TLabel').pack(pady=(0, 20))
 
         list_frame = ttk.Frame(main_frame, style='TFrame')
         list_frame.pack(fill='both', expand=True, pady=(0, 10))
@@ -3986,7 +3678,6 @@ class CRMApp:
         listbox = tk.Listbox(list_frame, bg='white', font=('Segoe UI', 10))
         scrollbar_list = ttk.Scrollbar(list_frame, orient='vertical', command=listbox.yview)
         listbox.configure(yscrollcommand=scrollbar_list.set)
-
         listbox.pack(side='left', fill='both', expand=True)
         scrollbar_list.pack(side='right', fill='y')
 
@@ -3995,7 +3686,6 @@ class CRMApp:
             items = get_func()
             for item in items:
                 listbox.insert('end', item)
-
         refresh_list()
 
         add_frame = ttk.Frame(main_frame, style='TFrame')
@@ -4013,7 +3703,7 @@ class CRMApp:
                     new_entry.delete(0, 'end')
                     refresh_list()
                 except Exception as e:
-                    messagebox.showerror("Erro", f"Erro ao adicionar: {str(e)}", parent=manager_win)
+                    messagebox.showerror("Erro", f"Erro ao adicionar: {str(e)}", parent=self.root)
 
         ttk.Button(add_frame, text="Adicionar", command=add_item, style='Success.TButton').pack(side='right', padx=(10, 0))
 
@@ -4024,15 +3714,14 @@ class CRMApp:
             selection = listbox.curselection()
             if selection:
                 item = listbox.get(selection[0])
-                if messagebox.askyesno("Confirmar", f"Deseja excluir '{item}'?", parent=manager_win):
+                if messagebox.askyesno("Confirmar", f"Deseja excluir '{item}'?", parent=self.root):
                     try:
                         delete_func(item)
                         refresh_list()
                     except Exception as e:
-                        messagebox.showerror("Erro", f"Erro ao excluir: {str(e)}", parent=manager_win)
+                        messagebox.showerror("Erro", f"Erro ao excluir: {str(e)}", parent=self.root)
 
         ttk.Button(buttons_frame, text="Excluir Selecionado", command=delete_selected, style='Danger.TButton').pack(side='left')
-        ttk.Button(buttons_frame, text="Fechar", command=manager_win.destroy, style='TButton').pack(side='right')
 
 # --- 5. EXECUÇÃO PRINCIPAL ---
 def main():
