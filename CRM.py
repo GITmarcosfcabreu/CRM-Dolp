@@ -2164,7 +2164,7 @@ class CRMApp:
                 entries['margem_contribuicao'].insert(0, format_brazilian_currency_for_entry(op_data['margem_contribuicao']) if 'margem_contribuicao' in op_keys and op_data['margem_contribuicao'] is not None else '0,00')
                 descricao_detalhada = op_data['descricao_detalhada'] if 'descricao_detalhada' in op_keys else None
                 if descricao_detalhada: entries['descricao_detalhada'].insert('1.0', str(descricao_detalhada))
-                scrollable_frame.update_idletasks()
+                analise_frame.update_idletasks()
                 num_bases = op_data['quantidade_bases'] if 'quantidade_bases' in op_keys else None
                 if num_bases is not None:
                     bases_spinbox.set(num_bases)
@@ -2177,7 +2177,7 @@ class CRMApp:
                             for i, nome in enumerate(bases_nomes_data):
                                 if i < len(base_widgets): base_widgets[i].insert(0, nome)
                         except (json.JSONDecodeError, TypeError): print(f"Alerta: Falha ao carregar nomes de bases: {bases_nomes_json}")
-                scrollable_frame.update_idletasks()
+                analise_frame.update_idletasks()
                 servicos_data_json_str = op_data['servicos_data'] if 'servicos_data' in op_keys else None
                 if servicos_data_json_str:
                     try:
