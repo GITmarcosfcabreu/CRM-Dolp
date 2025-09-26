@@ -2269,26 +2269,6 @@ class CRMApp:
         entries['descricao_detalhada'] = desc_text
 
 
-        # Função para carregar dados automaticamente quando a aba for selecionada
-        def on_tab_changed(event):
-            selected_tab = event.widget.tab('current')['text']
-            if 'Sumário Executivo' in selected_tab:
-                form_win.after(100, lambda: auto_load_analise_data())
-
-        def auto_load_analise_data():
-            """Carrega automaticamente dados da análise prévia no sumário executivo"""
-            try:
-                # Carregar tempo de contrato se disponível
-                if entries['tempo_contrato_meses'].get():
-                    entries['duracao_contrato'].delete(0, 'end')
-                    entries['duracao_contrato'].insert(0, entries['tempo_contrato_meses'].get())
-
-                tipos_selecionados = [tipo for tipo, var in tipos_vars.items() if var.get()]
-                if tipos_selecionados and entries['empresa_referencia'].get():
-                    calcular_precos_automaticos()
-            except:
-                pass
-
         # Carregar dados se editando oportunidade existente
         if op_id:
             try:
@@ -2521,9 +2501,6 @@ class CRMApp:
             except Exception as e:
                 messagebox.showerror("Erro Inesperado", f"Ocorreu um erro: {str(e)}", parent=form_win)
 
-
-        # Bind do evento de mudança de aba
-        notebook.bind("<<NotebookTabChanged>>", on_tab_changed)
 
         # Botões de Ação
         # Usar .pack() é mais robusto aqui. Os botões são empacotados da direita para a esquerda.
