@@ -1116,6 +1116,10 @@ class CRMApp:
         tab_main_frame = ttk.Frame(parent_notebook)
         parent_notebook.add(tab_main_frame, text=tab_text)
 
+        # Configure grid layout for the tab's main frame to make the canvas expand
+        tab_main_frame.rowconfigure(0, weight=1)
+        tab_main_frame.columnconfigure(0, weight=1)
+
         canvas = tk.Canvas(tab_main_frame, bg=DOLP_COLORS['white'], highlightthickness=0)
         scrollbar = ttk.Scrollbar(tab_main_frame, orient="vertical", command=canvas.yview)
         scrollable_frame = ttk.Frame(canvas, style='TFrame', padding=20)
@@ -1125,11 +1129,13 @@ class CRMApp:
             lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
         )
 
-        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar.set)
+        window_id = canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
 
-        def _on_mousewheel(event):
-            canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+        def _on_canvas_configure(event):
+            canvas.itemconfig(window_id, width=event.width)
+        canvas.bind("<Configure>", _on_canvas_configure)
+
+        canvas.configure(yscrollcommand=scrollbar.set)
 
         def _on_mousewheel(event):
             canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
@@ -1138,10 +1144,15 @@ class CRMApp:
         tab_main_frame.bind('<Enter>', lambda e: self.root.bind_all("<MouseWheel>", _on_mousewheel))
         tab_main_frame.bind('<Leave>', lambda e: self.root.unbind_all("<MouseWheel>"))
 
-        canvas.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
+        canvas.grid(row=0, column=0, sticky='nsew')
+        scrollbar.grid(row=0, column=1, sticky='ns')
 
-        return scrollable_frame
+        # This inner frame will host the actual content and will expand
+        # to fill the scrollable_frame, ensuring its children can expand horizontally.
+        content_host = ttk.Frame(scrollable_frame, style='TFrame')
+        content_host.pack(fill='both', expand=True)
+
+        return content_host
 
     def clear_content(self):
         # Limpar quaisquer eventos globais para evitar erros de widgets destruídos
@@ -1813,7 +1824,7 @@ class CRMApp:
         self.clear_content()
         form_title = "Nova Oportunidade" if not op_id else "Editar Oportunidade"
 
-        # Configure grid layout for the main content frame
+        # Configure grid layout for the main content frame to allow vertical expansion
         self.content_frame.rowconfigure(1, weight=1)
         self.content_frame.columnconfigure(0, weight=1)
 
@@ -1824,13 +1835,13 @@ class CRMApp:
         if back_callback:
             ttk.Button(header_frame, text="← Voltar", command=back_callback, style='TButton').pack(side='right')
 
-        # --- Action buttons at the bottom ---
-        buttons_frame = ttk.Frame(self.content_frame, padding=(10, 15, 10, 0))
-        buttons_frame.grid(row=2, column=0, sticky='ew')
-
         # --- Notebook for the tabs ---
         notebook = ttk.Notebook(self.content_frame)
         notebook.grid(row=1, column=0, sticky='nsew', pady=(0, 10))
+
+        # --- Action buttons at the bottom ---
+        buttons_frame = ttk.Frame(self.content_frame, padding=(10, 15, 10, 0))
+        buttons_frame.grid(row=2, column=0, sticky='ew')
 
         analise_frame = self._create_scrollable_tab(notebook, '  Análise Prévia de Viabilidade  ')
         sumario_frame = self._create_scrollable_tab(notebook, '  Sumário Executivo  ')
@@ -1956,7 +1967,7 @@ class CRMApp:
                             del servico_equipes_data[servico_nome]
 
         servicos_lf = ttk.LabelFrame(analise_frame, text="Configuração de Serviços e Equipes", padding=15, style='White.TLabelframe')
-        servicos_lf.pack(fill='x', pady=(0, 10))
+        servicos_lf.pack(fill='both', expand=True, pady=(0, 10))
         servicos_lf.columnconfigure(1, weight=1)
         servicos_config_frame = ttk.Frame(servicos_lf, padding=(0, 10))
         ttk.Label(servicos_lf, text="Tipos de Serviço:", font=('Segoe UI', 10, 'bold')).grid(row=0, column=0, sticky='nw', pady=5, padx=5)
