@@ -1105,7 +1105,7 @@ class CRMApp:
         title_label = ttk.Label(header_frame, text="Customer Relationship Management (CRM) - Dolp Engenharia", style='Header.TLabel')
         title_label.pack(side='left')
 
-        version_label = ttk.Label(header_frame, text="v61", font=('Segoe UI', 9, 'italic'), foreground=DOLP_COLORS['medium_gray'], style='TLabel')
+        version_label = ttk.Label(header_frame, text="v63", font=('Segoe UI', 9, 'italic'), foreground=DOLP_COLORS['medium_gray'], style='TLabel')
         version_label.pack(side='right', padx=(10, 0), anchor='s', pady=(0, 4))
 
         # Área de conteúdo
