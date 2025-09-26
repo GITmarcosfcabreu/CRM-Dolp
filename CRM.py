@@ -1340,6 +1340,34 @@ class CRMApp:
             self.kanban_segmento_filter = self.segmento_filter.get()
         self.show_kanban_view()
 
+    def _show_summary_popup(self, summary_text, event):
+        """Exibe um popup com o resumo de atuação do cliente."""
+        if not summary_text or not summary_text.strip():
+            summary_text = "Nenhum resumo de atuação disponível."
+
+        popup = Toplevel(self.root)
+        popup.title("Resumo de Atuação")
+
+        # Posiciona o popup perto do cursor
+        popup_x = event.x_root
+        popup_y = event.y_root + 10
+        popup.geometry(f"400x150+{popup_x}+{popup_y}")
+        popup.configure(bg=DOLP_COLORS['white'])
+        popup.resizable(False, False)
+
+        main_frame = ttk.Frame(popup, padding=15, style='TFrame')
+        main_frame.pack(fill='both', expand=True)
+
+        summary_label = ttk.Label(main_frame, text=summary_text, wraplength=370, justify='left', style='Value.White.TLabel')
+        summary_label.pack(fill='both', expand=True, pady=(0, 10))
+
+        close_button = ttk.Button(main_frame, text="Fechar", command=popup.destroy, style='Primary.TButton')
+        close_button.pack()
+
+        popup.transient(self.root)
+        popup.grab_set()
+        self.root.wait_window(popup)
+
     def show_kanban_view(self):
         self.clear_content()
 
@@ -1465,22 +1493,27 @@ class CRMApp:
 
                     # --- Lógica do clique para exibir o popup de resumo ---
                     summary = client['resumo_atuacao'] if 'resumo_atuacao' in client.keys() else ''
+                    click_handler = lambda e, s=summary: self._show_summary_popup(s, e)
+                    client_card.bind("<Button-1>", click_handler)
                     # ----------------------------------------------------
 
                     # Nome da empresa
                     nome_label = ttk.Label(client_card, text=client['nome_empresa'], style='Value.White.TLabel',
                                            font=('Segoe UI', 10, 'bold'))
                     nome_label.pack(anchor='w')
+                    nome_label.bind("<Button-1>", click_handler)
 
                     # Status
                     status = client['status'] or 'Não cadastrado'
                     status_label = ttk.Label(client_card, text=f"Status: {status}", style='Value.White.TLabel')
                     status_label.pack(anchor='w')
+                    status_label.bind("<Button-1>", click_handler)
 
                     # Setor
                     if client['setor_atuacao']:
                         setor_label = ttk.Label(client_card, text=f"Setor: {client['setor_atuacao']}", style='Value.White.TLabel')
                         setor_label.pack(anchor='w')
+                        setor_label.bind("<Button-1>", click_handler)
 
                 # Configurar colunas para expandir igualmente
                 for col in range(col_count):
@@ -1793,7 +1826,13 @@ class CRMApp:
         scrollable_frame = ttk.Frame(main_canvas, style='TFrame')
 
         scrollable_frame.bind("<Configure>", lambda e: main_canvas.configure(scrollregion=main_canvas.bbox("all")))
-        main_canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+
+        form_window = main_canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+
+        def _resize_form_frame(event):
+            main_canvas.itemconfig(form_window, width=event.width)
+        main_canvas.bind("<Configure>", _resize_form_frame)
+
         main_canvas.configure(yscrollcommand=v_scrollbar.set)
 
         main_canvas.pack(side="left", fill="both", expand=True, padx=(20,0), pady=(0,20))
