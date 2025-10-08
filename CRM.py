@@ -2187,7 +2187,7 @@ class CRMApp:
                             servico_nome = servico_info.get('servico_nome')
                             if servico_nome in tipos_servico_vars: tipos_servico_vars[servico_nome].set(True)
                         _update_servicos_ui()
-                        scrollable_frame.update_idletasks()
+                        analise_frame.update_idletasks()
                         for servico_info in servicos_data_json:
                             servico_nome = servico_info.get('servico_nome')
                             equipes_data = servico_info.get('equipes', [])
