@@ -2385,9 +2385,20 @@ class CRMApp:
                     ttk.Label(section_frame, text=riscos_text, style='Value.White.TLabel', wraplength=600).grid(row=row_idx, column=1, sticky='w', pady=2, padx=(10,0))
                     row_idx +=1
                 elif question in qualificacao_answers:
-                    answer = qualificacao_answers[question] or "Não respondido"
+                    answer = qualificacao_answers.get(question)
+                    is_special_question = question_counter <= 9 or question_counter == 12
+
                     ttk.Label(section_frame, text=numbered_question, wraplength=600, justify='left', style='Value.White.TLabel').grid(row=row_idx, column=0, sticky='w')
-                    ttk.Label(section_frame, text=answer, style='Value.White.TLabel').grid(row=row_idx, column=1, sticky='e', padx=10)
+
+                    if is_special_question and answer in ["Sim", "Não"]:
+                        icon = "✓" if answer == "Sim" else "✗"
+                        color = DOLP_COLORS['success_green'] if answer == "Sim" else DOLP_COLORS['danger_red']
+                        answer_label = ttk.Label(section_frame, text=icon, style='Value.White.TLabel', font=('Segoe UI', 12, 'bold'), foreground=color)
+                    else:
+                        display_text = answer or "Não respondido"
+                        answer_label = ttk.Label(section_frame, text=display_text, style='Value.White.TLabel')
+
+                    answer_label.grid(row=row_idx, column=1, sticky='e', padx=10)
                     row_idx += 1
                 question_counter += 1
 
@@ -2679,8 +2690,17 @@ class CRMApp:
                             question_data = []
                             for question in questions:
                                 numbered_question = f"{question_counter}. {question}"
-                                answer = qualificacao_answers.get(question, "Não respondido")
-                                question_data.append([Paragraph(numbered_question, styles['BodyText']), answer])
+                                answer_text = qualificacao_answers.get(question, "Não respondido")
+                                is_special_question = question_counter <= 9 or question_counter == 12
+
+                                if is_special_question and answer_text in ["Sim", "Não"]:
+                                    icon = "✓" if answer_text == "Sim" else "✗"
+                                    color = "green" if answer_text == "Sim" else "red"
+                                    answer_cell = Paragraph(f'<font color="{color}" size="14">{icon}</font>', styles['BodyText'])
+                                else:
+                                    answer_cell = Paragraph(answer_text, styles['BodyText'])
+
+                                question_data.append([Paragraph(numbered_question, styles['BodyText']), answer_cell])
                                 question_counter += 1
 
                             question_table = Table(question_data, colWidths=[5*inch, 1*inch])
