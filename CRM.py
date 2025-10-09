@@ -1879,21 +1879,23 @@ class CRMApp:
         entries['qualificacao_data'] = qualificacao_vars
         q_diferenciais = "Quais são nossos diferenciais competitivos claros para esta oportunidade específica?"
         q_riscos = "Quais os principais riscos (técnicos, logísticos, regulatórios, políticos) associados ao projeto?"
+        question_counter = 1
         for section, questions in QUALIFICATION_CHECKLIST.items():
             section_frame = ttk.LabelFrame(qualificacao_frame, text=section, padding=10, style='White.TLabelframe')
             section_frame.pack(fill='x', expand=True, pady=5)
             section_frame.columnconfigure(0, weight=1)
             row_idx = 0
             for question in questions:
+                numbered_question = f"{question_counter}. {question}"
                 if question == q_diferenciais:
-                    q_label = ttk.Label(section_frame, text=question, wraplength=800, justify='left')
+                    q_label = ttk.Label(section_frame, text=numbered_question, wraplength=800, justify='left')
                     q_label.grid(row=row_idx, column=0, columnspan=2, sticky='w', pady=(5,2))
                     diferenciais_text = tk.Text(section_frame, height=4, wrap='word', bg='white', font=('Segoe UI', 10))
                     diferenciais_text.grid(row=row_idx + 1, column=0, columnspan=2, sticky='ew', pady=(0, 10), padx=5)
                     entries['diferenciais_competitivos'] = diferenciais_text
                     row_idx += 2
                 elif question == q_riscos:
-                    q_label = ttk.Label(section_frame, text=question, wraplength=800, justify='left')
+                    q_label = ttk.Label(section_frame, text=numbered_question, wraplength=800, justify='left')
                     q_label.grid(row=row_idx, column=0, columnspan=2, sticky='w', pady=(5,2))
                     riscos_text = tk.Text(section_frame, height=4, wrap='word', bg='white', font=('Segoe UI', 10))
                     riscos_text.grid(row=row_idx + 1, column=0, columnspan=2, sticky='ew', pady=(0, 10), padx=5)
@@ -1902,7 +1904,7 @@ class CRMApp:
                 else:
                     q_var = tk.StringVar(value="")
                     qualificacao_vars[question] = q_var
-                    q_label = ttk.Label(section_frame, text=question, wraplength=800, justify='left')
+                    q_label = ttk.Label(section_frame, text=numbered_question, wraplength=800, justify='left')
                     q_label.grid(row=row_idx, column=0, sticky='w', pady=(5,0))
                     radio_frame = ttk.Frame(section_frame)
                     radio_frame.grid(row=row_idx, column=1, sticky='e', padx=10)
@@ -1911,6 +1913,7 @@ class CRMApp:
                     rb_sim.pack(side='left')
                     rb_nao.pack(side='left', padx=10)
                     row_idx += 1
+                question_counter += 1
 
         servico_frames = {}
         servico_equipes_data = {}
@@ -2363,27 +2366,30 @@ class CRMApp:
                 pass
         q_diferenciais = "Quais são nossos diferenciais competitivos claros para esta oportunidade específica?"
         q_riscos = "Quais os principais riscos (técnicos, logísticos, regulatórios, políticos) associados ao projeto?"
+        question_counter = 1
         for section, questions in QUALIFICATION_CHECKLIST.items():
             section_frame = ttk.LabelFrame(qual_frame, text=section, padding=10, style='White.TLabelframe')
             section_frame.pack(fill='x', expand=True, pady=5)
             section_frame.columnconfigure(1, weight=1)
             row_idx = 0
             for question in questions:
+                numbered_question = f"{question_counter}. {question}"
                 if question == q_diferenciais:
-                    ttk.Label(section_frame, text=question, style='Metric.White.TLabel').grid(row=row_idx, column=0, sticky='w', pady=2)
+                    ttk.Label(section_frame, text=numbered_question, style='Metric.White.TLabel').grid(row=row_idx, column=0, sticky='w', pady=2)
                     diferenciais_text = (op_data['diferenciais_competitivos'] if 'diferenciais_competitivos' in op_keys and op_data['diferenciais_competitivos'] else "---")
                     ttk.Label(section_frame, text=diferenciais_text, style='Value.White.TLabel', wraplength=600).grid(row=row_idx, column=1, sticky='w', pady=2, padx=(10,0))
                     row_idx +=1
                 elif question == q_riscos:
-                    ttk.Label(section_frame, text=question, style='Metric.White.TLabel').grid(row=row_idx, column=0, sticky='w', pady=2)
+                    ttk.Label(section_frame, text=numbered_question, style='Metric.White.TLabel').grid(row=row_idx, column=0, sticky='w', pady=2)
                     riscos_text = (op_data['principais_riscos'] if 'principais_riscos' in op_keys and op_data['principais_riscos'] else "---")
                     ttk.Label(section_frame, text=riscos_text, style='Value.White.TLabel', wraplength=600).grid(row=row_idx, column=1, sticky='w', pady=2, padx=(10,0))
                     row_idx +=1
                 elif question in qualificacao_answers:
                     answer = qualificacao_answers[question] or "Não respondido"
-                    ttk.Label(section_frame, text=question, wraplength=600, justify='left', style='Value.White.TLabel').grid(row=row_idx, column=0, sticky='w')
+                    ttk.Label(section_frame, text=numbered_question, wraplength=600, justify='left', style='Value.White.TLabel').grid(row=row_idx, column=0, sticky='w')
                     ttk.Label(section_frame, text=answer, style='Value.White.TLabel').grid(row=row_idx, column=1, sticky='e', padx=10)
                     row_idx += 1
+                question_counter += 1
 
         # Aba 2: Sumário Executivo
         sumario_tab = self._create_scrollable_tab(notebook, '  Sumário Executivo  ')
@@ -2650,30 +2656,32 @@ class CRMApp:
             if qualificacao_data_json:
                 try:
                     qualificacao_answers = json.loads(qualificacao_data_json)
+                    question_counter = 1
                     for section, questions in QUALIFICATION_CHECKLIST.items():
                         story.append(Paragraph(f"<b>{section}</b>", styles['h4']))
                         story.append(Spacer(1, 6))
 
                         if section == "Análise Concorrencial e de Riscos":
-                            # Use a different layout for this specific section
                             for question in questions:
-                                story.append(Paragraph(f"<b>{question}</b>", styles['BodyText']))
+                                numbered_question = f"<b>{question_counter}. {question}</b>"
+                                story.append(Paragraph(numbered_question, styles['BodyText']))
                                 story.append(Spacer(1, 4))
                                 if question == "Quais são nossos diferenciais competitivos claros para esta oportunidade específica?":
                                     answer = op_data['diferenciais_competitivos'] if 'diferenciais_competitivos' in op_keys and op_data['diferenciais_competitivos'] else "---"
                                 elif question == "Quais os principais riscos (técnicos, logísticos, regulatórios, políticos) associados ao projeto?":
                                     answer = op_data['principais_riscos'] if 'principais_riscos' in op_keys and op_data['principais_riscos'] else "---"
                                 else:
-                                    answer = "Não aplicável" # Should not happen for this section
-
+                                    answer = "Não aplicável"
                                 story.append(Paragraph(answer.replace('\n', '<br/>'), styles['Justify']))
                                 story.append(Spacer(1, 12))
+                                question_counter += 1
                         else:
-                            # Keep the original table layout for other sections
                             question_data = []
                             for question in questions:
+                                numbered_question = f"{question_counter}. {question}"
                                 answer = qualificacao_answers.get(question, "Não respondido")
-                                question_data.append([Paragraph(question, styles['BodyText']), answer])
+                                question_data.append([Paragraph(numbered_question, styles['BodyText']), answer])
+                                question_counter += 1
 
                             question_table = Table(question_data, colWidths=[5*inch, 1*inch])
                             question_table.setStyle(TableStyle([
