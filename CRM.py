@@ -698,18 +698,22 @@ class DatabaseManager:
         with self._connect() as conn:
             return [row['responsavel'] for row in conn.execute("SELECT DISTINCT responsavel FROM crm_tarefas WHERE oportunidade_id = ? ORDER BY responsavel", (op_id,)).fetchall()]
 
-    def get_tasks_for_opportunity(self, op_id, status=None, responsavel=None, start_date_str=None, end_date_str=None):
+    def get_tasks_for_opportunity(self, op_id, status=None, responsavel=None, category_id=None, start_date_str=None, end_date_str=None):
         with self._connect() as conn:
             base_query = "SELECT t.*, c.nome as category_name FROM crm_tarefas t LEFT JOIN crm_task_categories c ON t.category_id = c.id WHERE t.oportunidade_id = ?"
             params = [op_id]
 
             if status and status != 'Todos':
-                base_query += " AND status = ?"
+                base_query += " AND t.status = ?"
                 params.append(status)
 
             if responsavel and responsavel != 'Todos':
-                base_query += " AND responsavel = ?"
+                base_query += " AND t.responsavel = ?"
                 params.append(responsavel)
+
+            if category_id:
+                base_query += " AND t.category_id = ?"
+                params.append(category_id)
 
             if start_date_str:
                 try:
@@ -737,6 +741,15 @@ class DatabaseManager:
     def update_task_status(self, task_id, status):
         with self._connect() as conn:
             conn.execute("UPDATE crm_tarefas SET status = ? WHERE id = ?", (status, task_id))
+
+    def update_task(self, task_id, data):
+        with self._connect() as conn:
+            conn.execute("UPDATE crm_tarefas SET descricao=?, data_vencimento=?, responsavel=?, status=?, category_id=? WHERE id=?",
+                         (data['descricao'], data['data_vencimento'], data['responsavel'], data['status'], data.get('category_id'), task_id))
+
+    def delete_task(self, task_id):
+        with self._connect() as conn:
+            conn.execute("DELETE FROM crm_tarefas WHERE id = ?", (task_id,))
 
     # Métodos de Setores e Segmentos
     def get_all_setores(self):
@@ -2605,6 +2618,15 @@ class CRMApp:
         end_date_task_filter.delete(0, 'end')
         end_date_task_filter.grid(row=0, column=7, padx=(0, 20))
 
+        # Categoria
+        ttk.Label(filters_tasks_frame, text="Categoria:", style='TLabel').grid(row=1, column=0, sticky='w', padx=(0, 5), pady=(10,0))
+        task_categories = self.db.get_all_task_categories()
+        task_category_map = {c['nome']: c['id'] for c in task_categories}
+        category_filter = ttk.Combobox(filters_tasks_frame, values=['Todos'] + list(task_category_map.keys()), state='readonly')
+        category_filter.set('Todos')
+        category_filter.grid(row=1, column=1, pady=(10,0))
+
+
         # Container para os resultados das tarefas
         tasks_results_frame = ttk.Frame(tarefas_tab, style='TFrame')
         tasks_results_frame.pack(fill='both', expand=True, pady=(10,0))
@@ -2617,19 +2639,39 @@ class CRMApp:
             responsavel = responsavel_filter.get()
             start_date = start_date_task_filter.get()
             end_date = end_date_task_filter.get()
+            category_name = category_filter.get()
+            category_id = task_category_map.get(category_name) if category_name != 'Todos' else None
 
-            tarefas = self.db.get_tasks_for_opportunity(op_id, status, responsavel, start_date, end_date)
+
+            tarefas = self.db.get_tasks_for_opportunity(op_id, status, responsavel, category_id, start_date, end_date)
 
             if tarefas:
                 for tarefa in tarefas:
-                    category_name = tarefa['category_name'] or 'Sem Categoria'
-                    task_frame = ttk.LabelFrame(tasks_results_frame, text=f"{category_name} - {tarefa['status']}", padding=10, style='White.TLabelframe')
+                    category_name_display = tarefa['category_name'] or 'Sem Categoria'
+                    task_frame = ttk.LabelFrame(tasks_results_frame, text=f"{category_name_display} - {tarefa['status']}", padding=10, style='White.TLabelframe')
                     task_frame.pack(fill='x', pady=5)
-                    ttk.Label(task_frame, text=tarefa['descricao'], style='Value.White.TLabel', wraplength=750, justify='left').pack(anchor='w')
+
+                    # Top frame for description and buttons
+                    top_task_frame = ttk.Frame(task_frame)
+                    top_task_frame.pack(fill='x')
+
+                    ttk.Label(top_task_frame, text=tarefa['descricao'], style='Value.White.TLabel', wraplength=750, justify='left').pack(side='left', fill='x', expand=True)
+
+                    # Buttons on the right
+                    task_buttons_frame = ttk.Frame(top_task_frame)
+                    task_buttons_frame.pack(side='right')
+
+                    edit_btn = ttk.Button(task_buttons_frame, text="Editar", style='Primary.TButton', command=lambda t_id=tarefa['id']: self.add_task_dialog(op_id, lambda: self.show_opportunity_details(op_id, back_callback), task_id=t_id))
+                    edit_btn.pack(side='left', padx=(0, 5))
+                    delete_btn = ttk.Button(task_buttons_frame, text="Excluir", style='Danger.TButton', command=lambda t_id=tarefa['id']: self.delete_task(t_id, lambda: self.show_opportunity_details(op_id, back_callback)))
+                    delete_btn.pack(side='left')
+
+                    # Bottom frame for info
                     info_frame = ttk.Frame(task_frame)
                     info_frame.pack(fill='x', pady=(5, 0))
                     ttk.Label(info_frame, text=f"Responsável: {tarefa['responsavel']}", style='Metric.White.TLabel').pack(side='left')
                     ttk.Label(info_frame, text=f"Vencimento: {tarefa['data_vencimento']}", style='Metric.White.TLabel').pack(side='right')
+
                     if tarefa['status'] != 'Concluída':
                         ttk.Button(task_frame, text="Marcar como Concluída",
                                  command=lambda t_id=tarefa['id']: self.complete_task(t_id, lambda: self.show_opportunity_details(op_id, back_callback)),
@@ -2637,8 +2679,8 @@ class CRMApp:
             else:
                 ttk.Label(tasks_results_frame, text="Nenhuma tarefa encontrada para os filtros selecionados.", style='Value.White.TLabel').pack(pady=20)
 
-        ttk.Button(filters_tasks_frame, text="🔍 Filtrar", command=_refilter_tasks, style='Primary.TButton').grid(row=0, column=8, padx=(20, 0))
-        ttk.Button(filters_tasks_frame, text="Nova Tarefa", command=lambda: self.add_task_dialog(op_id, lambda: self.show_opportunity_details(op_id, back_callback)), style='Success.TButton').grid(row=0, column=9, padx=(10,0))
+        ttk.Button(filters_tasks_frame, text="🔍 Filtrar", command=_refilter_tasks, style='Primary.TButton').grid(row=1, column=2, padx=(20, 0), pady=(10,0))
+        ttk.Button(filters_tasks_frame, text="Nova Tarefa", command=lambda: self.add_task_dialog(op_id, lambda: self.show_opportunity_details(op_id, back_callback)), style='Success.TButton').grid(row=1, column=3, padx=(10,0), pady=(10,0))
 
         # Carregar tarefas iniciais
         _refilter_tasks()
@@ -3033,11 +3075,13 @@ class CRMApp:
         buttons_frame.pack(pady=10)
         ttk.Button(buttons_frame, text="Salvar", command=save_interaction, style='Success.TButton').pack()
 
-    def add_task_dialog(self, op_id, back_callback):
+    def add_task_dialog(self, op_id, back_callback, task_id=None):
         self.clear_content()
+        form_title = "Nova Tarefa" if not task_id else "Editar Tarefa"
+
         title_frame = ttk.Frame(self.content_frame, style='TFrame')
         title_frame.pack(fill='x', pady=(0, 20), padx=20)
-        ttk.Label(title_frame, text="Nova Tarefa", style='Title.TLabel').pack(side='left')
+        ttk.Label(title_frame, text=form_title, style='Title.TLabel').pack(side='left')
         ttk.Button(title_frame, text="← Voltar", command=back_callback, style='TButton').pack(side='right')
 
         main_frame = ttk.Frame(self.content_frame, padding=20, style='TFrame')
@@ -3054,6 +3098,7 @@ class CRMApp:
         ttk.Label(main_frame, text="Categoria:", style='TLabel').pack(pady=5)
         categories = self.db.get_all_task_categories()
         category_map = {c['nome']: c['id'] for c in categories}
+        category_id_map = {c['id']: c['nome'] for c in categories}
         category_combo = ttk.Combobox(main_frame, values=list(category_map.keys()), state='readonly')
         category_combo.pack(pady=5, padx=20, fill='x')
 
@@ -3061,19 +3106,51 @@ class CRMApp:
         vencimento_date = DateEntry(main_frame, date_pattern='dd/mm/yyyy')
         vencimento_date.pack(pady=5, padx=20)
 
+        # Status (apenas para edição)
+        status_label = ttk.Label(main_frame, text="Status:", style='TLabel')
+        status_combo = ttk.Combobox(main_frame, values=['Pendente', 'Concluída'], state='readonly')
+
+        if task_id:
+            # Carregar dados da tarefa para edição
+            task_data = self.db.get_tasks_for_opportunity(op_id, status='Todos') # Simplificado para encontrar a tarefa
+            current_task = next((t for t in task_data if t['id'] == task_id), None)
+            if current_task:
+                desc_text.insert('1.0', current_task['descricao'])
+                responsavel_entry.insert(0, current_task['responsavel'])
+                if current_task['category_id']:
+                    category_combo.set(category_id_map.get(current_task['category_id'], ''))
+                try:
+                    vencimento_date.set_date(datetime.strptime(current_task['data_vencimento'], '%d/%m/%Y').date())
+                except (ValueError, TypeError):
+                    pass
+                status_label.pack(pady=5)
+                status_combo.pack(pady=5, padx=20, fill='x')
+                status_combo.set(current_task['status'])
+
         def save_task():
             data = {
-                'oportunidade_id': op_id, 'descricao': desc_text.get('1.0', 'end-1c'),
-                'data_criacao': datetime.now().strftime('%d/%m/%Y'), 'data_vencimento': vencimento_date.get(),
-                'responsavel': responsavel_entry.get(), 'status': 'Pendente',
+                'descricao': desc_text.get('1.0', 'end-1c'),
+                'data_vencimento': vencimento_date.get(),
+                'responsavel': responsavel_entry.get(),
+                'status': status_combo.get() if task_id else 'Pendente',
                 'category_id': category_map.get(category_combo.get())
             }
             if not data['descricao'] or not data['responsavel'] or not data['category_id']:
                 messagebox.showerror("Erro", "Descrição, Responsável e Categoria são obrigatórios!", parent=self.root)
                 return
-            self.db.add_task(data)
-            messagebox.showinfo("Sucesso", "Tarefa adicionada com sucesso!", parent=self.root)
-            back_callback()
+
+            try:
+                if task_id:
+                    self.db.update_task(task_id, data)
+                    messagebox.showinfo("Sucesso", "Tarefa atualizada com sucesso!", parent=self.root)
+                else:
+                    data['oportunidade_id'] = op_id
+                    data['data_criacao'] = datetime.now().strftime('%d/%m/%Y')
+                    self.db.add_task(data)
+                    messagebox.showinfo("Sucesso", "Tarefa adicionada com sucesso!", parent=self.root)
+                back_callback()
+            except Exception as e:
+                messagebox.showerror("Erro", f"Ocorreu um erro ao salvar a tarefa: {e}", parent=self.root)
 
         buttons_frame = ttk.Frame(main_frame, style='TFrame')
         buttons_frame.pack(pady=10)
@@ -3083,6 +3160,15 @@ class CRMApp:
         self.db.update_task_status(task_id, 'Concluída')
         messagebox.showinfo("Sucesso", "Tarefa marcada como concluída!", parent=self.root)
         refresh_callback()
+
+    def delete_task(self, task_id, refresh_callback):
+        if messagebox.askyesno("Confirmar Exclusão", "Tem certeza de que deseja excluir esta tarefa?", parent=self.root):
+            try:
+                self.db.delete_task(task_id)
+                messagebox.showinfo("Sucesso", "Tarefa excluída com sucesso!", parent=self.root)
+                refresh_callback()
+            except Exception as e:
+                messagebox.showerror("Erro", f"Ocorreu um erro ao excluir a tarefa: {e}", parent=self.root)
 
     def show_clients_view(self):
         self.clear_content()
