@@ -92,7 +92,7 @@ QUALIFICATION_CHECKLIST = {
         "Quais são nossos diferenciais competitivos claros para esta oportunidade específica?",
         "Quais os principais riscos (técnicos, logísticos, regulatórios, políticos) associados ao projeto?"
     ],
-    "Análise de Interesse da Diretoria": [
+    "Avaliação da Gerência Comercial": [
         "O investimento de tempo e recursos na elaboração de uma análise previa de viabilidade, é justificável?"
     ]
 }
@@ -1105,7 +1105,7 @@ class CRMApp:
         title_label = ttk.Label(header_frame, text="Customer Relationship Management (CRM) - Dolp Engenharia", style='Header.TLabel')
         title_label.pack(side='left')
 
-        version_label = ttk.Label(header_frame, text="v67", font=('Segoe UI', 9, 'italic'), foreground=DOLP_COLORS['medium_gray'], style='TLabel')
+        version_label = ttk.Label(header_frame, text="v6", font=('Segoe UI', 9, 'italic'), foreground=DOLP_COLORS['medium_gray'], style='TLabel')
         version_label.pack(side='right', padx=(10, 0), anchor='s', pady=(0, 4))
 
         # Área de conteúdo
