@@ -2638,26 +2638,26 @@ class CRMApp:
             story.append(Paragraph(f"Oportunidade: {op_data['titulo']}", styles['h2']))
             story.append(Spacer(1, 24))
 
-            story.append(Paragraph("1. Informações Básicas", styles['h3']))
-            story.append(Spacer(1, 12))
-
-            basic_info_data = [
-                ['Cliente:', op_data['nome_empresa']],
-                ['Estágio:', op_data['estagio_nome']],
-                ['Valor Estimado:', format_currency(op_data['valor'])],
-                ['Tempo de Contrato:', f"{op_data['tempo_contrato_meses']} meses" if 'tempo_contrato_meses' in op_keys and op_data['tempo_contrato_meses'] else "---"],
-                ['Regional:', op_data['regional'] if 'regional' in op_keys and op_data['regional'] else "---"],
-                ['Polo:', op_data['polo'] if 'polo' in op_keys and op_data['polo'] else "---"],
-                ['Empresa Referência:', op_data['empresa_referencia'] if 'empresa_referencia' in op_keys and op_data['empresa_referencia'] else "---"],
+            # --- Seção de Informações Básicas ---
+            basic_info_content = [
+                Paragraph("1. Informações Básicas", styles['h3']),
+                Spacer(1, 12),
+                Table([
+                    ['Cliente:', op_data['nome_empresa']],
+                    ['Estágio:', op_data['estagio_nome']],
+                    ['Valor Estimado:', format_currency(op_data['valor'])],
+                    ['Tempo de Contrato:', f"{op_data['tempo_contrato_meses']} meses" if 'tempo_contrato_meses' in op_keys and op_data['tempo_contrato_meses'] else "---"],
+                    ['Regional:', op_data['regional'] if 'regional' in op_keys and op_data['regional'] else "---"],
+                    ['Polo:', op_data['polo'] if 'polo' in op_keys and op_data['polo'] else "---"],
+                    ['Empresa Referência:', op_data['empresa_referencia'] if 'empresa_referencia' in op_keys and op_data['empresa_referencia'] else "---"],
+                ], colWidths=[1.5*inch, 4.5*inch])
             ]
-
-            basic_info_table = Table(basic_info_data, colWidths=[1.5*inch, 4.5*inch])
-            basic_info_table.setStyle(TableStyle([
+            basic_info_content[2].setStyle(TableStyle([
                 ('ALIGN', (0,0), (-1,-1), 'LEFT'),
                 ('FONTNAME', (0,0), (0,-1), 'Helvetica-Bold'),
                 ('BOTTOMPADDING', (0,0), (-1,-1), 6),
             ]))
-            story.append(basic_info_table)
+            story.append(KeepTogether(basic_info_content))
             story.append(Spacer(1, 24))
 
             story.append(Paragraph("2. Formulário de Análise de Qualificação", styles['h3']))
@@ -2669,22 +2669,21 @@ class CRMApp:
                     qualificacao_answers = json.loads(qualificacao_data_json)
                     question_counter = 1
                     for section, questions in QUALIFICATION_CHECKLIST.items():
-                        story.append(Paragraph(f"<b>{section}</b>", styles['h4']))
-                        story.append(Spacer(1, 6))
+                        section_content = [Paragraph(f"<b>{section}</b>", styles['h4']), Spacer(1, 6)]
 
                         if section == "Análise Concorrencial e de Riscos":
                             for question in questions:
                                 numbered_question = f"<b>{question_counter}. {question}</b>"
-                                story.append(Paragraph(numbered_question, styles['BodyText']))
-                                story.append(Spacer(1, 4))
+                                section_content.append(Paragraph(numbered_question, styles['BodyText']))
+                                section_content.append(Spacer(1, 4))
                                 if question == "Quais são nossos diferenciais competitivos claros para esta oportunidade específica?":
                                     answer = op_data['diferenciais_competitivos'] if 'diferenciais_competitivos' in op_keys and op_data['diferenciais_competitivos'] else "---"
                                 elif question == "Quais os principais riscos (técnicos, logísticos, regulatórios, políticos) associados ao projeto?":
                                     answer = op_data['principais_riscos'] if 'principais_riscos' in op_keys and op_data['principais_riscos'] else "---"
                                 else:
                                     answer = "Não aplicável"
-                                story.append(Paragraph(answer.replace('\n', '<br/>'), styles['Justify']))
-                                story.append(Spacer(1, 12))
+                                section_content.append(Paragraph(answer.replace('\n', '<br/>'), styles['Justify']))
+                                section_content.append(Spacer(1, 12))
                                 question_counter += 1
                         else:
                             question_data = []
@@ -2713,8 +2712,10 @@ class CRMApp:
                                 ('TOPPADDING', (0,0), (-1,-1), 6),
                                 ('BOTTOMPADDING', (0,0), (-1,-1), 6),
                             ]))
-                            story.append(question_table)
-                            story.append(Spacer(1, 12))
+                            section_content.append(question_table)
+                            section_content.append(Spacer(1, 12))
+
+                        story.append(KeepTogether(section_content))
 
                 except (json.JSONDecodeError, TypeError):
                     story.append(Paragraph("Erro ao carregar dados de qualificação.", styles['BodyText']))
@@ -2722,32 +2723,31 @@ class CRMApp:
                 story.append(Paragraph("Dados de qualificação não preenchidos.", styles['BodyText']))
             story.append(Spacer(1, 24))
 
-            story.append(Paragraph("3. Bases Alocadas", styles['h3']))
-            story.append(Spacer(1, 12))
+            bases_content = [Paragraph("3. Bases Alocadas", styles['h3']), Spacer(1, 12)]
             bases_nomes_json = op_data['bases_nomes'] if 'bases_nomes' in op_keys else None
             if bases_nomes_json:
                 try:
                     bases_nomes = json.loads(bases_nomes_json)
                     if bases_nomes:
                         for base in bases_nomes:
-                            story.append(Paragraph(f"- {base}", styles['BodyText']))
+                            bases_content.append(Paragraph(f"- {base}", styles['BodyText']))
                     else:
-                        story.append(Paragraph("Nenhuma base alocada.", styles['BodyText']))
+                        bases_content.append(Paragraph("Nenhuma base alocada.", styles['BodyText']))
                 except (json.JSONDecodeError, TypeError):
-                    story.append(Paragraph("Erro ao carregar nomes de bases.", styles['BodyText']))
+                    bases_content.append(Paragraph("Erro ao carregar nomes de bases.", styles['BodyText']))
             else:
-                story.append(Paragraph("Nenhuma base alocada.", styles['BodyText']))
+                bases_content.append(Paragraph("Nenhuma base alocada.", styles['BodyText']))
+            story.append(KeepTogether(bases_content))
             story.append(Spacer(1, 24))
 
-            story.append(Paragraph("4. Serviços e Equipes", styles['h3']))
-            story.append(Spacer(1, 12))
+            servicos_main_content = [Paragraph("4. Serviços e Equipes", styles['h3']), Spacer(1, 12)]
             servicos_data_json = op_data['servicos_data'] if 'servicos_data' in op_keys else None
             if servicos_data_json:
                 try:
                     servicos_data = json.loads(servicos_data_json)
                     if servicos_data:
                         for servico_info in servicos_data:
-                            story.append(Paragraph(f"<b>Serviço: {servico_info.get('servico_nome', 'N/A')}</b>", styles['h4']))
+                            servico_block = [Paragraph(f"<b>Serviço: {servico_info.get('servico_nome', 'N/A')}</b>", styles['h4'])]
                             equipes = servico_info.get('equipes', [])
                             if equipes:
                                 equipe_data = [['Tipo de Equipe', 'Qtd', 'Volumetria', 'Base']]
@@ -2768,16 +2768,18 @@ class CRMApp:
                                     ('BACKGROUND', (0,1), (-1,-1), colors.beige),
                                     ('GRID', (0,0), (-1,-1), 1, colors.black)
                                 ]))
-                                story.append(equipe_table)
-                                story.append(Spacer(1, 12))
+                                servico_block.append(equipe_table)
+                                servico_block.append(Spacer(1, 12))
                             else:
-                                story.append(Paragraph("Nenhuma equipe configurada para este serviço.", styles['BodyText']))
+                                servico_block.append(Paragraph("Nenhuma equipe configurada para este serviço.", styles['BodyText']))
+                            servicos_main_content.append(KeepTogether(servico_block))
                     else:
-                        story.append(Paragraph("Nenhum serviço configurado.", styles['BodyText']))
+                        servicos_main_content.append(Paragraph("Nenhum serviço configurado.", styles['BodyText']))
                 except (json.JSONDecodeError, TypeError):
-                    story.append(Paragraph("Erro ao carregar dados de serviços.", styles['BodyText']))
+                    servicos_main_content.append(Paragraph("Erro ao carregar dados de serviços.", styles['BodyText']))
             else:
-                story.append(Paragraph("Nenhum serviço configurado.", styles['BodyText']))
+                servicos_main_content.append(Paragraph("Nenhum serviço configurado.", styles['BodyText']))
+            story.extend(servicos_main_content)
 
             def header_footer(canvas, doc):
                 canvas.saveState()
@@ -2842,48 +2844,44 @@ class CRMApp:
 
             # Informações do Edital
             # Section 1: Informações do Edital
-            edital_content = []
-            edital_content.append(Paragraph("1. Informações do Edital", styles['h3']))
-            edital_content.append(Spacer(1, 12))
-            edital_info_data = [
-                ['Número do Edital:', op_data['numero_edital'] if 'numero_edital' in op_keys and op_data['numero_edital'] else "---"],
-                ['Data de Abertura:', op_data['data_abertura'] if 'data_abertura' in op_keys and op_data['data_abertura'] else "---"],
-                ['Modalidade:', op_data['modalidade'] if 'modalidade' in op_keys and op_data['modalidade'] else "---"],
-                ['Contato Principal:', op_data['contato_principal'] if 'contato_principal' in op_keys and op_data['contato_principal'] else "---"],
-                ['Link dos Documentos:', op_data['link_documentos'] if 'link_documentos' in op_keys and op_data['link_documentos'] else "---"],
+            edital_content = [
+                Paragraph("1. Informações do Edital", styles['h3']),
+                Spacer(1, 12),
+                Table([
+                    ['Número do Edital:', op_data['numero_edital'] if 'numero_edital' in op_keys and op_data['numero_edital'] else "---"],
+                    ['Data de Abertura:', op_data['data_abertura'] if 'data_abertura' in op_keys and op_data['data_abertura'] else "---"],
+                    ['Modalidade:', op_data['modalidade'] if 'modalidade' in op_keys and op_data['modalidade'] else "---"],
+                    ['Contato Principal:', op_data['contato_principal'] if 'contato_principal' in op_keys and op_data['contato_principal'] else "---"],
+                    ['Link dos Documentos:', op_data['link_documentos'] if 'link_documentos' in op_keys and op_data['link_documentos'] else "---"],
+                ], colWidths=[1.5*inch, 4.5*inch])
             ]
-            edital_info_table = Table(edital_info_data, colWidths=[1.5*inch, 4.5*inch])
-            edital_info_table.setStyle(TableStyle([
+            edital_content[2].setStyle(TableStyle([
                 ('ALIGN', (0,0), (-1,-1), 'LEFT'), ('FONTNAME', (0,0), (0,-1), 'Helvetica-Bold'), ('BOTTOMPADDING', (0,0), (-1,-1), 6),
             ]))
-            edital_content.append(edital_info_table)
             story.append(KeepTogether(edital_content))
             story.append(Spacer(1, 24))
 
             # Section 2: Informações Financeiras e de Pessoal
-            financeiro_content = []
-            financeiro_content.append(Paragraph("2. Informações Financeiras e de Pessoal", styles['h3']))
-            financeiro_content.append(Spacer(1, 12))
-            financeiro_info_data = [
-                ['Faturamento Estimado:', format_currency(op_data['faturamento_estimado'] if 'faturamento_estimado' in op_keys else None)],
-                ['Duração do Contrato:', f"{op_data['duracao_contrato']} meses" if 'duracao_contrato' in op_keys and op_data['duracao_contrato'] else "---"],
-                ['MOD (Mão de Obra Direta):', op_data['mod'] if 'mod' in op_keys and op_data['mod'] else "---"],
-                ['MOI (Mão de Obra Indireta):', op_data['moi'] if 'moi' in op_keys and op_data['moi'] else "---"],
-                ['Total de Pessoas:', op_data['total_pessoas'] if 'total_pessoas' in op_keys and op_data['total_pessoas'] else "---"],
-                ['Margem de Contribuição:', f"{op_data['margem_contribuicao']}%" if 'margem_contribuicao' in op_keys and op_data['margem_contribuicao'] else "---"],
+            financeiro_content = [
+                Paragraph("2. Informações Financeiras e de Pessoal", styles['h3']),
+                Spacer(1, 12),
+                Table([
+                    ['Faturamento Estimado:', format_currency(op_data['faturamento_estimado'] if 'faturamento_estimado' in op_keys else None)],
+                    ['Duração do Contrato:', f"{op_data['duracao_contrato']} meses" if 'duracao_contrato' in op_keys and op_data['duracao_contrato'] else "---"],
+                    ['MOD (Mão de Obra Direta):', op_data['mod'] if 'mod' in op_keys and op_data['mod'] else "---"],
+                    ['MOI (Mão de Obra Indireta):', op_data['moi'] if 'moi' in op_keys and op_data['moi'] else "---"],
+                    ['Total de Pessoas:', op_data['total_pessoas'] if 'total_pessoas' in op_keys and op_data['total_pessoas'] else "---"],
+                    ['Margem de Contribuição:', f"{op_data['margem_contribuicao']}%" if 'margem_contribuicao' in op_keys and op_data['margem_contribuicao'] else "---"],
+                ], colWidths=[2*inch, 4*inch])
             ]
-            financeiro_info_table = Table(financeiro_info_data, colWidths=[2*inch, 4*inch])
-            financeiro_info_table.setStyle(TableStyle([
+            financeiro_content[2].setStyle(TableStyle([
                 ('ALIGN', (0,0), (-1,-1), 'LEFT'), ('FONTNAME', (0,0), (0,-1), 'Helvetica-Bold'), ('BOTTOMPADDING', (0,0), (-1,-1), 6),
             ]))
-            financeiro_content.append(financeiro_info_table)
             story.append(KeepTogether(financeiro_content))
             story.append(Spacer(1, 24))
 
             # Section 3: Detalhes de Serviços e Preços
-            servicos_content = []
-            servicos_content.append(Paragraph("3. Detalhes de Serviços e Preços", styles['h3']))
-            servicos_content.append(Spacer(1, 12))
+            servicos_main_content = [Paragraph("3. Detalhes de Serviços e Preços", styles['h3']), Spacer(1, 12)]
             servicos_data_json = op_data['servicos_data'] if 'servicos_data' in op_keys else None
             if servicos_data_json:
                 try:
@@ -2909,23 +2907,23 @@ class CRMApp:
                                 servico_block.append(equipe_table)
                             else:
                                 servico_block.append(Paragraph("Nenhuma equipe configurada para este serviço.", styles['BodyText']))
-                            servicos_content.append(KeepTogether(servico_block))
-                            servicos_content.append(Spacer(1, 12))
+                            servicos_main_content.append(KeepTogether(servico_block))
+                            servicos_main_content.append(Spacer(1, 12))
                     else:
-                        servicos_content.append(Paragraph("Nenhum serviço configurado.", styles['BodyText']))
+                        servicos_main_content.append(Paragraph("Nenhum serviço configurado.", styles['BodyText']))
                 except (json.JSONDecodeError, TypeError):
-                    servicos_content.append(Paragraph("Erro ao carregar dados de serviços.", styles['BodyText']))
+                    servicos_main_content.append(Paragraph("Erro ao carregar dados de serviços.", styles['BodyText']))
             else:
-                servicos_content.append(Paragraph("Nenhum serviço configurado.", styles['BodyText']))
-            story.append(KeepTogether(servicos_content))
+                servicos_main_content.append(Paragraph("Nenhum serviço configurado.", styles['BodyText']))
+            story.extend(servicos_main_content)
             story.append(Spacer(1, 24))
 
             # Section 4: Descrição Detalhada
-            descricao_content = []
-            descricao_content.append(Paragraph("4. Descrição Detalhada", styles['h3']))
-            descricao_content.append(Spacer(1, 12))
-            descricao = (op_data['descricao_detalhada'] if 'descricao_detalhada' in op_keys and op_data['descricao_detalhada'] else 'Nenhuma descrição fornecida.')
-            descricao_content.append(Paragraph(descricao.replace('\n', '<br/>'), styles['BodyText']))
+            descricao_content = [
+                Paragraph("4. Descrição Detalhada", styles['h3']),
+                Spacer(1, 12),
+                Paragraph((op_data['descricao_detalhada'] if 'descricao_detalhada' in op_keys and op_data['descricao_detalhada'] else 'Nenhuma descrição fornecida.').replace('\n', '<br/>'), styles['BodyText'])
+            ]
             story.append(KeepTogether(descricao_content))
             story.append(Spacer(1, 48))
 
