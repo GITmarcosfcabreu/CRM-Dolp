@@ -93,7 +93,7 @@ QUALIFICATION_CHECKLIST = {
         "Quais os principais riscos (técnicos, logísticos, regulatórios, políticos) associados ao projeto?"
     ],
     "Avaliação da Gerência Comercial": [
-        "O investimento de tempo e recursos na elaboração de uma análise previa de viabilidade, é justificável?"
+        "O investimento de tempo e recursos na elaboração de um Sumário Executivo, é justificável?"
     ]
 }
 
