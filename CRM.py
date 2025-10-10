@@ -248,8 +248,14 @@ class DatabaseManager:
 
             cursor.execute('''CREATE TABLE IF NOT EXISTS crm_interacoes (id INTEGER PRIMARY KEY, oportunidade_id INTEGER NOT NULL, data_interacao TEXT, tipo TEXT, resumo TEXT, usuario TEXT,
                             FOREIGN KEY (oportunidade_id) REFERENCES oportunidades(id) ON DELETE CASCADE)''')
-            cursor.execute('''CREATE TABLE IF NOT EXISTS crm_tarefas (id INTEGER PRIMARY KEY, oportunidade_id INTEGER NOT NULL, descricao TEXT, data_criacao TEXT, data_vencimento TEXT, responsavel TEXT, status TEXT,
-                            FOREIGN KEY (oportunidade_id) REFERENCES oportunidades(id) ON DELETE CASCADE)''')
+            cursor.execute('''CREATE TABLE IF NOT EXISTS crm_task_categories (
+                                id INTEGER PRIMARY KEY,
+                                nome TEXT UNIQUE NOT NULL
+                           )''')
+            cursor.execute('''CREATE TABLE IF NOT EXISTS crm_tarefas (id INTEGER PRIMARY KEY, oportunidade_id INTEGER NOT NULL, descricao TEXT, data_criacao TEXT, data_vencimento TEXT, responsavel TEXT, status TEXT, category_id INTEGER,
+                            FOREIGN KEY (oportunidade_id) REFERENCES oportunidades(id) ON DELETE CASCADE,
+                            FOREIGN KEY (category_id) REFERENCES crm_task_categories(id)
+                            )''')
             cursor.execute('''CREATE TABLE IF NOT EXISTS crm_bases_alocadas (id INTEGER PRIMARY KEY, oportunidade_id INTEGER NOT NULL, nome_base TEXT, equipes_alocadas TEXT,
                             FOREIGN KEY (oportunidade_id) REFERENCES oportunidades(id) ON DELETE CASCADE)''')
             cursor.execute('''CREATE TABLE IF NOT EXISTS crm_empresas_referencia (
@@ -378,6 +384,14 @@ class DatabaseManager:
                     cursor.execute(f"ALTER TABLE crm_empresas_referencia ADD COLUMN {col_name} {col_type}")
                     print(f"Coluna '{col_name}' adicionada.")
 
+            # Migração para crm_tarefas
+            cursor.execute("PRAGMA table_info(crm_tarefas)")
+            task_columns = [row['name'] for row in cursor.fetchall()]
+            if 'category_id' not in task_columns:
+                print("Aplicando migração: Adicionando coluna 'category_id' em crm_tarefas...")
+                cursor.execute("ALTER TABLE crm_tarefas ADD COLUMN category_id INTEGER REFERENCES crm_task_categories(id)")
+                print("Coluna 'category_id' adicionada.")
+
             # Commit final de todas as alterações de dados e índice
             conn.commit()
 
@@ -407,6 +421,12 @@ class DatabaseManager:
         if cursor.execute("SELECT count(*) FROM crm_segmentos").fetchone()[0] == 0:
             for segmento in INITIAL_SEGMENTOS:
                 cursor.execute("INSERT OR IGNORE INTO crm_segmentos (nome) VALUES (?)", (segmento,))
+
+        # Popula a nova tabela crm_task_categories
+        if cursor.execute("SELECT count(*) FROM crm_task_categories").fetchone()[0] == 0:
+            initial_categories = ["Reclamação", "Sugestão", "Elogio", "Oportunidade de Melhoria"]
+            for category in initial_categories:
+                cursor.execute("INSERT INTO crm_task_categories (nome) VALUES (?)", (category,))
 
         # Adicionar clientes específicos
         new_clients = [
@@ -680,7 +700,7 @@ class DatabaseManager:
 
     def get_tasks_for_opportunity(self, op_id, status=None, responsavel=None, start_date_str=None, end_date_str=None):
         with self._connect() as conn:
-            base_query = "SELECT * FROM crm_tarefas WHERE oportunidade_id = ?"
+            base_query = "SELECT t.*, c.nome as category_name FROM crm_tarefas t LEFT JOIN crm_task_categories c ON t.category_id = c.id WHERE t.oportunidade_id = ?"
             params = [op_id]
 
             if status and status != 'Todos':
@@ -712,7 +732,7 @@ class DatabaseManager:
 
     def add_task(self, data):
         with self._connect() as conn:
-            conn.execute("INSERT INTO crm_tarefas (oportunidade_id, descricao, data_criacao, data_vencimento, responsavel, status) VALUES (?, ?, ?, ?, ?, ?)",(data['oportunidade_id'], data['descricao'], data['data_criacao'], data['data_vencimento'], data['responsavel'], data['status']))
+            conn.execute("INSERT INTO crm_tarefas (oportunidade_id, descricao, data_criacao, data_vencimento, responsavel, status, category_id) VALUES (?, ?, ?, ?, ?, ?, ?)",(data['oportunidade_id'], data['descricao'], data['data_criacao'], data['data_vencimento'], data['responsavel'], data['status'], data.get('category_id')))
 
     def update_task_status(self, task_id, status):
         with self._connect() as conn:
@@ -742,6 +762,22 @@ class DatabaseManager:
     def delete_segmento(self, nome):
         with self._connect() as conn:
             conn.execute("DELETE FROM crm_segmentos WHERE nome = ?", (nome,))
+
+    # Métodos de Categorias de Tarefas
+    def get_all_task_categories(self):
+        with self._connect() as conn:
+            return conn.execute("SELECT * FROM crm_task_categories ORDER BY nome").fetchall()
+
+    def add_task_category(self, nome):
+        with self._connect() as conn:
+            conn.execute("INSERT INTO crm_task_categories (nome) VALUES (?)", (nome,))
+
+    def delete_task_category(self, category_id):
+        with self._connect() as conn:
+            # Opcional: Desassociar tarefas antes de apagar a categoria
+            conn.execute("UPDATE crm_tarefas SET category_id = NULL WHERE category_id = ?", (category_id,))
+            conn.execute("DELETE FROM crm_task_categories WHERE id = ?", (category_id,))
+
 
     # Métodos de Bases Alocadas
     def get_bases_for_opportunity(self, op_id):
@@ -2586,7 +2622,8 @@ class CRMApp:
 
             if tarefas:
                 for tarefa in tarefas:
-                    task_frame = ttk.LabelFrame(tasks_results_frame, text=f"Tarefa - {tarefa['status']}", padding=10, style='White.TLabelframe')
+                    category_name = tarefa['category_name'] or 'Sem Categoria'
+                    task_frame = ttk.LabelFrame(tasks_results_frame, text=f"{category_name} - {tarefa['status']}", padding=10, style='White.TLabelframe')
                     task_frame.pack(fill='x', pady=5)
                     ttk.Label(task_frame, text=tarefa['descricao'], style='Value.White.TLabel', wraplength=750, justify='left').pack(anchor='w')
                     info_frame = ttk.Frame(task_frame)
@@ -3012,6 +3049,14 @@ class CRMApp:
         ttk.Label(main_frame, text="Responsável:", style='TLabel').pack(pady=5)
         responsavel_entry = ttk.Entry(main_frame)
         responsavel_entry.pack(pady=5, padx=20, fill='x')
+
+        # Categoria
+        ttk.Label(main_frame, text="Categoria:", style='TLabel').pack(pady=5)
+        categories = self.db.get_all_task_categories()
+        category_map = {c['nome']: c['id'] for c in categories}
+        category_combo = ttk.Combobox(main_frame, values=list(category_map.keys()), state='readonly')
+        category_combo.pack(pady=5, padx=20, fill='x')
+
         ttk.Label(main_frame, text="Data de Vencimento:", style='TLabel').pack(pady=5)
         vencimento_date = DateEntry(main_frame, date_pattern='dd/mm/yyyy')
         vencimento_date.pack(pady=5, padx=20)
@@ -3020,10 +3065,11 @@ class CRMApp:
             data = {
                 'oportunidade_id': op_id, 'descricao': desc_text.get('1.0', 'end-1c'),
                 'data_criacao': datetime.now().strftime('%d/%m/%Y'), 'data_vencimento': vencimento_date.get(),
-                'responsavel': responsavel_entry.get(), 'status': 'Pendente'
+                'responsavel': responsavel_entry.get(), 'status': 'Pendente',
+                'category_id': category_map.get(category_combo.get())
             }
-            if not data['descricao'] or not data['responsavel']:
-                messagebox.showerror("Erro", "Descrição e responsável são obrigatórios!", parent=self.root)
+            if not data['descricao'] or not data['responsavel'] or not data['category_id']:
+                messagebox.showerror("Erro", "Descrição, Responsável e Categoria são obrigatórios!", parent=self.root)
                 return
             self.db.add_task(data)
             messagebox.showinfo("Sucesso", "Tarefa adicionada com sucesso!", parent=self.root)
@@ -3230,8 +3276,9 @@ class CRMApp:
             ("Tipos de Serviço", self.show_servicos_view, 'Primary.TButton'),
             ("Tipos de Equipe", self.show_team_types_view, 'Primary.TButton'),
             ("Empresas Referência", self.show_empresa_referencia_view, 'Primary.TButton'),
-            ("Setores de Atuação", lambda: self.show_list_manager("Setores", self.db.get_all_setores, self.db.add_setor, self.db.delete_setor), 'Warning.TButton'),
-            ("Segmentos de Atuação", lambda: self.show_list_manager("Segmentos", self.db.get_all_segmentos, self.db.add_segmento, self.db.delete_segmento), 'Warning.TButton')
+            ("Setores de Atuação", lambda: self.show_list_manager("Setores", self.db.get_all_setores, self.db.add_setor, self.db.delete_setor, "nome"), 'Warning.TButton'),
+            ("Segmentos de Atuação", lambda: self.show_list_manager("Segmentos", self.db.get_all_segmentos, self.db.add_segmento, self.db.delete_segmento, "nome"), 'Warning.TButton'),
+            ("Categorias de Tarefas", lambda: self.show_list_manager("Categorias de Tarefas", self.db.get_all_task_categories, self.db.add_task_category, self.db.delete_task_category, "id"), 'Warning.TButton')
         ]
 
         for i, (text, command, style) in enumerate(config_buttons):
@@ -3721,7 +3768,7 @@ class CRMApp:
 
         ttk.Button(buttons_frame, text="Salvar", command=save_empresa, style='Success.TButton').pack(side='right')
 
-    def show_list_manager(self, title, get_func, add_func, delete_func):
+    def show_list_manager(self, title, get_func, add_func, delete_func, key_for_delete):
         self.clear_content()
 
         title_frame = ttk.Frame(self.content_frame, style='TFrame')
@@ -3732,34 +3779,55 @@ class CRMApp:
         main_frame = ttk.Frame(self.content_frame, padding=20, style='TFrame')
         main_frame.pack(fill='both', expand=True)
 
+        # Usar um Treeview para lidar com dados mais complexos (ID e Nome)
         list_frame = ttk.Frame(main_frame, style='TFrame')
         list_frame.pack(fill='both', expand=True, pady=(0, 10))
 
-        listbox = tk.Listbox(list_frame, bg='white', font=('Segoe UI', 10))
-        scrollbar_list = ttk.Scrollbar(list_frame, orient='vertical', command=listbox.yview)
-        listbox.configure(yscrollcommand=scrollbar_list.set)
-        listbox.pack(side='left', fill='both', expand=True)
+        tree = ttk.Treeview(list_frame, columns=('id', 'nome'), show='headings', height=15)
+        tree.heading('id', text='ID')
+        tree.heading('nome', text='Nome')
+        tree.column('id', width=50, anchor='center')
+        tree.column('nome', width=300)
+
+        scrollbar_list = ttk.Scrollbar(list_frame, orient='vertical', command=tree.yview)
+        tree.configure(yscrollcommand=scrollbar_list.set)
+        tree.pack(side='left', fill='both', expand=True)
         scrollbar_list.pack(side='right', fill='y')
 
+        # Armazenar os dados completos para referência
+        item_data_map = {}
+
         def refresh_list():
-            listbox.delete(0, 'end')
+            for i in tree.get_children():
+                tree.delete(i)
+            item_data_map.clear()
             items = get_func()
             for item in items:
-                listbox.insert('end', item)
+                # Lidar com dicionários (sqlite3.Row) e strings simples
+                if isinstance(item, str):
+                    item_id = item
+                    item_name = item
+                else: # Assumir que é um objeto tipo dicionário (sqlite3.Row)
+                    item_id = item['id']
+                    item_name = item['nome']
+
+                item_data_map[item_name] = item
+                tree.insert('', 'end', values=(item_id, item_name))
         refresh_list()
 
         add_frame = ttk.Frame(main_frame, style='TFrame')
         add_frame.pack(fill='x', pady=(0, 10))
 
-        ttk.Label(add_frame, text=f"Novo {title[:-1]}:", style='TLabel').pack(side='left')
+        singular_title = title[:-1] if title.endswith('s') else title
+        ttk.Label(add_frame, text=f"Novo {singular_title}:", style='TLabel').pack(side='left')
         new_entry = ttk.Entry(add_frame, width=30)
         new_entry.pack(side='left', padx=(10, 0), fill='x', expand=True)
 
         def add_item():
-            new_item = new_entry.get().strip()
-            if new_item:
+            new_item_name = new_entry.get().strip()
+            if new_item_name:
                 try:
-                    add_func(new_item)
+                    add_func(new_item_name)
                     new_entry.delete(0, 'end')
                     refresh_list()
                 except Exception as e:
@@ -3771,13 +3839,22 @@ class CRMApp:
         buttons_frame.pack(fill='x')
 
         def delete_selected():
-            selection = listbox.curselection()
+            selection = tree.selection()
             if selection:
-                item = listbox.get(selection[0])
-                if messagebox.askyesno("Confirmar", f"Deseja excluir '{item}'?", parent=self.root):
+                selected_item_values = tree.item(selection[0])['values']
+                item_name = selected_item_values[1] # O nome é a segunda coluna
+
+                if messagebox.askyesno("Confirmar", f"Deseja excluir '{item_name}'?", parent=self.root):
                     try:
-                        delete_func(item)
-                        refresh_list()
+                        # Obter o item completo do mapa para encontrar a chave de exclusão
+                        full_item = item_data_map.get(item_name)
+                        if full_item:
+                            # O valor a ser deletado pode ser o nome ou o ID
+                            value_to_delete = full_item if isinstance(full_item, str) else full_item[key_for_delete]
+                            delete_func(value_to_delete)
+                            refresh_list()
+                        else:
+                            messagebox.showerror("Erro", "Não foi possível encontrar os dados do item para exclusão.", parent=self.root)
                     except Exception as e:
                         messagebox.showerror("Erro", f"Erro ao excluir: {str(e)}", parent=self.root)
 
