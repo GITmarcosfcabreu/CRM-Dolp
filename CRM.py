@@ -2799,6 +2799,8 @@ class CRMApp:
                 canvas.drawRightString(A4[0] - doc.rightMargin, A4[1] - 0.75 * inch, f"Gerado em: {now}")
 
                 canvas.setFont('Helvetica', 10)
+                # Adicionando a seção de aprovação
+                canvas.drawString(doc.leftMargin, 1.25 * inch, "Seguiremos com a elaboração do sumário executivo?   (   ) Sim   (   ) Não")
                 canvas.drawString(doc.leftMargin, 0.75 * inch, "_________________________________________")
                 canvas.drawString(doc.leftMargin, 0.5 * inch, "Assinatura da Diretoria")
                 canvas.restoreState()
