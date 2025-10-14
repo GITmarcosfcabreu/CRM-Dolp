@@ -39,6 +39,7 @@ import locale
 import pandas as pd
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.ticker import FuncFormatter
 
 
 # --- 1. CONFIGURAÇÕES GERAIS ---
@@ -1775,6 +1776,8 @@ class CRMApp:
         ax.set_title("Oportunidades por Cliente", fontsize=12)
         ax.set_ylabel("Quantidade")
         ax.set_xlabel("")
+        for container in ax.containers:
+            ax.bar_label(container)
         fig.autofmt_xdate()
 
         canvas = FigureCanvasTkAgg(fig, master=chart_frame)
@@ -1800,7 +1803,9 @@ class CRMApp:
         ax.set_title("Valor Total por Cliente", fontsize=12)
         ax.set_ylabel("Valor (R$)")
         ax.set_xlabel("")
-        ax.get_yaxis().set_major_formatter(tk.FuncFormatter(lambda x, p: f'R$ {x:,.0f}'))
+        ax.get_yaxis().set_major_formatter(FuncFormatter(lambda x, p: f'R${x/1000:,.0f}k'))
+        for container in ax.containers:
+            ax.bar_label(container, fmt='R$ {:,.0f}')
         fig.autofmt_xdate()
 
         canvas = FigureCanvasTkAgg(fig, master=chart_frame)
@@ -1821,7 +1826,14 @@ class CRMApp:
         fig = Figure(figsize=(6, 4), dpi=100)
         ax = fig.add_subplot(111)
 
-        df.plot(kind='pie', y='client_count', labels=df['setor_atuacao'], ax=ax, autopct='%1.1f%%', startangle=90, legend=False)
+        def make_autopct(values):
+            def my_autopct(pct):
+                total = sum(values)
+                val = int(round(pct*total/100.0))
+                return f'{pct:.1f}%\n({val:d})'
+            return my_autopct
+
+        df.plot(kind='pie', y='client_count', labels=df['setor_atuacao'], ax=ax, autopct=make_autopct(df['client_count']), startangle=90, legend=False)
         ax.set_title("Distribuição de Clientes por Setor", fontsize=12)
         ax.set_ylabel('') # Esconde o label do eixo y
 
@@ -1843,7 +1855,14 @@ class CRMApp:
         fig = Figure(figsize=(6, 4), dpi=100)
         ax = fig.add_subplot(111)
 
-        df.plot(kind='pie', y='client_count', labels=df['segmento_atuacao'], ax=ax, autopct='%1.1f%%', startangle=90, legend=False)
+        def make_autopct(values):
+            def my_autopct(pct):
+                total = sum(values)
+                val = int(round(pct*total/100.0))
+                return f'{pct:.1f}%\n({val:d})'
+            return my_autopct
+
+        df.plot(kind='pie', y='client_count', labels=df['segmento_atuacao'], ax=ax, autopct=make_autopct(df['client_count']), startangle=90, legend=False)
         ax.set_title("Distribuição de Clientes por Segmento", fontsize=12)
         ax.set_ylabel('')
 
