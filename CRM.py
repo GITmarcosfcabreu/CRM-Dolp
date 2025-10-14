@@ -1766,7 +1766,7 @@ class CRMApp:
             ttk.Label(chart_frame, text="Não há dados suficientes.").pack()
             return
 
-        df = pd.DataFrame(data)
+        df = pd.DataFrame(data, columns=['nome_empresa', 'opportunity_count', 'total_value'])
 
         fig = Figure(figsize=(6, 4), dpi=100)
         ax = fig.add_subplot(111)
@@ -1790,7 +1790,7 @@ class CRMApp:
             ttk.Label(chart_frame, text="Não há dados suficientes.").pack()
             return
 
-        df = pd.DataFrame(data)
+        df = pd.DataFrame(data, columns=['nome_empresa', 'opportunity_count', 'total_value'])
         df = df[df['total_value'] > 0] # Apenas clientes com valor
 
         fig = Figure(figsize=(6, 4), dpi=100)
@@ -1816,7 +1816,7 @@ class CRMApp:
             ttk.Label(chart_frame, text="Não há dados suficientes.").pack()
             return
 
-        df = pd.DataFrame(data)
+        df = pd.DataFrame(data, columns=['setor_atuacao', 'client_count'])
 
         fig = Figure(figsize=(6, 4), dpi=100)
         ax = fig.add_subplot(111)
@@ -1838,7 +1838,7 @@ class CRMApp:
             ttk.Label(chart_frame, text="Não há dados suficientes.").pack()
             return
 
-        df = pd.DataFrame(data)
+        df = pd.DataFrame(data, columns=['segmento_atuacao', 'client_count'])
 
         fig = Figure(figsize=(6, 4), dpi=100)
         ax = fig.add_subplot(111)
@@ -1860,7 +1860,7 @@ class CRMApp:
             ttk.Label(chart_frame, text="Não há dados suficientes.").pack()
             return
 
-        df = pd.DataFrame(data)
+        df = pd.DataFrame(data, columns=['nome', 'opportunity_count'])
 
         fig = Figure(figsize=(12, 5), dpi=100)
         ax = fig.add_subplot(111)
