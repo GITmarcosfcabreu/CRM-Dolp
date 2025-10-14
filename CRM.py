@@ -36,6 +36,9 @@ from reportlab.lib.utils import ImageReader
 from reportlab.lib import colors
 from reportlab.lib.units import inch
 import locale
+import pandas as pd
+from matplotlib.figure import Figure
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 
 # --- 1. CONFIGURAÇÕES GERAIS ---
@@ -751,6 +754,57 @@ class DatabaseManager:
         with self._connect() as conn:
             conn.execute("DELETE FROM crm_tarefas WHERE id = ?", (task_id,))
 
+    # --- Métodos para o Dashboard ---
+    def get_opportunity_stats_by_client(self):
+        query = """
+            SELECT
+                c.nome_empresa,
+                COUNT(o.id) as opportunity_count,
+                SUM(o.valor) as total_value
+            FROM clientes c
+            JOIN oportunidades o ON c.id = o.cliente_id
+            GROUP BY c.nome_empresa
+            ORDER BY opportunity_count DESC
+        """
+        with self._connect() as conn:
+            return conn.execute(query).fetchall()
+
+    def get_client_count_by_setor(self):
+        query = """
+            SELECT setor_atuacao, COUNT(id) as client_count
+            FROM clientes
+            WHERE setor_atuacao IS NOT NULL AND setor_atuacao != ''
+            GROUP BY setor_atuacao
+            ORDER BY client_count DESC
+        """
+        with self._connect() as conn:
+            return conn.execute(query).fetchall()
+
+    def get_client_count_by_segmento(self):
+        query = """
+            SELECT segmento_atuacao, COUNT(id) as client_count
+            FROM clientes
+            WHERE segmento_atuacao IS NOT NULL AND segmento_atuacao != ''
+            GROUP BY segmento_atuacao
+            ORDER BY client_count DESC
+        """
+        with self._connect() as conn:
+            return conn.execute(query).fetchall()
+
+    def get_opportunity_count_by_stage(self):
+        query = """
+            SELECT
+                p.nome,
+                COUNT(o.id) as opportunity_count
+            FROM pipeline_estagios p
+            LEFT JOIN oportunidades o ON p.id = o.estagio_id
+            WHERE p.nome != 'Histórico' AND p.nome != 'Clientes e Segmentos definidos (Playbook)'
+            GROUP BY p.nome
+            ORDER BY p.ordem
+        """
+        with self._connect() as conn:
+            return conn.execute(query).fetchall()
+
     # Métodos de Setores e Segmentos
     def get_all_setores(self):
         with self._connect() as conn:
@@ -1436,7 +1490,8 @@ class CRMApp:
         title_frame.pack(fill='x', pady=(0, 20))
 
         ttk.Label(title_frame, text="Funil de Vendas", style='Title.TLabel').pack(side='left')
-        ttk.Button(title_frame, text="Histórico", command=self.show_historico_view, style='Warning.TButton').pack(side='right')
+        ttk.Button(title_frame, text="📈 Dashboard", command=self.show_dashboard_view, style='Primary.TButton').pack(side='right', padx=(0, 10))
+        ttk.Button(title_frame, text="Histórico", command=self.show_historico_view, style='Warning.TButton').pack(side='right', padx=(0, 10))
         ttk.Button(title_frame, text="Nova Oportunidade", command=lambda: self.show_opportunity_form(back_callback=self.show_kanban_view), style='Success.TButton').pack(side='right', padx=(0, 10))
         ttk.Button(title_frame, text="← Voltar", command=self.show_main_menu, style='TButton').pack(side='right', padx=(0, 10))
 
@@ -1651,6 +1706,179 @@ class CRMApp:
 
         main_frame.bind('<Enter>', _bind_scroll)
         main_frame.bind('<Leave>', _unbind_scroll)
+
+    def show_dashboard_view(self):
+        self.clear_content()
+
+        # --- Título e Botão Voltar ---
+        title_frame = ttk.Frame(self.content_frame, style='TFrame')
+        title_frame.pack(fill='x', pady=(0, 20))
+        ttk.Label(title_frame, text="Dashboard de Análise", style='Title.TLabel').pack(side='left')
+        ttk.Button(title_frame, text="← Voltar ao Funil", command=self.show_kanban_view, style='TButton').pack(side='right')
+
+        # --- Frame Principal com Rolagem ---
+        main_canvas = tk.Canvas(self.content_frame, bg=DOLP_COLORS['white'], highlightthickness=0)
+        main_scrollbar = ttk.Scrollbar(self.content_frame, orient="vertical", command=main_canvas.yview)
+        scrollable_frame = ttk.Frame(main_canvas, style='TFrame', padding=20)
+
+        scrollable_frame.bind("<Configure>", lambda e: main_canvas.configure(scrollregion=main_canvas.bbox("all")))
+        window_id = main_canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+
+        def _on_canvas_configure(event):
+            main_canvas.itemconfig(window_id, width=event.width)
+        main_canvas.bind("<Configure>", _on_canvas_configure)
+
+        main_canvas.configure(yscrollcommand=main_scrollbar.set)
+
+        main_canvas.pack(side="left", fill="both", expand=True)
+        main_scrollbar.pack(side="right", fill="y")
+
+        def _on_mousewheel(event):
+            main_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
+        main_canvas.bind_all("<MouseWheel>", _on_mousewheel)
+
+        # --- Layout dos Gráficos ---
+        # Os gráficos serão adicionados aqui, em um grid
+        scrollable_frame.columnconfigure(0, weight=1)
+        scrollable_frame.columnconfigure(1, weight=1)
+
+        # Adicionar os gráficos (a lógica de criação vem na próxima etapa)
+        self.add_opportunities_by_client_chart(scrollable_frame, 0, 0)
+        self.add_value_by_client_chart(scrollable_frame, 0, 1)
+        self.add_clients_by_setor_chart(scrollable_frame, 1, 0)
+        self.add_clients_by_segmento_chart(scrollable_frame, 1, 1)
+        self.add_opportunities_by_stage_chart(scrollable_frame, 2, 0, 2)
+
+
+    def _create_chart_frame(self, parent, title):
+        """Cria um contêiner padronizado para um gráfico."""
+        chart_lf = ttk.LabelFrame(parent, text=title, padding=15, style='White.TLabelframe')
+        chart_lf.grid(padx=10, pady=10, sticky='nsew')
+        return chart_lf
+
+    def add_opportunities_by_client_chart(self, parent, row, col):
+        chart_frame = self._create_chart_frame(parent, "Quantidade de Oportunidades por Cliente")
+        chart_frame.grid(row=row, column=col)
+
+        data = self.db.get_opportunity_stats_by_client()
+        if not data:
+            ttk.Label(chart_frame, text="Não há dados suficientes.").pack()
+            return
+
+        df = pd.DataFrame(data)
+
+        fig = Figure(figsize=(6, 4), dpi=100)
+        ax = fig.add_subplot(111)
+
+        df.plot(kind='bar', x='nome_empresa', y='opportunity_count', ax=ax, color=DOLP_COLORS['primary_blue'], legend=False)
+        ax.set_title("Oportunidades por Cliente", fontsize=12)
+        ax.set_ylabel("Quantidade")
+        ax.set_xlabel("")
+        fig.autofmt_xdate()
+
+        canvas = FigureCanvasTkAgg(fig, master=chart_frame)
+        canvas.draw()
+        canvas.get_tk_widget().pack(fill='both', expand=True)
+
+    def add_value_by_client_chart(self, parent, row, col):
+        chart_frame = self._create_chart_frame(parent, "Valor Global (R$) por Cliente")
+        chart_frame.grid(row=row, column=col)
+
+        data = self.db.get_opportunity_stats_by_client()
+        if not data:
+            ttk.Label(chart_frame, text="Não há dados suficientes.").pack()
+            return
+
+        df = pd.DataFrame(data)
+        df = df[df['total_value'] > 0] # Apenas clientes com valor
+
+        fig = Figure(figsize=(6, 4), dpi=100)
+        ax = fig.add_subplot(111)
+
+        df.plot(kind='bar', x='nome_empresa', y='total_value', ax=ax, color=DOLP_COLORS['success_green'], legend=False)
+        ax.set_title("Valor Total por Cliente", fontsize=12)
+        ax.set_ylabel("Valor (R$)")
+        ax.set_xlabel("")
+        ax.get_yaxis().set_major_formatter(tk.FuncFormatter(lambda x, p: f'R$ {x:,.0f}'))
+        fig.autofmt_xdate()
+
+        canvas = FigureCanvasTkAgg(fig, master=chart_frame)
+        canvas.draw()
+        canvas.get_tk_widget().pack(fill='both', expand=True)
+
+    def add_clients_by_setor_chart(self, parent, row, col):
+        chart_frame = self._create_chart_frame(parent, "Clientes por Setor de Atuação")
+        chart_frame.grid(row=row, column=col)
+
+        data = self.db.get_client_count_by_setor()
+        if not data:
+            ttk.Label(chart_frame, text="Não há dados suficientes.").pack()
+            return
+
+        df = pd.DataFrame(data)
+
+        fig = Figure(figsize=(6, 4), dpi=100)
+        ax = fig.add_subplot(111)
+
+        df.plot(kind='pie', y='client_count', labels=df['setor_atuacao'], ax=ax, autopct='%1.1f%%', startangle=90, legend=False)
+        ax.set_title("Distribuição de Clientes por Setor", fontsize=12)
+        ax.set_ylabel('') # Esconde o label do eixo y
+
+        canvas = FigureCanvasTkAgg(fig, master=chart_frame)
+        canvas.draw()
+        canvas.get_tk_widget().pack(fill='both', expand=True)
+
+    def add_clients_by_segmento_chart(self, parent, row, col):
+        chart_frame = self._create_chart_frame(parent, "Clientes por Segmento de Atuação")
+        chart_frame.grid(row=row, column=col)
+
+        data = self.db.get_client_count_by_segmento()
+        if not data:
+            ttk.Label(chart_frame, text="Não há dados suficientes.").pack()
+            return
+
+        df = pd.DataFrame(data)
+
+        fig = Figure(figsize=(6, 4), dpi=100)
+        ax = fig.add_subplot(111)
+
+        df.plot(kind='pie', y='client_count', labels=df['segmento_atuacao'], ax=ax, autopct='%1.1f%%', startangle=90, legend=False)
+        ax.set_title("Distribuição de Clientes por Segmento", fontsize=12)
+        ax.set_ylabel('')
+
+        canvas = FigureCanvasTkAgg(fig, master=chart_frame)
+        canvas.draw()
+        canvas.get_tk_widget().pack(fill='both', expand=True)
+
+    def add_opportunities_by_stage_chart(self, parent, row, col, colspan):
+        chart_frame = self._create_chart_frame(parent, "Oportunidades por Etapa do Funil")
+        chart_frame.grid(row=row, column=col, columnspan=colspan)
+
+        data = self.db.get_opportunity_count_by_stage()
+        if not data:
+            ttk.Label(chart_frame, text="Não há dados suficientes.").pack()
+            return
+
+        df = pd.DataFrame(data)
+
+        fig = Figure(figsize=(12, 5), dpi=100)
+        ax = fig.add_subplot(111)
+
+        df.plot(kind='barh', x='nome', y='opportunity_count', ax=ax, color=DOLP_COLORS['dolp_cyan'], legend=False)
+        ax.set_title("Contagem de Oportunidades por Etapa", fontsize=12)
+        ax.set_xlabel("Quantidade")
+        ax.set_ylabel("Etapa do Funil")
+
+        # Adicionar contagem no final de cada barra
+        for index, value in enumerate(df['opportunity_count']):
+            ax.text(value, index, f' {value}')
+
+        fig.tight_layout()
+
+        canvas = FigureCanvasTkAgg(fig, master=chart_frame)
+        canvas.draw()
+        canvas.get_tk_widget().pack(fill='both', expand=True)
 
     def show_resultado_dialog(self, op_id, current_stage_id):
         """Mostra tela para aprovar ou reprovar oportunidade"""
