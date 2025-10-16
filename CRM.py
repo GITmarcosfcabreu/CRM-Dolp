@@ -44,7 +44,7 @@ from matplotlib.ticker import FuncFormatter
 
 # --- 1. CONFIGURAÇÕES GERAIS ---
 LAST_FETCH_FILE = 'last_fetch.log'
-FETCH_INTERVAL_HOURS = 4
+FETCH_INTERVAL_HOURS = 1
 DB_NAME = 'dolp_crm_final.db'
 LOGO_PATH = "dolp_logo.png"
 LOGO_URL = "https://mcusercontent.com/cfa43b95eeae85d65cf1366fb/images/a68e98a6-1595-5add-0b79-2e541e7faefa.png"
