@@ -36,6 +36,8 @@ from reportlab.lib.utils import ImageReader
 from reportlab.lib import colors
 from reportlab.lib.units import inch
 import locale
+import shutil
+import glob
 import pandas as pd
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
@@ -161,6 +163,47 @@ def format_cnpj(cnpj):
     if len(cnpj_digits) == 14:
         return f"{cnpj_digits[:2]}.{cnpj_digits[2:5]}.{cnpj_digits[5:8]}/{cnpj_digits[8:12]}-{cnpj_digits[12:]}"
     return cnpj # Retorna o original (ou o que sobrou) se não tiver 14 dígitos
+
+def backup_database(db_name):
+    """Cria um backup do banco de dados em uma pasta 'backups' e gerencia backups antigos."""
+    backup_dir = "backups"
+    if not os.path.exists(backup_dir):
+        try:
+            os.makedirs(backup_dir)
+            print(f"Diretório de backup '{backup_dir}' criado.")
+        except OSError as e:
+            print(f"Erro CRÍTICO ao criar o diretório de backup: {e}")
+            return
+
+    if not os.path.exists(db_name):
+        print(f"Aviso: O arquivo de banco de dados '{db_name}' não foi encontrado. Nenhum backup será criado.")
+        return
+
+    # Criar o novo backup
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    backup_filename = f"backup_{timestamp}.db"
+    backup_path = os.path.join(backup_dir, backup_filename)
+
+    try:
+        shutil.copy2(db_name, backup_path)
+        print(f"Backup do banco de dados criado com sucesso em: {backup_path}")
+    except Exception as e:
+        print(f"Erro CRÍTICO ao criar o backup do banco de dados: {e}")
+        return  # Não prosseguir com a limpeza se o backup falhar
+
+    # Gerenciar backups antigos (manter os 10 mais recentes)
+    try:
+        # Obter todos os arquivos de backup, ordená-los por data de criação (mais antigos primeiro)
+        backup_files = sorted(glob.glob(os.path.join(backup_dir, "backup_*.db")), key=os.path.getctime)
+
+        # Se houver mais de 10 backups, remover os mais antigos
+        if len(backup_files) > 10:
+            files_to_delete = backup_files[:-10]
+            for f in files_to_delete:
+                os.remove(f)
+                print(f"Backup antigo removido: {f}")
+    except Exception as e:
+        print(f"Erro ao gerenciar backups antigos: {e}")
 
 # --- 3. GERENCIADOR DE BANCO DE DADOS ---
 class DatabaseManager:
@@ -1075,6 +1118,7 @@ class NewsService:
 class CRMApp:
     def __init__(self, root):
         self.root = root
+        backup_database(DB_NAME)  # Executa o backup na inicialização
         self.db = DatabaseManager(DB_NAME)
         self.news_service = NewsService(self.db)
         self.root.title("CRM Dolp Engenharia")
