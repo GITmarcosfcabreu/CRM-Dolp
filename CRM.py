@@ -40,7 +40,7 @@ import locale
 
 # --- 1. CONFIGURAÇÕES GERAIS ---
 LAST_FETCH_FILE = 'last_fetch.log'
-FETCH_INTERVAL_HOURS = 1
+FETCH_INTERVAL_HOURS = 4
 DB_NAME = 'dolp_crm_final.db'
 LOGO_PATH = "dolp_logo.png"
 LOGO_URL = "https://mcusercontent.com/cfa43b95eeae85d65cf1366fb/images/a68e98a6-1595-5add-0b79-2e541e7faefa.png"
@@ -92,8 +92,8 @@ QUALIFICATION_CHECKLIST = {
         "Quais são nossos diferenciais competitivos claros para esta oportunidade específica?",
         "Quais os principais riscos (técnicos, logísticos, regulatórios, políticos) associados ao projeto?"
     ],
-    "Avaliação da Gerência Comercial": [
-        "O investimento de tempo e recursos na elaboração de um Sumário Executivo, é justificável?"
+    "Análise de Interesse da Diretoria": [
+        "O investimento de tempo e recursos na elaboração de uma análise previa de viabilidade, é justificável?"
     ]
 }
 
@@ -854,7 +854,7 @@ class NewsService:
         self.gemini_api_key = os.environ.get('GEMINI_API_KEY')
         if self.gemini_api_key:
             genai.configure(api_key=self.gemini_api_key)
-
+            self.model = genai.GenerativeModel('gemini-1.5-flash')
         else:
             self.model = None
             print("AVISO: Chave da API do Gemini não configurada.")
@@ -1105,7 +1105,7 @@ class CRMApp:
         title_label = ttk.Label(header_frame, text="Customer Relationship Management (CRM) - Dolp Engenharia", style='Header.TLabel')
         title_label.pack(side='left')
 
-        version_label = ttk.Label(header_frame, text="v71", font=('Segoe UI', 9, 'italic'), foreground=DOLP_COLORS['medium_gray'], style='TLabel')
+        version_label = ttk.Label(header_frame, text="v59", font=('Segoe UI', 9, 'italic'), foreground=DOLP_COLORS['medium_gray'], style='TLabel')
         version_label.pack(side='right', padx=(10, 0), anchor='s', pady=(0, 4))
 
         # Área de conteúdo
