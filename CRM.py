@@ -36,6 +36,10 @@ from reportlab.lib.utils import ImageReader
 from reportlab.lib import colors
 from reportlab.lib.units import inch
 import locale
+import pandas as pd
+from matplotlib.figure import Figure
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.ticker import FuncFormatter
 
 
 # --- 1. CONFIGURAÇÕES GERAIS ---
@@ -821,6 +825,69 @@ class DatabaseManager:
         with self._connect() as conn:
             return conn.execute("SELECT * FROM crm_empresas_referencia WHERE nome_empresa = ? AND tipo_servico = ? AND ativa = 1", (nome_empresa, tipo_servico)).fetchone()
 
+    # --- Métodos para o Dashboard ---
+    def get_opportunity_stats_by_client(self):
+        """Retorna contagem e valor total de oportunidades por cliente."""
+        with self._connect() as conn:
+            query = """
+                SELECT c.nome_empresa, COUNT(o.id) as opportunity_count, SUM(o.valor) as total_value
+                FROM clientes c
+                JOIN oportunidades o ON c.id = o.cliente_id
+                GROUP BY c.nome_empresa
+                ORDER BY opportunity_count DESC, total_value DESC
+            """
+            return conn.execute(query).fetchall()
+
+    def get_client_count_by_setor(self):
+        """Retorna a contagem de clientes por setor de atuação."""
+        with self._connect() as conn:
+            query = """
+                SELECT setor_atuacao, COUNT(id) as client_count
+                FROM clientes
+                WHERE setor_atuacao IS NOT NULL AND setor_atuacao != ''
+                GROUP BY setor_atuacao
+                ORDER BY client_count DESC
+            """
+            return conn.execute(query).fetchall()
+
+    def get_client_count_by_segmento(self):
+        """Retorna a contagem de clientes por segmento de atuação."""
+        with self._connect() as conn:
+            query = """
+                SELECT segmento_atuacao, COUNT(id) as client_count
+                FROM clientes
+                WHERE segmento_atuacao IS NOT NULL AND segmento_atuacao != ''
+                GROUP BY segmento_atuacao
+                ORDER BY client_count DESC
+            """
+            return conn.execute(query).fetchall()
+
+    def get_opportunity_count_by_stage(self):
+        """Retorna a contagem de oportunidades por estágio do pipeline."""
+        with self._connect() as conn:
+            query = """
+                SELECT p.nome, COUNT(o.id) as opportunity_count
+                FROM pipeline_estagios p
+                JOIN oportunidades o ON p.id = o.estagio_id
+                GROUP BY p.nome
+                ORDER BY p.ordem
+            """
+            return conn.execute(query).fetchall()
+
+    def get_interaction_count_by_opportunity(self, limit=15):
+        """Retorna as N oportunidades com mais interações."""
+        with self._connect() as conn:
+            query = """
+                SELECT o.titulo, COUNT(i.id) as interaction_count
+                FROM oportunidades o
+                JOIN crm_interacoes i ON o.id = i.oportunidade_id
+                GROUP BY o.titulo
+                ORDER BY interaction_count DESC
+                LIMIT ?
+            """
+            return conn.execute(query, (limit,)).fetchall()
+
+
     # Métodos para Notícias
     def add_news_article(self, article_data):
         with self._connect() as conn:
@@ -1376,7 +1443,8 @@ class CRMApp:
         title_frame.pack(fill='x', pady=(0, 20))
 
         ttk.Label(title_frame, text="Funil de Vendas", style='Title.TLabel').pack(side='left')
-        ttk.Button(title_frame, text="Histórico", command=self.show_historico_view, style='Warning.TButton').pack(side='right')
+        ttk.Button(title_frame, text="Dashboard", command=self.show_dashboard_view, style='Primary.TButton').pack(side='right', padx=(0, 10))
+        ttk.Button(title_frame, text="Histórico", command=self.show_historico_view, style='Warning.TButton').pack(side='right', padx=(0,10))
         ttk.Button(title_frame, text="Nova Oportunidade", command=lambda: self.show_opportunity_form(), style='Success.TButton').pack(side='right', padx=(0, 10))
         ttk.Button(title_frame, text="← Voltar", command=self.show_main_menu, style='TButton').pack(side='right', padx=(0, 10))
 
