@@ -38,10 +38,7 @@ from reportlab.lib.units import inch
 import locale
 import shutil
 import glob
-import pandas as pd
-from matplotlib.figure import Figure
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-from matplotlib.ticker import FuncFormatter
+
 
 
 # --- 1. CONFIGURAÇÕES GERAIS ---
@@ -295,8 +292,13 @@ class DatabaseManager:
 
             cursor.execute('''CREATE TABLE IF NOT EXISTS crm_interacoes (id INTEGER PRIMARY KEY, oportunidade_id INTEGER NOT NULL, data_interacao TEXT, tipo TEXT, resumo TEXT, usuario TEXT,
                             FOREIGN KEY (oportunidade_id) REFERENCES oportunidades(id) ON DELETE CASCADE)''')
-            cursor.execute('''CREATE TABLE IF NOT EXISTS crm_tarefas (id INTEGER PRIMARY KEY, oportunidade_id INTEGER NOT NULL, descricao TEXT, data_criacao TEXT, data_vencimento TEXT, responsavel TEXT, status TEXT,
-                            FOREIGN KEY (oportunidade_id) REFERENCES oportunidades(id) ON DELETE CASCADE)''')
+            cursor.execute('''CREATE TABLE IF NOT EXISTS crm_task_categories (
+                                id INTEGER PRIMARY KEY,
+                                name TEXT UNIQUE NOT NULL
+                           )''')
+            cursor.execute('''CREATE TABLE IF NOT EXISTS crm_tarefas (id INTEGER PRIMARY KEY, oportunidade_id INTEGER NOT NULL, descricao TEXT, data_criacao TEXT, data_vencimento TEXT, responsavel TEXT, status TEXT, category_id INTEGER,
+                            FOREIGN KEY (oportunidade_id) REFERENCES oportunidades(id) ON DELETE CASCADE,
+                            FOREIGN KEY (category_id) REFERENCES crm_task_categories(id))''')
             cursor.execute('''CREATE TABLE IF NOT EXISTS crm_bases_alocadas (id INTEGER PRIMARY KEY, oportunidade_id INTEGER NOT NULL, nome_base TEXT, equipes_alocadas TEXT,
                             FOREIGN KEY (oportunidade_id) REFERENCES oportunidades(id) ON DELETE CASCADE)''')
             cursor.execute('''CREATE TABLE IF NOT EXISTS crm_empresas_referencia (
@@ -425,6 +427,14 @@ class DatabaseManager:
                     cursor.execute(f"ALTER TABLE crm_empresas_referencia ADD COLUMN {col_name} {col_type}")
                     print(f"Coluna '{col_name}' adicionada.")
 
+            # Migração para crm_tarefas
+            cursor.execute("PRAGMA table_info(crm_tarefas)")
+            task_columns = [row['name'] for row in cursor.fetchall()]
+            if 'category_id' not in task_columns:
+                print("Aplicando migração: Adicionando coluna 'category_id' em crm_tarefas...")
+                cursor.execute("ALTER TABLE crm_tarefas ADD COLUMN category_id INTEGER REFERENCES crm_task_categories(id)")
+                print("Coluna 'category_id' adicionada.")
+
             # Commit final de todas as alterações de dados e índice
             conn.commit()
 
@@ -436,6 +446,12 @@ class DatabaseManager:
 
 
     def _populate_initial_data(self, cursor):
+        # Popula as categorias de tarefas iniciais
+        if cursor.execute("SELECT count(*) FROM crm_task_categories").fetchone()[0] == 0:
+            initial_categories = ["Reclamação", "Sugestão", "Elogio", "Oportunidade de Melhoria"]
+            for category in initial_categories:
+                cursor.execute("INSERT OR IGNORE INTO crm_task_categories (name) VALUES (?)", (category,))
+
         if cursor.execute("SELECT count(*) FROM pipeline_estagios").fetchone()[0] != len(ESTAGIOS_PIPELINE_DOLP):
             cursor.execute("PRAGMA foreign_keys = OFF;")
             cursor.execute("DELETE FROM pipeline_estagios")
@@ -759,11 +775,39 @@ class DatabaseManager:
 
     def add_task(self, data):
         with self._connect() as conn:
-            conn.execute("INSERT INTO crm_tarefas (oportunidade_id, descricao, data_criacao, data_vencimento, responsavel, status) VALUES (?, ?, ?, ?, ?, ?)",(data['oportunidade_id'], data['descricao'], data['data_criacao'], data['data_vencimento'], data['responsavel'], data['status']))
+            conn.execute("INSERT INTO crm_tarefas (oportunidade_id, descricao, data_criacao, data_vencimento, responsavel, status, category_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                         (data['oportunidade_id'], data['descricao'], data['data_criacao'], data['data_vencimento'], data['responsavel'], data['status'], data.get('category_id')))
 
     def update_task_status(self, task_id, status):
         with self._connect() as conn:
             conn.execute("UPDATE crm_tarefas SET status = ? WHERE id = ?", (status, task_id))
+
+    def update_task(self, task_id, data):
+        with self._connect() as conn:
+            conn.execute("UPDATE crm_tarefas SET descricao=?, data_vencimento=?, responsavel=?, status=?, category_id=? WHERE id=?",
+                         (data['descricao'], data['data_vencimento'], data['responsavel'], data['status'], data['category_id'], task_id))
+
+    def delete_task(self, task_id):
+        with self._connect() as conn:
+            conn.execute("DELETE FROM crm_tarefas WHERE id = ?", (task_id,))
+
+    # Métodos de Categorias de Tarefas
+    def get_all_task_categories(self):
+        with self._connect() as conn:
+            return conn.execute("SELECT * FROM crm_task_categories ORDER BY name").fetchall()
+
+    def add_task_category(self, name):
+        with self._connect() as conn:
+            conn.execute("INSERT INTO crm_task_categories (name) VALUES (?)", (name,))
+
+    def update_task_category(self, category_id, name):
+        with self._connect() as conn:
+            conn.execute("UPDATE crm_task_categories SET name = ? WHERE id = ?", (name, category_id))
+
+    def delete_task_category(self, category_id):
+        with self._connect() as conn:
+            conn.execute("DELETE FROM crm_task_categories WHERE id = ?", (category_id,))
+
 
     # Métodos de Setores e Segmentos
     def get_all_setores(self):
@@ -1487,7 +1531,7 @@ class CRMApp:
         title_frame.pack(fill='x', pady=(0, 20))
 
         ttk.Label(title_frame, text="Funil de Vendas", style='Title.TLabel').pack(side='left')
-        ttk.Button(title_frame, text="Dashboard", command=self.show_dashboard_view, style='Primary.TButton').pack(side='right', padx=(0, 10))
+
         ttk.Button(title_frame, text="Histórico", command=self.show_historico_view, style='Warning.TButton').pack(side='right', padx=(0,10))
         ttk.Button(title_frame, text="Nova Oportunidade", command=lambda: self.show_opportunity_form(), style='Success.TButton').pack(side='right', padx=(0, 10))
         ttk.Button(title_frame, text="← Voltar", command=self.show_main_menu, style='TButton').pack(side='right', padx=(0, 10))
@@ -3073,6 +3117,16 @@ class CRMApp:
         end_date_task_filter.delete(0, 'end')
         end_date_task_filter.grid(row=0, column=7, padx=(0, 20))
 
+        # Categoria
+        ttk.Label(filters_tasks_frame, text="Categoria:", style='TLabel').grid(row=1, column=0, sticky='w', padx=(0, 5), pady=(10,0))
+        task_categories = self.db.get_all_task_categories()
+        category_map = {cat['name']: cat['id'] for cat in task_categories}
+        category_names = ['Todas'] + list(category_map.keys())
+        category_task_filter = ttk.Combobox(filters_tasks_frame, values=category_names, state='readonly')
+        category_task_filter.set('Todas')
+        category_task_filter.grid(row=1, column=1, pady=(10,0))
+
+
         # Container para os resultados das tarefas
         tasks_results_frame = ttk.Frame(tarefas_tab, style='TFrame')
         tasks_results_frame.pack(fill='both', expand=True, pady=(10,0))
@@ -3085,27 +3139,57 @@ class CRMApp:
             responsavel = responsavel_filter.get()
             start_date = start_date_task_filter.get()
             end_date = end_date_task_filter.get()
+            category_name = category_task_filter.get()
+            category_id = None
+            if category_name != 'Todas':
+                category_id = category_map.get(category_name)
 
-            tarefas = self.db.get_tasks_for_opportunity(op_id, status, responsavel, start_date, end_date)
+
+            tarefas = self.db.get_tasks_for_opportunity(op_id, status, responsavel, start_date, end_date, category_id)
+            all_categories = {cat['id']: cat['name'] for cat in self.db.get_all_task_categories()}
+
 
             if tarefas:
                 for tarefa in tarefas:
                     task_frame = ttk.LabelFrame(tasks_results_frame, text=f"Tarefa - {tarefa['status']}", padding=10, style='White.TLabelframe')
                     task_frame.pack(fill='x', pady=5)
-                    ttk.Label(task_frame, text=tarefa['descricao'], style='Value.White.TLabel', wraplength=750, justify='left').pack(anchor='w')
+
+                    # Top frame for description and buttons
+                    top_task_frame = ttk.Frame(task_frame)
+                    top_task_frame.pack(fill='x')
+
+                    ttk.Label(top_task_frame, text=tarefa['descricao'], style='Value.White.TLabel', wraplength=650, justify='left').pack(side='left', fill='x', expand=True)
+
+                    button_container = ttk.Frame(top_task_frame)
+                    button_container.pack(side='right')
+
+                    edit_btn = ttk.Button(button_container, text="Editar", style='Primary.TButton', width=8,
+                                        command=lambda t=tarefa: self.edit_task_dialog(t, details_win))
+                    edit_btn.pack(side='left', padx=(0,5))
+
+                    delete_btn = ttk.Button(button_container, text="Excluir", style='Danger.TButton', width=8,
+                                          command=lambda t_id=tarefa['id'], op_id=op_id: self.delete_task_confirm(t_id, op_id, details_win))
+                    delete_btn.pack(side='left')
+
+
+                    # Bottom frame for info
                     info_frame = ttk.Frame(task_frame)
                     info_frame.pack(fill='x', pady=(5, 0))
-                    ttk.Label(info_frame, text=f"Responsável: {tarefa['responsavel']}", style='Metric.White.TLabel').pack(side='left')
+
+                    category_name = all_categories.get(tarefa['category_id'], 'Sem Categoria')
+                    ttk.Label(info_frame, text=f"Categoria: {category_name}", style='Metric.White.TLabel').pack(side='left')
+                    ttk.Label(info_frame, text=f"Responsável: {tarefa['responsavel']}", style='Metric.White.TLabel').pack(side='left', padx=20)
                     ttk.Label(info_frame, text=f"Vencimento: {tarefa['data_vencimento']}", style='Metric.White.TLabel').pack(side='right')
+
                     if tarefa['status'] != 'Concluída':
                         ttk.Button(task_frame, text="Marcar como Concluída",
-                                 command=lambda t_id=tarefa['id'], op_id=op_id: self.complete_task(t_id, op_id, details_win),
+                                 command=lambda t_id=tarefa['id']: self.complete_task(t_id, op_id, details_win),
                                  style='Success.TButton').pack(anchor='e', pady=(5, 0))
             else:
                 ttk.Label(tasks_results_frame, text="Nenhuma tarefa encontrada para os filtros selecionados.", style='Value.White.TLabel').pack(pady=20)
 
-        ttk.Button(filters_tasks_frame, text="🔍 Filtrar", command=_refilter_tasks, style='Primary.TButton').grid(row=0, column=8, padx=(20, 0))
-        ttk.Button(filters_tasks_frame, text="Nova Tarefa", command=lambda: self.add_task_dialog(op_id, details_win), style='Success.TButton').grid(row=0, column=9, padx=(10,0))
+        ttk.Button(filters_tasks_frame, text="🔍 Filtrar", command=_refilter_tasks, style='Primary.TButton').grid(row=1, column=2, padx=(20, 0), pady=(10,0))
+        ttk.Button(filters_tasks_frame, text="Nova Tarefa", command=lambda: self.add_task_dialog(op_id, details_win), style='Success.TButton').grid(row=1, column=3, padx=(10,0), pady=(10,0))
 
         # Carregar tarefas iniciais
         _refilter_tasks()
@@ -3511,6 +3595,14 @@ class CRMApp:
         vencimento_date = DateEntry(dialog, date_pattern='dd/mm/yyyy')
         vencimento_date.pack(pady=5, padx=20)
 
+        ttk.Label(dialog, text="Categoria:", style='TLabel').pack(pady=5)
+        categories = self.db.get_all_task_categories()
+        category_map = {cat['name']: cat['id'] for cat in categories}
+        category_names = [''] + list(category_map.keys())
+        category_combo = ttk.Combobox(dialog, values=category_names, state='readonly')
+        category_combo.pack(pady=5, padx=20, fill='x')
+
+
         def save_task():
             data = {
                 'oportunidade_id': op_id,
@@ -3525,6 +3617,10 @@ class CRMApp:
                 messagebox.showerror("Erro", "Descrição e responsável são obrigatórios!", parent=dialog)
                 return
 
+            category_name = category_combo.get()
+            category_id = category_map.get(category_name)
+            data['category_id'] = category_id
+
             self.db.add_task(data)
             messagebox.showinfo("Sucesso", "Tarefa adicionada com sucesso!", parent=dialog)
             parent_win.destroy()
@@ -3533,6 +3629,71 @@ class CRMApp:
 
 
         ttk.Button(dialog, text="Salvar", command=save_task, style='Success.TButton').pack(pady=10)
+
+    def edit_task_dialog(self, task_data, parent_win):
+        dialog = Toplevel(parent_win)
+        dialog.title("Editar Tarefa")
+        dialog.geometry("500x400")
+        dialog.configure(bg=DOLP_COLORS['white'])
+        dialog.transient(parent_win)
+        dialog.grab_set()
+
+        ttk.Label(dialog, text="Descrição:", style='TLabel').pack(pady=5)
+        desc_text = tk.Text(dialog, height=6, wrap='word', bg='white')
+        desc_text.insert('1.0', task_data['descricao'])
+        desc_text.pack(pady=5, padx=20, fill='both', expand=True)
+
+        ttk.Label(dialog, text="Responsável:", style='TLabel').pack(pady=5)
+        responsavel_entry = ttk.Entry(dialog)
+        responsavel_entry.insert(0, task_data['responsavel'])
+        responsavel_entry.pack(pady=5, padx=20, fill='x')
+
+        ttk.Label(dialog, text="Data de Vencimento:", style='TLabel').pack(pady=5)
+        vencimento_date = DateEntry(dialog, date_pattern='dd/mm/yyyy')
+        try:
+            vencimento_date.set_date(datetime.strptime(task_data['data_vencimento'], '%d/%m/%Y'))
+        except (ValueError, TypeError):
+            pass
+        vencimento_date.pack(pady=5, padx=20)
+
+        ttk.Label(dialog, text="Status:", style='TLabel').pack(pady=5)
+        status_combo = ttk.Combobox(dialog, values=['Pendente', 'Concluída'], state='readonly')
+        status_combo.set(task_data['status'])
+        status_combo.pack(pady=5, padx=20, fill='x')
+
+        ttk.Label(dialog, text="Categoria:", style='TLabel').pack(pady=5)
+        categories = self.db.get_all_task_categories()
+        category_map = {cat['name']: cat['id'] for cat in categories}
+        rev_category_map = {cat['id']: cat['name'] for cat in categories}
+        category_names = [''] + list(category_map.keys())
+        category_combo = ttk.Combobox(dialog, values=category_names, state='readonly')
+        if task_data['category_id']:
+            category_combo.set(rev_category_map.get(task_data['category_id'], ''))
+        category_combo.pack(pady=5, padx=20, fill='x')
+
+        def save_task():
+            data = {
+                'descricao': desc_text.get('1.0', 'end-1c'),
+                'data_vencimento': vencimento_date.get(),
+                'responsavel': responsavel_entry.get(),
+                'status': status_combo.get(),
+                'category_id': category_map.get(category_combo.get())
+            }
+            self.db.update_task(task_data['id'], data)
+            dialog.destroy()
+            messagebox.showinfo("Sucesso", "Tarefa atualizada com sucesso!")
+            # Recarregar a visualização de detalhes da oportunidade para mostrar a tarefa atualizada
+            parent_win.destroy()
+            self.show_opportunity_details(task_data['oportunidade_id'])
+
+        ttk.Button(dialog, text="Salvar", command=save_task, style='Success.TButton').pack(pady=10)
+
+    def delete_task_confirm(self, task_id, op_id, parent_win):
+        if messagebox.askyesno("Confirmar Exclusão", "Tem certeza que deseja excluir esta tarefa?"):
+            self.db.delete_task(task_id)
+            messagebox.showinfo("Sucesso", "Tarefa excluída com sucesso.")
+            parent_win.destroy()
+            self.show_opportunity_details(op_id)
 
     def complete_task(self, task_id, op_id, parent_win):
         self.db.update_task_status(task_id, 'Concluída')
@@ -3755,12 +3916,126 @@ class CRMApp:
             ("Tipos de Equipe", self.show_team_types_view, 'Primary.TButton'),
             ("Empresas Referência", self.show_empresa_referencia_view, 'Primary.TButton'),
             ("Setores de Atuação", lambda: self.show_list_manager("Setores", self.db.get_all_setores, self.db.add_setor, self.db.delete_setor), 'Warning.TButton'),
-            ("Segmentos de Atuação", lambda: self.show_list_manager("Segmentos", self.db.get_all_segmentos, self.db.add_segmento, self.db.delete_segmento), 'Warning.TButton')
+            ("Segmentos de Atuação", lambda: self.show_list_manager("Segmentos", self.db.get_all_segmentos, self.db.add_segmento, self.db.delete_segmento), 'Warning.TButton'),
+            ("Categorias de Tarefas", self.show_task_categories_view, 'Warning.TButton')
         ]
 
         for i, (text, command, style) in enumerate(config_buttons):
             btn = ttk.Button(settings_frame, text=text, command=command, style=style, width=25)
             btn.pack(pady=10)
+
+    def show_task_categories_view(self):
+        self.clear_content()
+
+        title_frame = ttk.Frame(self.content_frame, style='TFrame')
+        title_frame.pack(fill='x', pady=(0, 20))
+
+        ttk.Label(title_frame, text="Gerenciar Categorias de Tarefas", style='Title.TLabel').pack(side='left')
+        ttk.Button(title_frame, text="← Voltar", command=self.show_crm_settings, style='TButton').pack(side='right')
+
+        main_frame = ttk.Frame(self.content_frame, style='TFrame')
+        main_frame.pack(fill='both', expand=True)
+
+        # Treeview para exibir as categorias
+        columns = ('id', 'name')
+        tree = ttk.Treeview(main_frame, columns=columns, show='headings', height=15)
+        tree.heading('id', text='ID')
+        tree.heading('name', text='Nome da Categoria')
+        tree.column('id', width=50, anchor='center')
+        tree.column('name', width=300)
+
+        scrollbar = ttk.Scrollbar(main_frame, orient='vertical', command=tree.yview)
+        tree.configure(yscrollcommand=scrollbar.set)
+        tree.pack(side='left', fill='both', expand=True)
+        scrollbar.pack(side='right', fill='y')
+
+        def load_categories():
+            for i in tree.get_children():
+                tree.delete(i)
+            categories = self.db.get_all_task_categories()
+            for category in categories:
+                tree.insert('', 'end', values=(category['id'], category['name']))
+
+        load_categories()
+
+        def on_double_click(event):
+            selection = tree.selection()
+            if selection:
+                item = tree.item(selection[0])
+                category_id, category_name = item['values']
+                edit_category_dialog(category_id, category_name)
+
+        tree.bind('<Double-1>', on_double_click)
+
+        # Botões de ação
+        buttons_frame = ttk.Frame(self.content_frame, style='TFrame', padding=(0, 10, 0, 0))
+        buttons_frame.pack(fill='x')
+
+        def add_category_dialog():
+            dialog = Toplevel(self.root)
+            dialog.title("Adicionar Nova Categoria")
+            dialog.geometry("400x150")
+            dialog.transient(self.root)
+            dialog.grab_set()
+
+            ttk.Label(dialog, text="Nome da Categoria:", padding=(10,10)).pack()
+            name_entry = ttk.Entry(dialog, width=40)
+            name_entry.pack(pady=5, padx=10, fill='x')
+
+            def save():
+                name = name_entry.get().strip()
+                if name:
+                    try:
+                        self.db.add_task_category(name)
+                        load_categories()
+                        dialog.destroy()
+                    except sqlite3.IntegrityError:
+                        messagebox.showerror("Erro", "Essa categoria já existe.", parent=dialog)
+                else:
+                    messagebox.showwarning("Atenção", "O nome não pode estar vazio.", parent=dialog)
+
+            ttk.Button(dialog, text="Salvar", command=save, style='Success.TButton').pack(pady=10)
+            name_entry.focus()
+
+        def edit_category_dialog(category_id, old_name):
+            dialog = Toplevel(self.root)
+            dialog.title("Editar Categoria")
+            dialog.geometry("400x150")
+            dialog.transient(self.root)
+            dialog.grab_set()
+
+            ttk.Label(dialog, text="Nome da Categoria:", padding=(10,10)).pack()
+            name_entry = ttk.Entry(dialog, width=40)
+            name_entry.insert(0, old_name)
+            name_entry.pack(pady=5, padx=10, fill='x')
+
+            def save():
+                name = name_entry.get().strip()
+                if name:
+                    try:
+                        self.db.update_task_category(category_id, name)
+                        load_categories()
+                        dialog.destroy()
+                    except sqlite3.IntegrityError:
+                        messagebox.showerror("Erro", "Essa categoria já existe.", parent=dialog)
+                else:
+                    messagebox.showwarning("Atenção", "O nome não pode estar vazio.", parent=dialog)
+
+            ttk.Button(dialog, text="Salvar", command=save, style='Success.TButton').pack(pady=10)
+            name_entry.focus()
+
+        def delete_category():
+            selection = tree.selection()
+            if selection:
+                item = tree.item(selection[0])
+                category_id, category_name = item['values']
+                if messagebox.askyesno("Confirmar Exclusão", f"Tem certeza que deseja excluir a categoria '{category_name}'?\nIsso removerá a categoria de todas as tarefas associadas."):
+                    self.db.delete_task_category(category_id)
+                    load_categories()
+
+        ttk.Button(buttons_frame, text="Adicionar Nova", command=add_category_dialog, style='Success.TButton').pack(side='left')
+        ttk.Button(buttons_frame, text="Excluir Selecionada", command=delete_category, style='Danger.TButton').pack(side='left', padx=10)
+
 
     def show_servicos_view(self):
         self.clear_content()
