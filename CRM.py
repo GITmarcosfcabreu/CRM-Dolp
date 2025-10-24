@@ -40,6 +40,7 @@ import shutil
 import glob
 
 
+
 # --- 1. CONFIGURAÇÕES GERAIS ---
 LAST_FETCH_FILE = 'last_fetch.log'
 FETCH_INTERVAL_HOURS = 4
@@ -159,6 +160,47 @@ def format_cnpj(cnpj):
     if len(cnpj_digits) == 14:
         return f"{cnpj_digits[:2]}.{cnpj_digits[2:5]}.{cnpj_digits[5:8]}/{cnpj_digits[8:12]}-{cnpj_digits[12:]}"
     return cnpj # Retorna o original (ou o que sobrou) se não tiver 14 dígitos
+
+def backup_database(db_name):
+    """Cria um backup do banco de dados em uma pasta 'backups' e gerencia backups antigos."""
+    backup_dir = "backups"
+    if not os.path.exists(backup_dir):
+        try:
+            os.makedirs(backup_dir)
+            print(f"Diretório de backup '{backup_dir}' criado.")
+        except OSError as e:
+            print(f"Erro CRÍTICO ao criar o diretório de backup: {e}")
+            return
+
+    if not os.path.exists(db_name):
+        print(f"Aviso: O arquivo de banco de dados '{db_name}' não foi encontrado. Nenhum backup será criado.")
+        return
+
+    # Criar o novo backup
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    backup_filename = f"backup_{timestamp}.db"
+    backup_path = os.path.join(backup_dir, backup_filename)
+
+    try:
+        shutil.copy2(db_name, backup_path)
+        print(f"Backup do banco de dados criado com sucesso em: {backup_path}")
+    except Exception as e:
+        print(f"Erro CRÍTICO ao criar o backup do banco de dados: {e}")
+        return  # Não prosseguir com a limpeza se o backup falhar
+
+    # Gerenciar backups antigos (manter os 10 mais recentes)
+    try:
+        # Obter todos os arquivos de backup, ordená-los por data de criação (mais antigos primeiro)
+        backup_files = sorted(glob.glob(os.path.join(backup_dir, "backup_*.db")), key=os.path.getctime)
+
+        # Se houver mais de 10 backups, remover os mais antigos
+        if len(backup_files) > 10:
+            files_to_delete = backup_files[:-10]
+            for f in files_to_delete:
+                os.remove(f)
+                print(f"Backup antigo removido: {f}")
+    except Exception as e:
+        print(f"Erro ao gerenciar backups antigos: {e}")
 
 # --- 3. GERENCIADOR DE BANCO DE DADOS ---
 class DatabaseManager:
@@ -870,6 +912,69 @@ class DatabaseManager:
         with self._connect() as conn:
             return conn.execute("SELECT * FROM crm_empresas_referencia WHERE nome_empresa = ? AND tipo_servico = ? AND ativa = 1", (nome_empresa, tipo_servico)).fetchone()
 
+    # --- Métodos para o Dashboard ---
+    def get_opportunity_stats_by_client(self):
+        """Retorna contagem e valor total de oportunidades por cliente."""
+        with self._connect() as conn:
+            query = """
+                SELECT c.nome_empresa, COUNT(o.id) as opportunity_count, SUM(o.valor) as total_value
+                FROM clientes c
+                JOIN oportunidades o ON c.id = o.cliente_id
+                GROUP BY c.nome_empresa
+                ORDER BY opportunity_count DESC, total_value DESC
+            """
+            return conn.execute(query).fetchall()
+
+    def get_client_count_by_setor(self):
+        """Retorna a contagem de clientes por setor de atuação."""
+        with self._connect() as conn:
+            query = """
+                SELECT setor_atuacao, COUNT(id) as client_count
+                FROM clientes
+                WHERE setor_atuacao IS NOT NULL AND setor_atuacao != ''
+                GROUP BY setor_atuacao
+                ORDER BY client_count DESC
+            """
+            return conn.execute(query).fetchall()
+
+    def get_client_count_by_segmento(self):
+        """Retorna a contagem de clientes por segmento de atuação."""
+        with self._connect() as conn:
+            query = """
+                SELECT segmento_atuacao, COUNT(id) as client_count
+                FROM clientes
+                WHERE segmento_atuacao IS NOT NULL AND segmento_atuacao != ''
+                GROUP BY segmento_atuacao
+                ORDER BY client_count DESC
+            """
+            return conn.execute(query).fetchall()
+
+    def get_opportunity_count_by_stage(self):
+        """Retorna a contagem de oportunidades por estágio do pipeline."""
+        with self._connect() as conn:
+            query = """
+                SELECT p.nome, COUNT(o.id) as opportunity_count
+                FROM pipeline_estagios p
+                JOIN oportunidades o ON p.id = o.estagio_id
+                GROUP BY p.nome
+                ORDER BY p.ordem
+            """
+            return conn.execute(query).fetchall()
+
+    def get_interaction_count_by_opportunity(self, limit=15):
+        """Retorna as N oportunidades com mais interações."""
+        with self._connect() as conn:
+            query = """
+                SELECT o.titulo, COUNT(i.id) as interaction_count
+                FROM oportunidades o
+                JOIN crm_interacoes i ON o.id = i.oportunidade_id
+                GROUP BY o.titulo
+                ORDER BY interaction_count DESC
+                LIMIT ?
+            """
+            return conn.execute(query, (limit,)).fetchall()
+
+
     # Métodos para Notícias
     def add_news_article(self, article_data):
         with self._connect() as conn:
@@ -1057,6 +1162,7 @@ class NewsService:
 class CRMApp:
     def __init__(self, root):
         self.root = root
+        backup_database(DB_NAME)  # Executa o backup na inicialização
         self.db = DatabaseManager(DB_NAME)
         self.news_service = NewsService(self.db)
         self.root.title("CRM Dolp Engenharia")
@@ -1154,7 +1260,7 @@ class CRMApp:
         title_label = ttk.Label(header_frame, text="Customer Relationship Management (CRM) - Dolp Engenharia", style='Header.TLabel')
         title_label.pack(side='left')
 
-        version_label = ttk.Label(header_frame, text="v59", font=('Segoe UI', 9, 'italic'), foreground=DOLP_COLORS['medium_gray'], style='TLabel')
+        version_label = ttk.Label(header_frame, text="v79", font=('Segoe UI', 9, 'italic'), foreground=DOLP_COLORS['medium_gray'], style='TLabel')
         version_label.pack(side='right', padx=(10, 0), anchor='s', pady=(0, 4))
 
         # Área de conteúdo
@@ -1425,6 +1531,7 @@ class CRMApp:
         title_frame.pack(fill='x', pady=(0, 20))
 
         ttk.Label(title_frame, text="Funil de Vendas", style='Title.TLabel').pack(side='left')
+
         ttk.Button(title_frame, text="Histórico", command=self.show_historico_view, style='Warning.TButton').pack(side='right', padx=(0,10))
         ttk.Button(title_frame, text="Nova Oportunidade", command=lambda: self.show_opportunity_form(), style='Success.TButton').pack(side='right', padx=(0, 10))
         ttk.Button(title_frame, text="← Voltar", command=self.show_main_menu, style='TButton').pack(side='right', padx=(0, 10))
@@ -1640,6 +1747,186 @@ class CRMApp:
 
         main_frame.bind('<Enter>', _bind_scroll)
         main_frame.bind('<Leave>', _unbind_scroll)
+
+    def show_dashboard_view(self):
+        self.clear_content()
+
+        # --- Título e Botão Voltar ---
+        title_frame = ttk.Frame(self.content_frame, style='TFrame')
+        title_frame.pack(fill='x', pady=(0, 20))
+        ttk.Label(title_frame, text="Dashboard de Análise", style='Title.TLabel').pack(side='left')
+        ttk.Button(title_frame, text="← Voltar ao Funil", command=self.show_kanban_view, style='TButton').pack(side='right')
+
+        # --- Frame Principal com Rolagem ---
+        main_canvas = tk.Canvas(self.content_frame, bg=DOLP_COLORS['white'], highlightthickness=0)
+        main_scrollbar = ttk.Scrollbar(self.content_frame, orient="vertical", command=main_canvas.yview)
+        scrollable_frame = ttk.Frame(main_canvas, style='TFrame', padding=20)
+
+        scrollable_frame.bind("<Configure>", lambda e: main_canvas.configure(scrollregion=main_canvas.bbox("all")))
+        window_id = main_canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+
+        def _on_canvas_configure(event):
+            main_canvas.itemconfig(window_id, width=event.width)
+        main_canvas.bind("<Configure>", _on_canvas_configure)
+
+        main_canvas.configure(yscrollcommand=main_scrollbar.set)
+
+        main_canvas.pack(side="left", fill="both", expand=True)
+        main_scrollbar.pack(side="right", fill="y")
+
+        def _on_mousewheel(event):
+            main_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
+        main_canvas.bind_all("<MouseWheel>", _on_mousewheel)
+
+        # --- Layout dos Gráficos ---
+        scrollable_frame.columnconfigure(0, weight=1)
+        scrollable_frame.columnconfigure(1, weight=1)
+
+        # Adicionar os gráficos
+        self.add_opportunities_by_client_chart(scrollable_frame, 0, 0)
+        self.add_value_by_client_chart(scrollable_frame, 0, 1)
+        self.add_clients_by_setor_chart(scrollable_frame, 1, 0)
+        self.add_clients_by_segmento_chart(scrollable_frame, 1, 1)
+        self.add_opportunities_by_stage_chart(scrollable_frame, 2, 0)
+        self.add_interactions_by_opportunity_chart(scrollable_frame, 2, 1)
+
+    def _create_chart_frame(self, parent, title):
+        """Cria um contêiner padronizado para um gráfico."""
+        chart_lf = ttk.LabelFrame(parent, text=title, padding=15, style='White.TLabelframe')
+        chart_lf.grid(padx=10, pady=10, sticky='nsew')
+        return chart_lf
+
+    def add_opportunities_by_client_chart(self, parent, row, col):
+        chart_frame = self._create_chart_frame(parent, "Quantidade de Oportunidades por Cliente")
+        chart_frame.grid(row=row, column=col)
+        data = self.db.get_opportunity_stats_by_client()
+        if not data:
+            ttk.Label(chart_frame, text="Não há dados suficientes.").pack()
+            return
+        df = pd.DataFrame(data, columns=['nome_empresa', 'opportunity_count', 'total_value'])
+        fig = Figure(figsize=(6, 4), dpi=100)
+        ax = fig.add_subplot(111)
+        df.plot(kind='bar', x='nome_empresa', y='opportunity_count', ax=ax, color=DOLP_COLORS['primary_blue'], legend=False)
+        ax.set_title("Oportunidades por Cliente", fontsize=12)
+        ax.set_ylabel("Quantidade")
+        ax.set_xlabel("")
+        ax.bar_label(ax.containers[0])
+        ax.set_ylim(top=ax.get_ylim()[1] * 1.1)
+        fig.autofmt_xdate(rotation=45, ha='right')
+        canvas = FigureCanvasTkAgg(fig, master=chart_frame)
+        canvas.draw()
+        canvas.get_tk_widget().pack(fill='both', expand=True)
+
+    def add_value_by_client_chart(self, parent, row, col):
+        chart_frame = self._create_chart_frame(parent, "Valor Global (R$) por Cliente")
+        chart_frame.grid(row=row, column=col)
+        data = self.db.get_opportunity_stats_by_client()
+        if not data:
+            ttk.Label(chart_frame, text="Não há dados suficientes.").pack()
+            return
+        df = pd.DataFrame(data, columns=['nome_empresa', 'opportunity_count', 'total_value'])
+        df = df[df['total_value'] > 0]
+        fig = Figure(figsize=(6, 4), dpi=100)
+        ax = fig.add_subplot(111)
+        df.plot(kind='bar', x='nome_empresa', y='total_value', ax=ax, color=DOLP_COLORS['success_green'], legend=False)
+        ax.set_title("Valor Total por Cliente", fontsize=12)
+        ax.set_ylabel("Valor (R$)")
+        ax.set_xlabel("")
+        ax.get_yaxis().set_major_formatter(FuncFormatter(lambda x, p: f'R${x/1000:,.0f}k'))
+        ax.bar_label(ax.containers[0], fmt='R$ {:,.0f}')
+        ax.set_ylim(top=ax.get_ylim()[1] * 1.15)
+        fig.autofmt_xdate(rotation=45, ha='right')
+        canvas = FigureCanvasTkAgg(fig, master=chart_frame)
+        canvas.draw()
+        canvas.get_tk_widget().pack(fill='both', expand=True)
+
+    def add_clients_by_setor_chart(self, parent, row, col):
+        chart_frame = self._create_chart_frame(parent, "Clientes por Setor de Atuação")
+        chart_frame.grid(row=row, column=col)
+        data = self.db.get_client_count_by_setor()
+        if not data:
+            ttk.Label(chart_frame, text="Não há dados suficientes.").pack()
+            return
+        df = pd.DataFrame(data, columns=['setor_atuacao', 'client_count'])
+        fig = Figure(figsize=(6, 4), dpi=100)
+        ax = fig.add_subplot(111)
+        def make_autopct(values):
+            def my_autopct(pct):
+                total = sum(values)
+                val = int(round(pct*total/100.0))
+                return f'{pct:.1f}%\n({val:d})'
+            return my_autopct
+        df.plot(kind='pie', y='client_count', labels=df['setor_atuacao'], ax=ax, autopct=make_autopct(df['client_count']), startangle=90, legend=False)
+        ax.set_title("Distribuição de Clientes por Setor", fontsize=12)
+        ax.set_ylabel('')
+        canvas = FigureCanvasTkAgg(fig, master=chart_frame)
+        canvas.draw()
+        canvas.get_tk_widget().pack(fill='both', expand=True)
+
+    def add_clients_by_segmento_chart(self, parent, row, col):
+        chart_frame = self._create_chart_frame(parent, "Clientes por Segmento de Atuação")
+        chart_frame.grid(row=row, column=col)
+        data = self.db.get_client_count_by_segmento()
+        if not data:
+            ttk.Label(chart_frame, text="Não há dados suficientes.").pack()
+            return
+        df = pd.DataFrame(data, columns=['segmento_atuacao', 'client_count'])
+        fig = Figure(figsize=(6, 4), dpi=100)
+        ax = fig.add_subplot(111)
+        def make_autopct(values):
+            def my_autopct(pct):
+                total = sum(values)
+                val = int(round(pct*total/100.0))
+                return f'{pct:.1f}%\n({val:d})'
+            return my_autopct
+        df.plot(kind='pie', y='client_count', labels=df['segmento_atuacao'], ax=ax, autopct=make_autopct(df['client_count']), startangle=90, legend=False)
+        ax.set_title("Distribuição de Clientes por Segmento", fontsize=12)
+        ax.set_ylabel('')
+        canvas = FigureCanvasTkAgg(fig, master=chart_frame)
+        canvas.draw()
+        canvas.get_tk_widget().pack(fill='both', expand=True)
+
+    def add_opportunities_by_stage_chart(self, parent, row, col):
+        chart_frame = self._create_chart_frame(parent, "Oportunidades por Etapa do Funil")
+        chart_frame.grid(row=row, column=col)
+        data = self.db.get_opportunity_count_by_stage()
+        if not data:
+            ttk.Label(chart_frame, text="Não há dados suficientes.").pack()
+            return
+        df = pd.DataFrame(data, columns=['nome', 'opportunity_count'])
+        fig = Figure(figsize=(6, 4), dpi=100)
+        ax = fig.add_subplot(111)
+        df.plot(kind='barh', x='nome', y='opportunity_count', ax=ax, color=DOLP_COLORS['dolp_cyan'], legend=False)
+        ax.set_title("Contagem de Oportunidades por Etapa", fontsize=12)
+        ax.set_xlabel("Quantidade")
+        ax.set_ylabel("Etapa do Funil")
+        ax.bar_label(ax.containers[0], fmt='%d')
+        fig.tight_layout()
+        canvas = FigureCanvasTkAgg(fig, master=chart_frame)
+        canvas.draw()
+        canvas.get_tk_widget().pack(fill='both', expand=True)
+
+    def add_interactions_by_opportunity_chart(self, parent, row, col):
+        chart_frame = self._create_chart_frame(parent, "Top 15 Oportunidades por Interações")
+        chart_frame.grid(row=row, column=col)
+        data = self.db.get_interaction_count_by_opportunity()
+        if not data:
+            ttk.Label(chart_frame, text="Não há dados de interações.").pack()
+            return
+        df = pd.DataFrame(data, columns=['titulo', 'interaction_count'])
+        df = df.sort_values('interaction_count', ascending=True)
+        fig = Figure(figsize=(6, 4), dpi=100)
+        ax = fig.add_subplot(111)
+        df.plot(kind='barh', x='titulo', y='interaction_count', ax=ax, color=DOLP_COLORS['warning_orange'], legend=False)
+        ax.set_title("Top 15 Oportunidades por Nº de Interações", fontsize=12)
+        ax.set_xlabel("Quantidade de Interações")
+        ax.set_ylabel("Oportunidade")
+        ax.bar_label(ax.containers[0], fmt='%d')
+        fig.tight_layout()
+        canvas = FigureCanvasTkAgg(fig, master=chart_frame)
+        canvas.draw()
+        canvas.get_tk_widget().pack(fill='both', expand=True)
 
     def show_resultado_dialog(self, op_id, current_stage_id):
         """Mostra dialog para aprovar ou reprovar oportunidade"""
