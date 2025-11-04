@@ -1467,16 +1467,7 @@ class CRMApp:
         title_label = ttk.Label(header_frame, text="Customer Relationship Management (CRM) - Dolp Engenharia", style='Header.TLabel')
         title_label.pack(side='left')
 
-        # Menu do Usuário
-        user_menu_btn = ttk.Menubutton(header_frame, text=f"👤 {self.current_user['username']}", style='TButton')
-        user_menu = tk.Menu(user_menu_btn, tearoff=0)
-        user_menu.add_command(label="Alterar Minha Senha", command=self.show_change_password_dialog)
-        user_menu.add_command(label="Sair", command=self.logout)
-        user_menu_btn['menu'] = user_menu
-        user_menu_btn.pack(side='right', padx=(20, 0))
 
-
-        version_label = ttk.Label(header_frame, text="v79", font=('Segoe UI', 9, 'italic'), foreground=DOLP_COLORS['medium_gray'], style='TLabel')
         version_label.pack(side='right', padx=(10, 0), anchor='s', pady=(0, 4))
 
         # Área de conteúdo
