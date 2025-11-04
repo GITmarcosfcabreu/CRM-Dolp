@@ -848,7 +848,7 @@ class DatabaseManager:
             conn.execute("DELETE FROM crm_bases_alocadas WHERE oportunidade_id = ?", (op_id,))
 
     # Métodos de Empresas Referência
-    def get_all_empresas_referencia(self, estado=None, tipo_servico=None, concessionaria=None):
+    def get_all_empresas_referencia(self, estado=None, tipo_servico=None, concessionaria=None, nome_empresa=None):
         with self._connect() as conn:
             base_query = """
                 SELECT er.*, te.nome as tipo_equipe_nome
@@ -867,12 +867,21 @@ class DatabaseManager:
             if concessionaria and concessionaria != 'Todos':
                 conditions.append("er.concessionaria = ?")
                 params.append(concessionaria)
+            if nome_empresa and nome_empresa != 'Todos':
+                conditions.append("er.nome_empresa = ?")
+                params.append(nome_empresa)
 
             if conditions:
                 base_query += " WHERE " + " AND ".join(conditions)
 
             base_query += " ORDER BY er.nome_empresa, er.tipo_servico"
             return conn.execute(base_query, params).fetchall()
+
+    def get_unique_empresa_referencia_names(self):
+        """Retorna uma lista de nomes de empresas de referência únicos."""
+        with self._connect() as conn:
+            query = "SELECT DISTINCT nome_empresa FROM crm_empresas_referencia ORDER BY nome_empresa"
+            return [row['nome_empresa'] for row in conn.execute(query).fetchall()]
 
     def get_empresa_referencia_by_id(self, empresa_id):
         with self._connect() as conn:
@@ -1234,7 +1243,7 @@ class CRMApp:
         # Treeview
         style.configure('Treeview', background='white', foreground=DOLP_COLORS['dark_gray'], font=('Segoe UI', 10), rowheight=25)
         style.configure('Treeview.Heading', background=DOLP_COLORS['primary_blue'], foreground='white', font=('Segoe UI', 10, 'bold'))
-        style.map('Treeview', background=[('selected', DOLP_COLORS['light_blue'])])
+        style.map('Treeview', background=[('selected', DOLP_COLORS['primary_blue'])], foreground=[('selected', DOLP_COLORS['white'])])
 
         # --- NOVA SEÇÃO DE ESTILOS ADICIONADA ---
         # Estilos para os Cards de Oportunidade no Funil
@@ -4303,24 +4312,32 @@ class CRMApp:
         service_names = ['Todos'] + [s['nome'] for s in servicos if s['ativa']]
         clients = self.db.get_all_clients()
         concessionaria_names = ['Todos'] + [c['nome_empresa'] for c in clients]
+        empresa_ref_names = ['Todos'] + self.db.get_unique_empresa_referencia_names()
+
+        # Filtro Nome Empresa
+        ttk.Label(filters_frame, text="Empresa:", style='TLabel').grid(row=0, column=0, padx=(0, 5), pady=5)
+        empresa_filter = ttk.Combobox(filters_frame, values=empresa_ref_names, state='readonly', width=30)
+        empresa_filter.set('Todos')
+        empresa_filter.grid(row=0, column=1, padx=(0, 20))
 
         # Filtro Estado
-        ttk.Label(filters_frame, text="Estado:", style='TLabel').grid(row=0, column=0, padx=(0, 5), pady=5)
+        ttk.Label(filters_frame, text="Estado:", style='TLabel').grid(row=0, column=2, padx=(0, 5), pady=5)
         estado_filter = ttk.Combobox(filters_frame, values=['Todos'] + BRAZILIAN_STATES, state='readonly', width=15)
         estado_filter.set('Todos')
-        estado_filter.grid(row=0, column=1, padx=(0, 20))
+        estado_filter.grid(row=0, column=3, padx=(0, 20))
 
         # Filtro Tipo de Serviço
-        ttk.Label(filters_frame, text="Tipo de Serviço:", style='TLabel').grid(row=0, column=2, padx=(0, 5), pady=5)
-        servico_filter = ttk.Combobox(filters_frame, values=service_names, state='readonly', width=25)
+        ttk.Label(filters_frame, text="Tipo de Serviço:", style='TLabel').grid(row=1, column=0, padx=(0, 5), pady=5)
+        servico_filter = ttk.Combobox(filters_frame, values=service_names, state='readonly', width=30)
         servico_filter.set('Todos')
-        servico_filter.grid(row=0, column=3, padx=(0, 20))
+        servico_filter.grid(row=1, column=1, padx=(0, 20))
 
         # Filtro Concessionária
-        ttk.Label(filters_frame, text="Concessionária:", style='TLabel').grid(row=0, column=4, padx=(0, 5), pady=5)
+        ttk.Label(filters_frame, text="Concessionária:", style='TLabel').grid(row=1, column=2, padx=(0, 5), pady=5)
         concessionaria_filter = ttk.Combobox(filters_frame, values=concessionaria_names, state='readonly', width=25)
         concessionaria_filter.set('Todos')
-        concessionaria_filter.grid(row=0, column=5, padx=(0, 20))
+        concessionaria_filter.grid(row=1, column=3, padx=(0, 20))
+
 
         # --- Frame da Tabela de Resultados ---
         empresas_frame = ttk.Frame(self.content_frame, style='TFrame')
@@ -4352,13 +4369,13 @@ class CRMApp:
         h_scrollbar.grid(row=1, column=0, sticky='ew')
 
         # --- Lógica de Carregamento e Filtragem ---
-        def load_data(estado=None, tipo_servico=None, concessionaria=None):
+        def load_data(estado=None, tipo_servico=None, concessionaria=None, nome_empresa=None):
             # Limpar a tabela
             for item in tree.get_children():
                 tree.delete(item)
 
             # Buscar dados com filtros
-            empresas = self.db.get_all_empresas_referencia(estado, tipo_servico, concessionaria)
+            empresas = self.db.get_all_empresas_referencia(estado, tipo_servico, concessionaria, nome_empresa)
             for empresa in empresas:
                 tree.insert('', 'end', values=(
                     empresa['id'],
@@ -4380,10 +4397,11 @@ class CRMApp:
             estado = estado_filter.get()
             tipo_servico = servico_filter.get()
             concessionaria = concessionaria_filter.get()
-            load_data(estado, tipo_servico, concessionaria)
+            nome_empresa = empresa_filter.get()
+            load_data(estado, tipo_servico, concessionaria, nome_empresa)
 
         # Botão de Filtrar
-        ttk.Button(filters_frame, text="🔍 Filtrar", style='Primary.TButton', command=apply_filters).grid(row=0, column=6, padx=(20, 0), pady=5)
+        ttk.Button(filters_frame, text="🔍 Filtrar", style='Primary.TButton', command=apply_filters).grid(row=1, column=4, padx=(20, 0), pady=5)
 
         # Carregar dados iniciais (sem filtros)
         load_data()
