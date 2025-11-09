@@ -1307,16 +1307,15 @@ class NewsService:
 
 # --- 5. TELA DE LOGIN ---
 class LoginWindow:
-    def __init__(self, root, on_success):
+    def __init__(self, root, db_manager, on_success):
         self.root = root
         self.on_success = on_success
-        self.db = DatabaseManager(DB_NAME)
+        self.db = db_manager
 
         self.login_window = Toplevel(self.root)
         self.login_window.title("Login - CRM Dolp Engenharia")
         self.login_window.geometry("400x300")
         self.login_window.configure(bg=DOLP_COLORS['white'])
-        self.login_window.transient(self.root)
         self.login_window.grab_set()
 
         main_frame = ttk.Frame(self.login_window, padding=20)
@@ -1369,7 +1368,7 @@ class CRMApp:
         self.root.withdraw() # Esconde a janela principal até o login
 
         self._configure_styles()
-        LoginWindow(self.root, self.on_login_success)
+        LoginWindow(self.root, self.db, self.on_login_success)
 
     def on_login_success(self, user_data):
         """Callback chamado quando o login é bem-sucedido."""
@@ -1467,7 +1466,16 @@ class CRMApp:
         title_label = ttk.Label(header_frame, text="Customer Relationship Management (CRM) - Dolp Engenharia", style='Header.TLabel')
         title_label.pack(side='left')
 
+        # Menu do Usuário
+        user_menu_btn = ttk.Menubutton(header_frame, text=f"👤 {self.current_user['username']}", style='TButton')
+        user_menu = tk.Menu(user_menu_btn, tearoff=0)
+        user_menu.add_command(label="Alterar Minha Senha", command=self.show_change_password_dialog)
+        user_menu.add_command(label="Sair", command=self.logout)
+        user_menu_btn['menu'] = user_menu
+        user_menu_btn.pack(side='right', padx=(20, 0))
 
+
+        version_label = ttk.Label(header_frame, text="v79", font=('Segoe UI', 9, 'italic'), foreground=DOLP_COLORS['medium_gray'], style='TLabel')
         version_label.pack(side='right', padx=(10, 0), anchor='s', pady=(0, 4))
 
         # Área de conteúdo
@@ -4145,7 +4153,7 @@ class CRMApp:
         for widget in self.root.winfo_children():
             widget.destroy()
         self.root.withdraw()
-        LoginWindow(self.root, self.on_login_success)
+        LoginWindow(self.root, self.db, self.on_login_success)
 
     def show_change_password_dialog(self):
         """Mostra um diálogo para o usuário alterar a própria senha."""
