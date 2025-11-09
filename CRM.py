@@ -38,6 +38,8 @@ from reportlab.lib.units import inch
 import locale
 import shutil
 import glob
+import hashlib
+import secrets
 
 
 
@@ -202,6 +204,19 @@ def backup_database(db_name):
     except Exception as e:
         print(f"Erro ao gerenciar backups antigos: {e}")
 
+def hash_password(password):
+    """Gera um hash seguro para a senha com um salt."""
+    salt = secrets.token_hex(16)
+    pwd_hash = hashlib.sha256((password + salt).encode('utf-8')).hexdigest()
+    return f"{salt}${pwd_hash}"
+
+def verify_password(stored_password, provided_password):
+    """Verifica se a senha fornecida corresponde ao hash armazenado."""
+    if '$' not in stored_password:
+        return False
+    salt, pwd_hash = stored_password.split('$', 1)
+    return pwd_hash == hashlib.sha256((provided_password + salt).encode('utf-8')).hexdigest()
+
 # --- 3. GERENCIADOR DE BANCO DE DADOS ---
 class DatabaseManager:
     def __init__(self, db_name):
@@ -320,6 +335,27 @@ class DatabaseManager:
                            )''')
             cursor.execute('CREATE TABLE IF NOT EXISTS crm_setores (id INTEGER PRIMARY KEY, nome TEXT UNIQUE NOT NULL)')
             cursor.execute('CREATE TABLE IF NOT EXISTS crm_segmentos (id INTEGER PRIMARY KEY, nome TEXT UNIQUE NOT NULL)')
+
+            # Tabela de Usuários
+            cursor.execute('''CREATE TABLE IF NOT EXISTS crm_users (
+                                id INTEGER PRIMARY KEY,
+                                username TEXT UNIQUE NOT NULL,
+                                password TEXT NOT NULL,
+                                full_name TEXT NOT NULL,
+                                cpf TEXT UNIQUE NOT NULL,
+                                role TEXT NOT NULL,
+                                is_master INTEGER DEFAULT 0
+                           )''')
+
+            # Tabela de Logs
+            cursor.execute('''CREATE TABLE IF NOT EXISTS crm_logs (
+                                id INTEGER PRIMARY KEY,
+                                timestamp TEXT NOT NULL,
+                                user_id INTEGER,
+                                action TEXT NOT NULL,
+                                details TEXT,
+                                FOREIGN KEY (user_id) REFERENCES crm_users(id)
+                           )''')
 
             # Tabela para Notícias
             cursor.execute('''CREATE TABLE IF NOT EXISTS crm_news (
@@ -471,6 +507,19 @@ class DatabaseManager:
             for segmento in INITIAL_SEGMENTOS:
                 cursor.execute("INSERT OR IGNORE INTO crm_segmentos (nome) VALUES (?)", (segmento,))
 
+        # Adicionar usuário master se não existir
+        if cursor.execute("SELECT count(*) FROM crm_users WHERE username = 'marcos.fernandes'").fetchone()[0] == 0:
+            master_user = {
+                'username': 'marcos.fernandes',
+                'password': hash_password('123'),
+                'full_name': 'Marcos Fernandes',
+                'cpf': '000.000.000-00',
+                'role': 'Diretor',
+                'is_master': 1
+            }
+            cursor.execute('''INSERT INTO crm_users (username, password, full_name, cpf, role, is_master)
+                              VALUES (:username, :password, :full_name, :cpf, :role, :is_master)''', master_user)
+
         # Adicionar clientes específicos
         new_clients = [
             {'nome_empresa': 'CPFL (RS)', 'cnpj': '02.016.440/0001-62', 'cidade': 'São Leopoldo', 'estado': 'RS', 'setor_atuacao': 'Energia Elétrica', 'segmento_atuacao': 'Distribuição'},
@@ -529,6 +578,95 @@ class DatabaseManager:
     def update_client(self, client_id, data):
         with self._connect() as conn:
             conn.execute("UPDATE clientes SET nome_empresa=?, cnpj=?, cidade=?, estado=?, setor_atuacao=?, segmento_atuacao=?, data_atualizacao=?, link_portal=?, status=?, resumo_atuacao=? WHERE id=?", (data['nome_empresa'], data['cnpj'], data['cidade'], data['estado'], data['setor_atuacao'], data['segmento_atuacao'], data['data_atualizacao'], data['link_portal'], data['status'], data.get('resumo_atuacao'), client_id))
+
+    # Métodos de Usuários
+    def get_user_by_username(self, username):
+        """Busca um usuário pelo seu nome de usuário."""
+        with self._connect() as conn:
+            return conn.execute("SELECT * FROM crm_users WHERE username = ?", (username,)).fetchone()
+
+    def get_user_by_id(self, user_id):
+        """Busca um usuário pelo seu ID."""
+        with self._connect() as conn:
+            return conn.execute("SELECT * FROM crm_users WHERE id = ?", (user_id,)).fetchone()
+
+    def add_interaction(self, data):
+        conn = None
+        try:
+            conn = self._connect()
+            cursor = conn.cursor()
+            cursor.execute("INSERT INTO crm_interacoes (oportunidade_id, data_interacao, tipo, resumo, usuario) VALUES (?, ?, ?, ?, ?)", (data['oportunidade_id'], data['data_interacao'], data['tipo'], data['resumo'], data['usuario']))
+            conn.commit()
+        except sqlite3.Error as e:
+            print(f"Database error in add_interaction: {e}")
+            if conn:
+                conn.rollback()
+            raise e
+        finally:
+            if conn:
+                conn.close()
+
+    def get_all_users(self):
+        """Retorna todos os usuários, exceto o master."""
+        with self._connect() as conn:
+            return conn.execute("SELECT * FROM crm_users ORDER BY full_name").fetchall()
+
+    def add_user(self, data):
+        """Adiciona um novo usuário."""
+        with self._connect() as conn:
+            conn.execute('''INSERT INTO crm_users (username, password, full_name, cpf, role, is_master)
+                          VALUES (?, ?, ?, ?, ?, ?)''',
+                         (data['username'], data['password'], data['full_name'], data['cpf'], data['role'], 0))
+
+    def update_user(self, user_id, data):
+        """Atualiza os dados de um usuário."""
+        with self._connect() as conn:
+            conn.execute('''UPDATE crm_users SET
+                          username = ?, full_name = ?, cpf = ?, role = ?
+                          WHERE id = ?''',
+                         (data['username'], data['full_name'], data['cpf'], data['role'], user_id))
+
+    def delete_user(self, user_id):
+        """Deleta um usuário."""
+        with self._connect() as conn:
+            conn.execute("DELETE FROM crm_users WHERE id = ?", (user_id,))
+
+    def update_user_password(self, user_id, new_password_hash):
+        """Atualiza a senha de um usuário."""
+        with self._connect() as conn:
+            conn.execute("UPDATE crm_users SET password = ? WHERE id = ?", (new_password_hash, user_id))
+
+    # Métodos de Log
+    def log_action(self, user_id, action, details=""):
+        """Registra uma ação no log do sistema."""
+        with self._connect() as conn:
+            timestamp = datetime.now().strftime('%d/%m/%Y %H:%M:%S')
+            conn.execute("INSERT INTO crm_logs (timestamp, user_id, action, details) VALUES (?, ?, ?, ?)",
+                         (timestamp, user_id, action, details))
+
+    def get_logs(self, start_date=None, end_date=None, user_id=None):
+        """Busca registros de log com filtros opcionais."""
+        with self._connect() as conn:
+            query = "SELECT l.timestamp, u.username, l.action, l.details FROM crm_logs l LEFT JOIN crm_users u ON l.user_id = u.id"
+            conditions = []
+            params = []
+
+            if start_date:
+                conditions.append("l.timestamp >= ?")
+                params.append(start_date)
+            if end_date:
+                conditions.append("l.timestamp <= ?")
+                params.append(end_date)
+            if user_id:
+                conditions.append("l.user_id = ?")
+                params.append(user_id)
+
+            if conditions:
+                query += " WHERE " + " AND ".join(conditions)
+
+            query += " ORDER BY l.id DESC"
+            return conn.execute(query, params).fetchall()
+
 
     # Métodos de Pipeline
     def get_pipeline_data(self, setor=None, segmento=None):
@@ -848,7 +986,7 @@ class DatabaseManager:
             conn.execute("DELETE FROM crm_bases_alocadas WHERE oportunidade_id = ?", (op_id,))
 
     # Métodos de Empresas Referência
-    def get_all_empresas_referencia(self, estado=None, tipo_servico=None, concessionaria=None):
+    def get_all_empresas_referencia(self, estado=None, tipo_servico=None, concessionaria=None, nome_empresa=None):
         with self._connect() as conn:
             base_query = """
                 SELECT er.*, te.nome as tipo_equipe_nome
@@ -867,12 +1005,21 @@ class DatabaseManager:
             if concessionaria and concessionaria != 'Todos':
                 conditions.append("er.concessionaria = ?")
                 params.append(concessionaria)
+            if nome_empresa and nome_empresa != 'Todos':
+                conditions.append("er.nome_empresa = ?")
+                params.append(nome_empresa)
 
             if conditions:
                 base_query += " WHERE " + " AND ".join(conditions)
 
             base_query += " ORDER BY er.nome_empresa, er.tipo_servico"
             return conn.execute(base_query, params).fetchall()
+
+    def get_unique_empresa_referencia_names(self):
+        """Retorna uma lista de nomes de empresas de referência únicos."""
+        with self._connect() as conn:
+            query = "SELECT DISTINCT nome_empresa FROM crm_empresas_referencia ORDER BY nome_empresa"
+            return [row['nome_empresa'] for row in conn.execute(query).fetchall()]
 
     def get_empresa_referencia_by_id(self, empresa_id):
         with self._connect() as conn:
@@ -1158,24 +1305,83 @@ class NewsService:
         print("Busca de notícias concluída.")
 
 
-# --- 5. APLICAÇÃO PRINCIPAL ---
+# --- 5. TELA DE LOGIN ---
+class LoginWindow:
+    def __init__(self, root, db_manager, on_success):
+        self.root = root
+        self.on_success = on_success
+        self.db = db_manager
+
+        self.login_window = Toplevel(self.root)
+        self.login_window.title("Login - CRM Dolp Engenharia")
+        self.login_window.geometry("400x300")
+        self.login_window.configure(bg=DOLP_COLORS['white'])
+        self.login_window.grab_set()
+
+        main_frame = ttk.Frame(self.login_window, padding=20)
+        main_frame.pack(expand=True)
+
+        ttk.Label(main_frame, text="Login", font=('Segoe UI', 16, 'bold')).pack(pady=(0, 20))
+
+        ttk.Label(main_frame, text="Usuário:").pack(anchor='w')
+        self.username_entry = ttk.Entry(main_frame, width=40)
+        self.username_entry.pack(pady=(0, 10))
+
+        ttk.Label(main_frame, text="Senha:").pack(anchor='w')
+        self.password_entry = ttk.Entry(main_frame, show="*", width=40)
+        self.password_entry.pack(pady=(0, 20))
+
+        ttk.Button(main_frame, text="Entrar", command=self.check_login, style='Primary.TButton').pack()
+
+        self.username_entry.focus()
+        self.password_entry.bind("<Return>", lambda e: self.check_login())
+
+
+    def check_login(self):
+        username = self.username_entry.get()
+        password = self.password_entry.get()
+
+        if not username or not password:
+            messagebox.showerror("Erro de Login", "Usuário e senha são obrigatórios.", parent=self.login_window)
+            return
+
+        user_data = self.db.get_user_by_username(username)
+
+        if user_data and verify_password(user_data['password'], password):
+            self.login_window.destroy()
+            self.on_success(user_data) # Passa os dados do usuário para o callback
+        else:
+            messagebox.showerror("Erro de Login", "Usuário ou senha inválidos.", parent=self.login_window)
+
+
+# --- 6. APLICAÇÃO PRINCIPAL ---
 class CRMApp:
     def __init__(self, root):
         self.root = root
-        backup_database(DB_NAME)  # Executa o backup na inicialização
+        self.current_user = None # Nenhum usuário logado inicialmente
+        backup_database(DB_NAME)
         self.db = DatabaseManager(DB_NAME)
         self.news_service = NewsService(self.db)
         self.root.title("CRM Dolp Engenharia")
         self.root.geometry("1600x900")
         self.root.minsize(1280, 720)
-        self.root.configure(bg=DOLP_COLORS['white'])
-        self.logo_image = load_logo_image()
+        self.root.withdraw() # Esconde a janela principal até o login
 
+        self._configure_styles()
+        LoginWindow(self.root, self.db, self.on_login_success)
+
+    def on_login_success(self, user_data):
+        """Callback chamado quando o login é bem-sucedido."""
+        self.current_user = dict(user_data)
+        self.root.deiconify() # Mostra a janela principal
+        self.setup_main_ui()
+
+    def setup_main_ui(self):
+        """Configura a UI principal após o login."""
+        self.logo_image = load_logo_image()
         # Inicializar estado dos filtros
         self.kanban_setor_filter = 'Todos'
         self.kanban_segmento_filter = 'Todos'
-
-        self._configure_styles()
         self._create_main_container()
         self.show_main_menu()
         self.fetch_news_thread()
@@ -1234,7 +1440,7 @@ class CRMApp:
         # Treeview
         style.configure('Treeview', background='white', foreground=DOLP_COLORS['dark_gray'], font=('Segoe UI', 10), rowheight=25)
         style.configure('Treeview.Heading', background=DOLP_COLORS['primary_blue'], foreground='white', font=('Segoe UI', 10, 'bold'))
-        style.map('Treeview', background=[('selected', DOLP_COLORS['light_blue'])])
+        style.map('Treeview', background=[('selected', DOLP_COLORS['primary_blue'])], foreground=[('selected', DOLP_COLORS['white'])])
 
         # --- NOVA SEÇÃO DE ESTILOS ADICIONADA ---
         # Estilos para os Cards de Oportunidade no Funil
@@ -1259,6 +1465,15 @@ class CRMApp:
 
         title_label = ttk.Label(header_frame, text="Customer Relationship Management (CRM) - Dolp Engenharia", style='Header.TLabel')
         title_label.pack(side='left')
+
+        # Menu do Usuário
+        user_menu_btn = ttk.Menubutton(header_frame, text=f"👤 {self.current_user['username']}", style='TButton')
+        user_menu = tk.Menu(user_menu_btn, tearoff=0)
+        user_menu.add_command(label="Alterar Minha Senha", command=self.show_change_password_dialog)
+        user_menu.add_command(label="Sair", command=self.logout)
+        user_menu_btn['menu'] = user_menu
+        user_menu_btn.pack(side='right', padx=(20, 0))
+
 
         version_label = ttk.Label(header_frame, text="v79", font=('Segoe UI', 9, 'italic'), foreground=DOLP_COLORS['medium_gray'], style='TLabel')
         version_label.pack(side='right', padx=(10, 0), anchor='s', pady=(0, 4))
@@ -1366,9 +1581,15 @@ class CRMApp:
         menu_buttons = [
             ("📊 Funil de Vendas", self.show_kanban_view, 'MainMenu.Primary.TButton'),
             ("👥 Clientes", self.show_clients_view, 'MainMenu.Primary.TButton'),
-            ("🔖 Notícias Salvas", self.show_saved_news_view, 'MainMenu.Primary.TButton'),
-            ("⚙️ Configurações do CRM", self.show_crm_settings, 'MainMenu.Warning.TButton')
+            ("🔖 Notícias Salvas", self.show_saved_news_view, 'MainMenu.Primary.TButton')
         ]
+
+        if self.current_user and self.current_user['is_master']:
+            menu_buttons.extend([
+                ("Cadastro de Usuário", lambda: self.show_user_management_view(), 'MainMenu.Warning.TButton'),
+                ("Log do Sistema", lambda: self.show_log_view(), 'MainMenu.Warning.TButton'),
+                ("⚙️ Configurações do CRM", self.show_crm_settings, 'MainMenu.Warning.TButton')
+            ])
 
         for i, (text, command, style) in enumerate(menu_buttons):
             btn = ttk.Button(buttons_frame, text=text, command=command, style=style, width=28)
@@ -1974,7 +2195,7 @@ class CRMApp:
             if next_stage:
                 self.db.update_opportunity_stage(op_id, next_stage['id'])
                 # Registrar movimentação
-                self.add_movement_record(op_id, op_data['estagio_nome'], next_stage['nome'], "Aprovado")
+                self.add_movement_record(op_id, op_data['estagio_nome'], next_stage['nome'], "Aprovado", self.current_user['id'])
                 messagebox.showinfo("Sucesso", f"Oportunidade aprovada e movida para: {next_stage['nome']}")
             else:
                 messagebox.showinfo("Informação", "Esta oportunidade já está no último estágio.")
@@ -1994,7 +2215,7 @@ class CRMApp:
             if historico_stage:
                 self.db.update_opportunity_stage(op_id, historico_stage['id'])
                 # Registrar movimentação
-                self.add_movement_record(op_id, op_data['estagio_nome'], "Histórico", "Reprovado")
+                self.add_movement_record(op_id, op_data['estagio_nome'], "Histórico", "Reprovado", self.current_user['id'])
                 messagebox.showinfo("Sucesso", "Oportunidade reprovada e movida para o Histórico.")
 
             dialog.destroy()
@@ -2004,14 +2225,16 @@ class CRMApp:
         ttk.Button(buttons_frame, text="✗ Reprovado", command=reprovar, style='Danger.TButton').pack(side='left')
         ttk.Button(buttons_frame, text="Cancelar", command=dialog.destroy, style='TButton').pack(side='right')
 
-    def add_movement_record(self, op_id, from_stage, to_stage, result):
+    def add_movement_record(self, op_id, from_stage, to_stage, result, user_id):
         """Adiciona registro de movimentação no histórico"""
+        user = self.db.get_user_by_id(user_id) # Supondo que você crie este método
+        username = user['username'] if user else 'Sistema'
         data = {
             'oportunidade_id': op_id,
             'data_interacao': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
             'tipo': 'Movimentação',
             'resumo': f"Movida de '{from_stage}' para '{to_stage}' - Resultado: {result}",
-            'usuario': 'Sistema'
+            'usuario': username
         }
         self.db.add_interaction(data)
 
@@ -3924,6 +4147,276 @@ class CRMApp:
             btn = ttk.Button(settings_frame, text=text, command=command, style=style, width=25)
             btn.pack(pady=10)
 
+    def logout(self):
+        """Faz logout do usuário atual e mostra a tela de login."""
+        self.current_user = None
+        for widget in self.root.winfo_children():
+            widget.destroy()
+        self.root.withdraw()
+        LoginWindow(self.root, self.db, self.on_login_success)
+
+    def show_change_password_dialog(self):
+        """Mostra um diálogo para o usuário alterar a própria senha."""
+        dialog = Toplevel(self.root)
+        dialog.title("Alterar Minha Senha")
+        dialog.geometry("400x300")
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        main_frame = ttk.Frame(dialog, padding=20)
+        main_frame.pack(fill='both', expand=True)
+
+        ttk.Label(main_frame, text="Senha Atual:").pack(anchor='w')
+        current_pass_entry = ttk.Entry(main_frame, show="*")
+        current_pass_entry.pack(fill='x', pady=(0, 10))
+
+        ttk.Label(main_frame, text="Nova Senha:").pack(anchor='w')
+        new_pass_entry = ttk.Entry(main_frame, show="*")
+        new_pass_entry.pack(fill='x', pady=(0, 10))
+
+        ttk.Label(main_frame, text="Confirmar Nova Senha:").pack(anchor='w')
+        confirm_pass_entry = ttk.Entry(main_frame, show="*")
+        confirm_pass_entry.pack(fill='x', pady=(0, 20))
+
+        def change_password():
+            current_pass = current_pass_entry.get()
+            new_pass = new_pass_entry.get()
+            confirm_pass = confirm_pass_entry.get()
+
+            user_data = self.db.get_user_by_id(self.current_user['id'])
+
+            if not verify_password(user_data['password'], current_pass):
+                messagebox.showerror("Erro", "A senha atual está incorreta.", parent=dialog)
+                return
+
+            if not new_pass or len(new_pass) < 3:
+                messagebox.showerror("Erro", "A nova senha não pode estar em branco e deve ter no minimo 3 caracteres.", parent=dialog)
+                return
+
+            if new_pass != confirm_pass:
+                messagebox.showerror("Erro", "A nova senha e a confirmação não correspondem.", parent=dialog)
+                return
+
+            new_password_hash = hash_password(new_pass)
+            self.db.update_user_password(self.current_user['id'], new_password_hash)
+            self.db.log_action(self.current_user['id'], "Alteração de Senha", "Usuário alterou a própria senha.")
+            messagebox.showinfo("Sucesso", "Senha alterada com sucesso!", parent=dialog)
+            dialog.destroy()
+
+        ttk.Button(main_frame, text="Salvar Alterações", command=change_password, style='Success.TButton').pack()
+
+
+    def show_user_management_view(self):
+        """Mostra a tela de gerenciamento de usuários (apenas master)."""
+        self.clear_content()
+
+        title_frame = ttk.Frame(self.content_frame, style='TFrame')
+        title_frame.pack(fill='x', pady=(0, 20))
+
+        ttk.Label(title_frame, text="Gerenciamento de Usuários", style='Title.TLabel').pack(side='left')
+        ttk.Button(title_frame, text="Novo Usuário", command=self.show_user_form, style='Success.TButton').pack(side='right')
+        ttk.Button(title_frame, text="← Voltar", command=self.show_main_menu, style='TButton').pack(side='right', padx=(0, 10))
+
+        # Treeview para exibir usuários
+        users_frame = ttk.Frame(self.content_frame)
+        users_frame.pack(fill='both', expand=True)
+
+        columns = ('id', 'username', 'full_name', 'cpf', 'role')
+        tree = ttk.Treeview(users_frame, columns=columns, show='headings')
+        tree.heading('id', text='ID')
+        tree.heading('username', text='Usuário')
+        tree.heading('full_name', text='Nome Completo')
+        tree.heading('cpf', text='CPF')
+        tree.heading('role', text='Função')
+        tree.column('id', width=50, anchor='center')
+        tree.column('username', width=150)
+        tree.column('full_name', width=250)
+        tree.column('cpf', width=150)
+        tree.column('role', width=150)
+
+        scrollbar = ttk.Scrollbar(users_frame, orient='vertical', command=tree.yview)
+        tree.configure(yscrollcommand=scrollbar.set)
+        tree.pack(side='left', fill='both', expand=True)
+        scrollbar.pack(side='right', fill='y')
+
+        def refresh_user_list():
+            for item in tree.get_children():
+                tree.delete(item)
+            all_users = self.db.get_all_users()
+            for user in all_users:
+                tree.insert('', 'end', values=(user['id'], user['username'], user['full_name'], user['cpf'], user['role']))
+
+        refresh_user_list()
+
+        def on_double_click(event):
+            selection = tree.selection()
+            if selection:
+                item = tree.item(selection[0])
+                user_id = item['values'][0]
+                if not self.db.get_user_by_id(user_id)['is_master']:
+                    self.show_user_form(user_id)
+
+        tree.bind('<Double-1>', on_double_click)
+
+        def show_context_menu(event):
+            selection = tree.selection()
+            if selection:
+                item = tree.item(selection[0])
+                user_id = item['values'][0]
+                user_data = self.db.get_user_by_id(user_id)
+
+                if user_data['is_master']:
+                    return
+
+                context_menu = tk.Menu(self.root, tearoff=0)
+                context_menu.add_command(label="Editar", command=lambda: self.show_user_form(user_id))
+                context_menu.add_command(label="Resetar Senha", command=lambda: self.reset_password(user_id))
+                context_menu.add_command(label="Excluir", command=lambda: self.delete_user(user_id))
+                context_menu.tk_popup(event.x_root, event.y_root)
+
+        tree.bind('<Button-3>', show_context_menu)
+
+
+    def show_log_view(self):
+        """Mostra a tela de logs do sistema."""
+        self.clear_content()
+
+        title_frame = ttk.Frame(self.content_frame, style='TFrame')
+        title_frame.pack(fill='x', pady=(0, 20))
+
+        ttk.Label(title_frame, text="Log do Sistema", style='Title.TLabel').pack(side='left')
+        ttk.Button(title_frame, text="← Voltar", command=self.show_main_menu, style='TButton').pack(side='right')
+
+        # Frame de filtros
+        filters_frame = ttk.LabelFrame(self.content_frame, text="Filtros", padding=15, style='White.TLabelframe')
+        filters_frame.pack(fill='x', pady=(0, 20))
+
+        # Filtro de Data
+        ttk.Label(filters_frame, text="De:", style='TLabel').grid(row=0, column=0, sticky='w')
+        start_date_filter = DateEntry(filters_frame, date_pattern='dd/mm/yyyy')
+        start_date_filter.grid(row=0, column=1, padx=(5, 20))
+        start_date_filter.delete(0, 'end')
+
+        ttk.Label(filters_frame, text="Até:", style='TLabel').grid(row=0, column=2, sticky='w')
+        end_date_filter = DateEntry(filters_frame, date_pattern='dd/mm/yyyy')
+        end_date_filter.grid(row=0, column=3, padx=(5, 20))
+        end_date_filter.delete(0, 'end')
+
+        # Filtro de Usuário
+        all_users = self.db.get_all_users()
+        user_names = ['Todos'] + [user['username'] for user in all_users]
+        user_map = {user['username']: user['id'] for user in all_users}
+        ttk.Label(filters_frame, text="Usuário:", style='TLabel').grid(row=0, column=4, sticky='w')
+        user_filter = ttk.Combobox(filters_frame, values=user_names, state='readonly')
+        user_filter.set('Todos')
+        user_filter.grid(row=0, column=5, padx=(5, 20))
+
+        # Treeview para resultados
+        results_frame = ttk.Frame(self.content_frame)
+        results_frame.pack(fill='both', expand=True)
+
+        columns = ('timestamp', 'user', 'action', 'details')
+        tree = ttk.Treeview(results_frame, columns=columns, show='headings')
+        tree.heading('timestamp', text='Data/Hora')
+        tree.heading('user', text='Usuário')
+        tree.heading('action', text='Ação')
+        tree.heading('details', text='Detalhes')
+        tree.column('timestamp', width=150)
+        tree.column('user', width=150)
+        tree.column('action', width=200)
+        tree.column('details', width=500)
+
+        scrollbar = ttk.Scrollbar(results_frame, orient='vertical', command=tree.yview)
+        tree.configure(yscrollcommand=scrollbar.set)
+        tree.pack(side='left', fill='both', expand=True)
+        scrollbar.pack(side='right', fill='y')
+
+        def apply_filters():
+            for item in tree.get_children():
+                tree.delete(item)
+
+            start_date = start_date_filter.get() if start_date_filter.get() else None
+            end_date = end_date_filter.get() if end_date_filter.get() else None
+            selected_user = user_filter.get()
+            user_id = user_map.get(selected_user) if selected_user != 'Todos' else None
+
+            logs = self.db.get_logs(start_date, end_date, user_id)
+            for log in logs:
+                tree.insert('', 'end', values=log)
+
+        # Botão de Aplicar
+        ttk.Button(filters_frame, text="🔍 Aplicar Filtros", command=apply_filters, style='Primary.TButton').grid(row=0, column=6, padx=20)
+
+        # Carregar logs iniciais
+        apply_filters()
+
+    def show_user_form(self, user_id=None):
+        """Mostra o formulário para adicionar/editar um usuário."""
+        form_win = Toplevel(self.root)
+        form_win.title("Novo Usuário" if not user_id else "Editar Usuário")
+        form_win.geometry("500x400")
+        form_win.transient(self.root)
+        form_win.grab_set()
+
+        main_frame = ttk.Frame(form_win, padding=20)
+        main_frame.pack(fill='both', expand=True)
+
+        entries = {}
+        fields = [("Usuário:", "username"), ("Nome Completo:", "full_name"), ("CPF:", "cpf"), ("Função:", "role")]
+        for text, key in fields:
+            row = ttk.Frame(main_frame)
+            row.pack(fill='x', pady=5)
+            ttk.Label(row, text=text, width=15).pack(side='left')
+            entries[key] = ttk.Entry(row)
+            entries[key].pack(side='right', expand=True, fill='x')
+
+        if not user_id: # Apenas para novos usuários
+            row = ttk.Frame(main_frame)
+            row.pack(fill='x', pady=5)
+            ttk.Label(row, text="Senha:", width=15).pack(side='left')
+            entries['password'] = ttk.Entry(row, show="*")
+            entries['password'].pack(side='right', expand=True, fill='x')
+
+        if user_id:
+            user_data = self.db.get_user_by_id(user_id)
+            for key, entry in entries.items():
+                entry.insert(0, user_data[key])
+
+        def save():
+            data = {key: entry.get() for key, entry in entries.items()}
+            if not user_id: # Novo usuário
+                if not data['password']:
+                    messagebox.showerror("Erro", "A senha é obrigatória para novos usuários.", parent=form_win)
+                    return
+                data['password'] = hash_password(data['password'])
+                self.db.add_user(data)
+                self.db.log_action(self.current_user['id'], "Criação de Usuário", f"Usuário '{data['username']}' criado.")
+            else: # Edição
+                self.db.update_user(user_id, data)
+                self.db.log_action(self.current_user['id'], "Atualização de Usuário", f"Dados do usuário ID {user_id} atualizados.")
+            form_win.destroy()
+            self.show_user_management_view()
+
+        ttk.Button(main_frame, text="Salvar", command=save, style='Success.TButton').pack(pady=20)
+
+    def reset_password(self, user_id):
+        """Reseta a senha de um usuário para uma nova senha aleatória."""
+        if messagebox.askyesno("Confirmar", "Tem certeza que deseja resetar a senha deste usuário?"):
+            new_password = secrets.token_hex(8)
+            new_password_hash = hash_password(new_password)
+            self.db.update_user_password(user_id, new_password_hash)
+            self.db.log_action(self.current_user['id'], "Reset de Senha", f"Senha do usuário ID {user_id} resetada.")
+            messagebox.showinfo("Senha Resetada", f"A nova senha do usuário é: {new_password}", parent=self.root)
+
+    def delete_user(self, user_id):
+        """Deleta um usuário após confirmação."""
+        if messagebox.askyesno("Confirmar Exclusão", "Tem certeza que deseja excluir este usuário? Esta ação não pode ser desfeita."):
+            user_data = self.db.get_user_by_id(user_id)
+            self.db.delete_user(user_id)
+            self.db.log_action(self.current_user['id'], "Exclusão de Usuário", f"Usuário '{user_data['username']}' (ID: {user_id}) excluído.")
+            self.show_user_management_view()
+
+
     def show_task_categories_view(self):
         self.clear_content()
 
@@ -4303,24 +4796,32 @@ class CRMApp:
         service_names = ['Todos'] + [s['nome'] for s in servicos if s['ativa']]
         clients = self.db.get_all_clients()
         concessionaria_names = ['Todos'] + [c['nome_empresa'] for c in clients]
+        empresa_ref_names = ['Todos'] + self.db.get_unique_empresa_referencia_names()
+
+        # Filtro Nome Empresa
+        ttk.Label(filters_frame, text="Empresa:", style='TLabel').grid(row=0, column=0, padx=(0, 5), pady=5)
+        empresa_filter = ttk.Combobox(filters_frame, values=empresa_ref_names, state='readonly', width=30)
+        empresa_filter.set('Todos')
+        empresa_filter.grid(row=0, column=1, padx=(0, 20))
 
         # Filtro Estado
-        ttk.Label(filters_frame, text="Estado:", style='TLabel').grid(row=0, column=0, padx=(0, 5), pady=5)
+        ttk.Label(filters_frame, text="Estado:", style='TLabel').grid(row=0, column=2, padx=(0, 5), pady=5)
         estado_filter = ttk.Combobox(filters_frame, values=['Todos'] + BRAZILIAN_STATES, state='readonly', width=15)
         estado_filter.set('Todos')
-        estado_filter.grid(row=0, column=1, padx=(0, 20))
+        estado_filter.grid(row=0, column=3, padx=(0, 20))
 
         # Filtro Tipo de Serviço
-        ttk.Label(filters_frame, text="Tipo de Serviço:", style='TLabel').grid(row=0, column=2, padx=(0, 5), pady=5)
-        servico_filter = ttk.Combobox(filters_frame, values=service_names, state='readonly', width=25)
+        ttk.Label(filters_frame, text="Tipo de Serviço:", style='TLabel').grid(row=1, column=0, padx=(0, 5), pady=5)
+        servico_filter = ttk.Combobox(filters_frame, values=service_names, state='readonly', width=30)
         servico_filter.set('Todos')
-        servico_filter.grid(row=0, column=3, padx=(0, 20))
+        servico_filter.grid(row=1, column=1, padx=(0, 20))
 
         # Filtro Concessionária
-        ttk.Label(filters_frame, text="Concessionária:", style='TLabel').grid(row=0, column=4, padx=(0, 5), pady=5)
+        ttk.Label(filters_frame, text="Concessionária:", style='TLabel').grid(row=1, column=2, padx=(0, 5), pady=5)
         concessionaria_filter = ttk.Combobox(filters_frame, values=concessionaria_names, state='readonly', width=25)
         concessionaria_filter.set('Todos')
-        concessionaria_filter.grid(row=0, column=5, padx=(0, 20))
+        concessionaria_filter.grid(row=1, column=3, padx=(0, 20))
+
 
         # --- Frame da Tabela de Resultados ---
         empresas_frame = ttk.Frame(self.content_frame, style='TFrame')
@@ -4352,13 +4853,13 @@ class CRMApp:
         h_scrollbar.grid(row=1, column=0, sticky='ew')
 
         # --- Lógica de Carregamento e Filtragem ---
-        def load_data(estado=None, tipo_servico=None, concessionaria=None):
+        def load_data(estado=None, tipo_servico=None, concessionaria=None, nome_empresa=None):
             # Limpar a tabela
             for item in tree.get_children():
                 tree.delete(item)
 
             # Buscar dados com filtros
-            empresas = self.db.get_all_empresas_referencia(estado, tipo_servico, concessionaria)
+            empresas = self.db.get_all_empresas_referencia(estado, tipo_servico, concessionaria, nome_empresa)
             for empresa in empresas:
                 tree.insert('', 'end', values=(
                     empresa['id'],
@@ -4380,10 +4881,11 @@ class CRMApp:
             estado = estado_filter.get()
             tipo_servico = servico_filter.get()
             concessionaria = concessionaria_filter.get()
-            load_data(estado, tipo_servico, concessionaria)
+            nome_empresa = empresa_filter.get()
+            load_data(estado, tipo_servico, concessionaria, nome_empresa)
 
         # Botão de Filtrar
-        ttk.Button(filters_frame, text="🔍 Filtrar", style='Primary.TButton', command=apply_filters).grid(row=0, column=6, padx=(20, 0), pady=5)
+        ttk.Button(filters_frame, text="🔍 Filtrar", style='Primary.TButton', command=apply_filters).grid(row=1, column=4, padx=(20, 0), pady=5)
 
         # Carregar dados iniciais (sem filtros)
         load_data()
@@ -4601,7 +5103,7 @@ class CRMApp:
         ttk.Button(buttons_frame, text="Excluir Selecionado", command=delete_selected, style='Danger.TButton').pack(side='left')
         ttk.Button(buttons_frame, text="Fechar", command=manager_win.destroy, style='TButton').pack(side='right')
 
-# --- 5. EXECUÇÃO PRINCIPAL ---
+# --- 7. EXECUÇÃO PRINCIPAL ---
 def main():
     try:
         # Define o locale para pt_BR para formatação de moeda correta
@@ -4616,6 +5118,7 @@ def main():
             print("Aviso CRÍTICO: Não foi possível definir nenhum locale. A formatação de moeda pode estar incorreta.")
 
     root = tk.Tk()
+    root.configure(bg=DOLP_COLORS['white'])
     app = CRMApp(root)
     root.mainloop()
 
