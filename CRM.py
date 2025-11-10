@@ -1373,7 +1373,14 @@ class CRMApp:
         self.root.withdraw() # Esconde a janela principal até o login
 
         self._configure_styles()
-        LoginWindow(self.root, self.on_login_success)
+        # LoginWindow(self.root, self.on_login_success) # Login bypass
+        master_user = self.db.get_user_by_username('marcos.fernandes')
+        if master_user:
+            self.on_login_success(master_user)
+        else:
+            messagebox.showerror("Erro Crítico", "Usuário 'master' (marcos.fernandes) não encontrado. A aplicação não pode iniciar.")
+            self.root.destroy()
+
 
     def on_login_success(self, user_data):
         """Callback chamado quando o login é bem-sucedido."""
