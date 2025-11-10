@@ -1381,13 +1381,7 @@ class CRMApp:
         self.root.withdraw() # Esconde a janela principal até o login
 
         self._configure_styles()
-        # LoginWindow(self.root, self.on_login_success) # Login bypass
-        master_user = self.db.get_user_by_username('marcos.fernandes')
-        if master_user:
-            self.on_login_success(master_user)
-        else:
-            messagebox.showerror("Erro Crítico", "Usuário 'master' (marcos.fernandes) não encontrado. A aplicação não pode iniciar.")
-            self.root.destroy()
+        LoginWindow(self.root, self.on_login_success)
 
 
     def on_login_success(self, user_data):
@@ -3944,13 +3938,8 @@ class CRMApp:
 
         # --- Filtro de Empresas ---
         ttk.Label(title_frame, text="Filtrar por Empresa:", style='TLabel').pack(side='left', padx=(20, 5))
-        empresa_names = ['Todos'] + [c['nome_empresa'] for c in self.db.get_all_clients()]
-        empresa_filter_combo = ttk.Combobox(title_frame, values=empresa_names, state='readonly', width=40)
-        empresa_filter_combo.set('Todos')
+        empresa_filter_combo = ttk.Combobox(title_frame, state='readonly', width=40)
         empresa_filter_combo.pack(side='left')
-
-        ttk.Button(title_frame, text="Novo Cliente", command=self.show_client_form, style='Success.TButton').pack(side='right')
-        ttk.Button(title_frame, text="← Voltar", command=self.show_main_menu, style='TButton').pack(side='right', padx=(0, 10))
 
         clients_frame = ttk.Frame(self.content_frame, style='TFrame')
         clients_frame.pack(fill='both', expand=True)
@@ -3978,11 +3967,15 @@ class CRMApp:
         tree.pack(side='left', fill='both', expand=True)
         scrollbar.pack(side='right', fill='y')
 
-        def load_clients_data(nome_empresa_filter=None):
-            # Limpa a árvore antes de carregar novos dados
+        def refresh_data(nome_empresa_filter=None):
+            # Guardar seleção atual do filtro
+            current_filter_selection = empresa_filter_combo.get()
+
+            # Limpar a árvore
             for i in tree.get_children():
                 tree.delete(i)
 
+            # Recarregar dados dos clientes
             clients = self.db.get_all_clients(nome_empresa=nome_empresa_filter)
             for client in clients:
                 status = client['status'] or 'Não cadastrado'
@@ -3993,49 +3986,62 @@ class CRMApp:
                             status = 'Cadastro Desatualizado'
                     except (ValueError, TypeError):
                         pass
+                tree.insert('', 'end', values=(client['id'], client['nome_empresa'], format_cnpj(client['cnpj']) or '---', client['cidade'] or '---', client['estado'] or '---', status))
 
-                tree.insert('', 'end', values=(
-                    client['id'],
-                    client['nome_empresa'],
-                    format_cnpj(client['cnpj']) or '---',
-                    client['cidade'] or '---',
-                    client['estado'] or '---',
-                    status
-                ))
+            # Atualizar a lista do combobox
+            empresa_names = ['Todos'] + sorted(list(set(c['nome_empresa'] for c in self.db.get_all_clients())))
+            empresa_filter_combo['values'] = empresa_names
 
-        # Carrega os dados iniciais
-        load_clients_data()
+            # Restaurar seleção do filtro se ainda existir, senão, 'Todos'
+            if current_filter_selection in empresa_names:
+                empresa_filter_combo.set(current_filter_selection)
+            else:
+                empresa_filter_combo.set('Todos')
+
+        # Carregar dados iniciais
+        refresh_data()
+        empresa_filter_combo.set('Todos')
 
         def on_filter_change(event):
             selected_empresa = empresa_filter_combo.get()
-            load_clients_data(nome_empresa_filter=selected_empresa)
+            refresh_data(nome_empresa_filter=selected_empresa if selected_empresa != 'Todos' else None)
 
         empresa_filter_combo.bind('<<ComboboxSelected>>', on_filter_change)
+
+        # Adicionar botões após a definição da função de refresh
+        ttk.Button(title_frame, text="Novo Cliente", command=lambda: self.show_client_form(refresh_callback=refresh_data), style='Success.TButton').pack(side='right')
+        ttk.Button(title_frame, text="← Voltar", command=self.show_main_menu, style='TButton').pack(side='right', padx=(0, 10))
 
         def on_double_click(event):
             selection = tree.selection()
             if selection:
                 item = tree.item(selection[0])
                 client_id = item['values'][0]
-                self.show_client_form(client_id)
+                self.show_client_form(client_id, refresh_callback=refresh_data)
 
         tree.bind('<Double-1>', on_double_click)
 
         def show_context_menu(event):
             selection = tree.selection()
             if selection:
+                item = tree.item(selection[0])
+                client_id = item['values'][0]
+                client_name = item['values'][1]
                 context_menu = tk.Menu(self.root, tearoff=0)
-                context_menu.add_command(label="Editar Cliente", command=lambda: self.show_client_form(tree.item(selection[0])['values'][0]))
-                context_menu.add_command(label="Nova Oportunidade", command=lambda: self.show_opportunity_form(client_to_prefill=tree.item(selection[0])['values'][1]))
+                context_menu.add_command(label="Editar Cliente", command=lambda: self.show_client_form(client_id, refresh_callback=refresh_data))
+                context_menu.add_command(label="Nova Oportunidade", command=lambda: self.show_opportunity_form(client_to_prefill=client_name))
                 context_menu.tk_popup(event.x_root, event.y_root)
 
         tree.bind('<Button-3>', show_context_menu)
 
-    def show_client_form(self, client_id=None):
+    def show_client_form(self, client_id=None, refresh_callback=None):
         form_win = Toplevel(self.root)
         form_win.title("Novo Cliente" if not client_id else "Editar Cliente")
         form_win.geometry("600x600") # Aumentado para melhor visualização
         form_win.configure(bg=DOLP_COLORS['white'])
+
+        if refresh_callback:
+            form_win.protocol("WM_DELETE_WINDOW", lambda: (refresh_callback(), form_win.destroy()))
 
         main_frame = ttk.Frame(form_win, padding=20, style='TFrame')
         main_frame.pack(fill='both', expand=True)
@@ -4138,7 +4144,8 @@ class CRMApp:
                     messagebox.showinfo("Sucesso", "Cliente criado com sucesso!", parent=form_win)
 
                 form_win.destroy()
-                self.show_clients_view()
+                if refresh_callback:
+                    refresh_callback()
 
             except sqlite3.IntegrityError as e:
                 error_message = str(e).lower()
