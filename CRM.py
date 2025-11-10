@@ -551,7 +551,7 @@ class DatabaseManager:
                             client['setor_atuacao'], client['segmento_atuacao'], datetime.now().strftime('%d/%m/%Y'), 'Cadastrado'))
 
     # Métodos de Clientes
-    def get_all_clients(self, setor=None, segmento=None):
+    def get_all_clients(self, setor=None, segmento=None, nome_empresa=None):
         with self._connect() as conn:
             base_query = "SELECT * FROM clientes"
             conditions = []
@@ -564,6 +564,10 @@ class DatabaseManager:
             if segmento and segmento != 'Todos':
                 conditions.append("segmento_atuacao = ?")
                 params.append(segmento)
+
+            if nome_empresa and nome_empresa != 'Todos':
+                conditions.append("nome_empresa = ?")
+                params.append(nome_empresa)
 
             if conditions:
                 base_query += " WHERE " + " AND ".join(conditions)
@@ -883,7 +887,7 @@ class DatabaseManager:
         with self._connect() as conn:
             return [row['responsavel'] for row in conn.execute("SELECT DISTINCT responsavel FROM crm_tarefas WHERE oportunidade_id = ? ORDER BY responsavel", (op_id,)).fetchall()]
 
-    def get_tasks_for_opportunity(self, op_id, status=None, responsavel=None, start_date_str=None, end_date_str=None):
+    def get_tasks_for_opportunity(self, op_id, status=None, responsavel=None, start_date_str=None, end_date_str=None, category_id=None):
         with self._connect() as conn:
             base_query = "SELECT * FROM crm_tarefas WHERE oportunidade_id = ?"
             params = [op_id]
@@ -895,6 +899,10 @@ class DatabaseManager:
             if responsavel and responsavel != 'Todos':
                 base_query += " AND responsavel = ?"
                 params.append(responsavel)
+
+            if category_id is not None:
+                base_query += " AND category_id = ?"
+                params.append(category_id)
 
             if start_date_str:
                 try:
@@ -3936,6 +3944,14 @@ class CRMApp:
         title_frame.pack(fill='x', pady=(0, 20))
 
         ttk.Label(title_frame, text="Clientes", style='Title.TLabel').pack(side='left')
+
+        # --- Filtro de Empresas ---
+        ttk.Label(title_frame, text="Filtrar por Empresa:", style='TLabel').pack(side='left', padx=(20, 5))
+        empresa_names = ['Todos'] + [c['nome_empresa'] for c in self.db.get_all_clients()]
+        empresa_filter_combo = ttk.Combobox(title_frame, values=empresa_names, state='readonly', width=40)
+        empresa_filter_combo.set('Todos')
+        empresa_filter_combo.pack(side='left')
+
         ttk.Button(title_frame, text="Novo Cliente", command=self.show_client_form, style='Success.TButton').pack(side='right')
         ttk.Button(title_frame, text="← Voltar", command=self.show_main_menu, style='TButton').pack(side='right', padx=(0, 10))
 
@@ -3965,25 +3981,39 @@ class CRMApp:
         tree.pack(side='left', fill='both', expand=True)
         scrollbar.pack(side='right', fill='y')
 
-        clients = self.db.get_all_clients()
-        for client in clients:
-            status = client['status'] or 'Não cadastrado'
-            if client['data_atualizacao']:
-                try:
-                    data_atualizacao = datetime.strptime(client['data_atualizacao'], '%d/%m/%Y')
-                    if (datetime.now() - data_atualizacao).days > 365:
-                         status = 'Cadastro Desatualizado'
-                except (ValueError, TypeError):
-                    pass
+        def load_clients_data(nome_empresa_filter=None):
+            # Limpa a árvore antes de carregar novos dados
+            for i in tree.get_children():
+                tree.delete(i)
 
-            tree.insert('', 'end', values=(
-                client['id'],
-                client['nome_empresa'],
-                format_cnpj(client['cnpj']) or '---',
-                client['cidade'] or '---',
-                client['estado'] or '---',
-                status
-            ))
+            clients = self.db.get_all_clients(nome_empresa=nome_empresa_filter)
+            for client in clients:
+                status = client['status'] or 'Não cadastrado'
+                if client['data_atualizacao']:
+                    try:
+                        data_atualizacao = datetime.strptime(client['data_atualizacao'], '%d/%m/%Y')
+                        if (datetime.now() - data_atualizacao).days > 365:
+                            status = 'Cadastro Desatualizado'
+                    except (ValueError, TypeError):
+                        pass
+
+                tree.insert('', 'end', values=(
+                    client['id'],
+                    client['nome_empresa'],
+                    format_cnpj(client['cnpj']) or '---',
+                    client['cidade'] or '---',
+                    client['estado'] or '---',
+                    status
+                ))
+
+        # Carrega os dados iniciais
+        load_clients_data()
+
+        def on_filter_change(event):
+            selected_empresa = empresa_filter_combo.get()
+            load_clients_data(nome_empresa_filter=selected_empresa)
+
+        empresa_filter_combo.bind('<<ComboboxSelected>>', on_filter_change)
 
         def on_double_click(event):
             selection = tree.selection()
