@@ -1441,7 +1441,7 @@ class CRMApp:
         # Treeview
         style.configure('Treeview', background='white', foreground=DOLP_COLORS['dark_gray'], font=('Segoe UI', 10), rowheight=25)
         style.configure('Treeview.Heading', background=DOLP_COLORS['primary_blue'], foreground='white', font=('Segoe UI', 10, 'bold'))
-        style.map('Treeview', background=[('selected', DOLP_COLORS['primary_blue'])], foreground=[('selected', DOLP_COLORS['white'])])
+        style.map('Treeview', background=[('selected', DOLP_COLORS['secondary_blue'])], foreground=[('selected', DOLP_COLORS['white'])])
 
         # --- NOVA SEÇÃO DE ESTILOS ADICIONADA ---
         # Estilos para os Cards de Oportunidade no Funil
@@ -4790,29 +4790,29 @@ class CRMApp:
         concessionaria_names = ['Todos'] + [c['nome_empresa'] for c in clients]
         empresa_ref_names = ['Todos'] + self.db.get_unique_empresa_referencia_names()
 
-        # Filtro Nome Empresa
-        ttk.Label(filters_frame, text="Empresa:", style='TLabel').grid(row=0, column=0, padx=(0, 5), pady=5)
-        empresa_filter = ttk.Combobox(filters_frame, values=empresa_ref_names, state='readonly', width=30)
-        empresa_filter.set('Todos')
-        empresa_filter.grid(row=0, column=1, padx=(0, 20))
-
         # Filtro Estado
-        ttk.Label(filters_frame, text="Estado:", style='TLabel').grid(row=0, column=2, padx=(0, 5), pady=5)
+        ttk.Label(filters_frame, text="Estado:", style='TLabel').grid(row=0, column=0, padx=(0, 5), pady=5)
         estado_filter = ttk.Combobox(filters_frame, values=['Todos'] + BRAZILIAN_STATES, state='readonly', width=15)
         estado_filter.set('Todos')
-        estado_filter.grid(row=0, column=3, padx=(0, 20))
+        estado_filter.grid(row=0, column=1, padx=(0, 20))
 
         # Filtro Tipo de Serviço
-        ttk.Label(filters_frame, text="Tipo de Serviço:", style='TLabel').grid(row=1, column=0, padx=(0, 5), pady=5)
+        ttk.Label(filters_frame, text="Tipo de Serviço:", style='TLabel').grid(row=0, column=2, padx=(0, 5), pady=5)
         servico_filter = ttk.Combobox(filters_frame, values=service_names, state='readonly', width=30)
         servico_filter.set('Todos')
-        servico_filter.grid(row=1, column=1, padx=(0, 20))
+        servico_filter.grid(row=0, column=3, padx=(0, 20))
 
         # Filtro Concessionária
-        ttk.Label(filters_frame, text="Concessionária:", style='TLabel').grid(row=1, column=2, padx=(0, 5), pady=5)
+        ttk.Label(filters_frame, text="Concessionária:", style='TLabel').grid(row=1, column=0, padx=(0, 5), pady=5)
         concessionaria_filter = ttk.Combobox(filters_frame, values=concessionaria_names, state='readonly', width=25)
         concessionaria_filter.set('Todos')
-        concessionaria_filter.grid(row=1, column=3, padx=(0, 20))
+        concessionaria_filter.grid(row=1, column=1, padx=(0, 20))
+
+        # Filtro Nome Empresa
+        ttk.Label(filters_frame, text="Empresa:", style='TLabel').grid(row=1, column=2, padx=(0, 5), pady=5)
+        empresa_filter = ttk.Combobox(filters_frame, values=empresa_ref_names, state='readonly', width=30)
+        empresa_filter.set('Todos')
+        empresa_filter.grid(row=1, column=3, padx=(0, 20))
 
 
         # --- Frame da Tabela de Resultados ---
