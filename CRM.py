@@ -1488,9 +1488,6 @@ class CRMApp:
         title_label = ttk.Label(header_frame, text="Customer Relationship Management (CRM) - Dolp Engenharia", style='Header.TLabel')
         title_label.pack(side='left')
 
-        version_label = ttk.Label(header_frame, text="v1.1.0", foreground=DOLP_COLORS['medium_gray'], font=('Segoe UI', 9), style='TLabel')
-        version_label.pack(side='right', padx=(10, 0), anchor='s', pady=(0, 4))
-
         # Área de conteúdo
         self.content_frame = ttk.Frame(self.main_container, style='TFrame')
         self.content_frame.pack(fill='both', expand=True, padx=20, pady=(0, 20))
@@ -4288,8 +4285,8 @@ class CRMApp:
             if selection:
                 item = tree.item(selection[0])
                 user_id = item['values'][0]
-                if not self.db.get_user_by_id(user_id)['is_master']:
-                    self.show_user_form(user_id)
+                self.show_user_form(user_id)
+
 
         tree.bind('<Double-1>', on_double_click)
 
@@ -4300,13 +4297,15 @@ class CRMApp:
                 user_id = item['values'][0]
                 user_data = self.db.get_user_by_id(user_id)
 
-                if user_data['is_master']:
-                    return
-
                 context_menu = tk.Menu(self.root, tearoff=0)
                 context_menu.add_command(label="Editar", command=lambda: self.show_user_form(user_id))
                 context_menu.add_command(label="Resetar Senha", command=lambda: self.reset_password(user_id))
-                context_menu.add_command(label="Excluir", command=lambda: self.delete_user(user_id))
+
+                if user_data['is_master']:
+                    context_menu.add_command(label="Excluir", state="disabled")
+                else:
+                    context_menu.add_command(label="Excluir", command=lambda: self.delete_user(user_id))
+
                 context_menu.tk_popup(event.x_root, event.y_root)
 
         tree.bind('<Button-3>', show_context_menu)
