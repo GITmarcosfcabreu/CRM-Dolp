@@ -38,6 +38,10 @@ from reportlab.lib.units import inch
 import locale
 import shutil
 import glob
+import pandas as pd
+from matplotlib.figure import Figure
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.ticker import FuncFormatter
 import hashlib
 import secrets
 
@@ -1439,9 +1443,11 @@ class CRMApp:
         style.map('TNotebook.Tab', background=[('selected', DOLP_COLORS['primary_blue']), ('active', DOLP_COLORS['secondary_blue'])], foreground=[('selected', 'white'), ('active', 'white')])
 
         # Treeview
-        style.configure('Treeview', background='white', foreground=DOLP_COLORS['dark_gray'], font=('Segoe UI', 10), rowheight=25)
+        style.configure('Treeview', background='white', foreground=DOLP_COLORS['dark_gray'], font=('Segoe UI', 10), rowheight=25, fieldbackground=DOLP_COLORS['white'])
         style.configure('Treeview.Heading', background=DOLP_COLORS['primary_blue'], foreground='white', font=('Segoe UI', 10, 'bold'))
-        style.map('Treeview', background=[('selected', DOLP_COLORS['secondary_blue'])], foreground=[('selected', DOLP_COLORS['white'])])
+        style.map('Treeview',
+                  background=[('selected', DOLP_COLORS['primary_blue'])],
+                  foreground=[('selected', 'white')])
 
         # --- NOVA SEÇÃO DE ESTILOS ADICIONADA ---
         # Estilos para os Cards de Oportunidade no Funil
@@ -1467,7 +1473,7 @@ class CRMApp:
         title_label = ttk.Label(header_frame, text="Customer Relationship Management (CRM) - Dolp Engenharia", style='Header.TLabel')
         title_label.pack(side='left')
 
-
+        version_label = ttk.Label(header_frame, text="v1.1.0", foreground=DOLP_COLORS['medium_gray'], font=('Segoe UI', 9), style='TLabel')
         version_label.pack(side='right', padx=(10, 0), anchor='s', pady=(0, 4))
 
         # Área de conteúdo
