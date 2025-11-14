@@ -38,10 +38,6 @@ from reportlab.lib.units import inch
 import locale
 import shutil
 import glob
-import pandas as pd
-from matplotlib.figure import Figure
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-from matplotlib.ticker import FuncFormatter
 import hashlib
 import secrets
 
@@ -173,7 +169,6 @@ def backup_database(db_name):
     if not os.path.exists(backup_dir):
         try:
             os.makedirs(backup_dir)
-            print(f"Diretório de backup '{backup_dir}' criado.")
         except OSError as e:
             print(f"Erro CRÍTICO ao criar o diretório de backup: {e}")
             return
@@ -189,7 +184,6 @@ def backup_database(db_name):
 
     try:
         shutil.copy2(db_name, backup_path)
-        print(f"Backup do banco de dados criado com sucesso em: {backup_path}")
     except Exception as e:
         print(f"Erro CRÍTICO ao criar o backup do banco de dados: {e}")
         return  # Não prosseguir com a limpeza se o backup falhar
@@ -204,7 +198,6 @@ def backup_database(db_name):
             files_to_delete = backup_files[:-10]
             for f in files_to_delete:
                 os.remove(f)
-                print(f"Backup antigo removido: {f}")
     except Exception as e:
         print(f"Erro ao gerenciar backups antigos: {e}")
 
@@ -387,9 +380,7 @@ class DatabaseManager:
             cursor.execute("PRAGMA table_info(clientes)")
             client_columns = [row['name'] for row in cursor.fetchall()]
             if 'resumo_atuacao' not in client_columns:
-                print("Aplicando migração: Adicionando coluna 'resumo_atuacao' em clientes...")
                 cursor.execute("ALTER TABLE clientes ADD COLUMN resumo_atuacao TEXT")
-                print("Coluna 'resumo_atuacao' adicionada.")
 
                 # Populate data for existing clients
                 client_summaries = {
@@ -410,7 +401,6 @@ class DatabaseManager:
                 }
                 for name, summary in client_summaries.items():
                     cursor.execute("UPDATE clientes SET resumo_atuacao = ? WHERE nome_empresa = ?", (summary, name))
-                print(f"{len(client_summaries)} resumos de atuação de clientes foram pré-preenchidos.")
 
             # Etapa 1: Garantir que todas as colunas da tabela 'oportunidades' existam
             cursor.execute("PRAGMA table_info(oportunidades)")
@@ -430,9 +420,7 @@ class DatabaseManager:
 
             for col_name, col_type in required_columns.items():
                 if col_name not in existing_columns:
-                    print(f"Aplicando migração: Adicionando coluna '{col_name}'...")
                     cursor.execute(f"ALTER TABLE oportunidades ADD COLUMN {col_name} {col_type}")
-                    print(f"Coluna '{col_name}' adicionada.")
 
             # Commit das alterações de schema antes de manipular os dados
             conn.commit()
@@ -440,11 +428,9 @@ class DatabaseManager:
             # Etapa 2: Preencher 'numero_oportunidade' e criar índice UNIQUE
             ops_to_update = cursor.execute("SELECT id FROM oportunidades WHERE numero_oportunidade IS NULL").fetchall()
             if ops_to_update:
-                print(f"Aplicando migração: Preenchendo {len(ops_to_update)} IDs de oportunidade...")
                 for op in ops_to_update:
                     new_op_id = f"OPP-{op['id']:05d}"
                     cursor.execute("UPDATE oportunidades SET numero_oportunidade = ? WHERE id = ?", (new_op_id, op['id']))
-                print("Preenchimento de IDs concluído.")
 
             # A criação do índice UNIQUE deve vir após o preenchimento para evitar erros
             cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_numero_oportunidade ON oportunidades(numero_oportunidade)")
@@ -463,23 +449,18 @@ class DatabaseManager:
 
             for col_name, col_type in new_empresa_ref_columns.items():
                 if col_name not in empresa_ref_columns:
-                    print(f"Aplicando migração: Adicionando coluna '{col_name}' em crm_empresas_referencia...")
                     cursor.execute(f"ALTER TABLE crm_empresas_referencia ADD COLUMN {col_name} {col_type}")
-                    print(f"Coluna '{col_name}' adicionada.")
 
             # Migração para crm_tarefas
             cursor.execute("PRAGMA table_info(crm_tarefas)")
             task_columns = [row['name'] for row in cursor.fetchall()]
             if 'category_id' not in task_columns:
-                print("Aplicando migração: Adicionando coluna 'category_id' em crm_tarefas...")
                 cursor.execute("ALTER TABLE crm_tarefas ADD COLUMN category_id INTEGER REFERENCES crm_task_categories(id)")
-                print("Coluna 'category_id' adicionada.")
 
             # Commit final de todas as alterações de dados e índice
             conn.commit()
 
         except sqlite3.Error as e:
-            print(f"Erro CRÍTICO durante a migração do banco de dados: {e}")
             conn.rollback()
         finally:
             conn.close()
@@ -551,7 +532,7 @@ class DatabaseManager:
                             client['setor_atuacao'], client['segmento_atuacao'], datetime.now().strftime('%d/%m/%Y'), 'Cadastrado'))
 
     # Métodos de Clientes
-    def get_all_clients(self, setor=None, segmento=None, nome_empresa=None):
+    def get_all_clients(self, setor=None, segmento=None):
         with self._connect() as conn:
             base_query = "SELECT * FROM clientes"
             conditions = []
@@ -564,10 +545,6 @@ class DatabaseManager:
             if segmento and segmento != 'Todos':
                 conditions.append("segmento_atuacao = ?")
                 params.append(segmento)
-
-            if nome_empresa and nome_empresa != 'Todos':
-                conditions.append("nome_empresa = ?")
-                params.append(nome_empresa)
 
             if conditions:
                 base_query += " WHERE " + " AND ".join(conditions)
@@ -887,7 +864,7 @@ class DatabaseManager:
         with self._connect() as conn:
             return [row['responsavel'] for row in conn.execute("SELECT DISTINCT responsavel FROM crm_tarefas WHERE oportunidade_id = ? ORDER BY responsavel", (op_id,)).fetchall()]
 
-    def get_tasks_for_opportunity(self, op_id, status=None, responsavel=None, start_date_str=None, end_date_str=None, category_id=None):
+    def get_tasks_for_opportunity(self, op_id, status=None, responsavel=None, start_date_str=None, end_date_str=None):
         with self._connect() as conn:
             base_query = "SELECT * FROM crm_tarefas WHERE oportunidade_id = ?"
             params = [op_id]
@@ -899,10 +876,6 @@ class DatabaseManager:
             if responsavel and responsavel != 'Todos':
                 base_query += " AND responsavel = ?"
                 params.append(responsavel)
-
-            if category_id is not None:
-                base_query += " AND category_id = ?"
-                params.append(category_id)
 
             if start_date_str:
                 try:
@@ -1266,27 +1239,20 @@ class NewsService:
 
     def fetch_and_store_news(self):
         """Orquestra o processo de busca e armazenamento de notícias de forma eficiente."""
-        print("Buscando novas notícias...")
         news_items = self._search_news()
         if not news_items:
-            print("Nenhuma notícia encontrada.")
             return
 
-        print(f"Verificando relevância de {len(news_items)} notícias...")
         relevant_indices = self._check_relevance_batch(news_items)
         if not relevant_indices:
-            print("Nenhuma notícia relevante encontrada na checagem inicial.")
             self.db.delete_old_unsaved_news()
-            print("Busca de notícias concluída.")
             return
 
         relevant_articles = [news_items[i] for i in relevant_indices if i < len(news_items)]
-        print(f"Encontradas {len(relevant_articles)} notícias relevantes. Buscando resumos...")
 
         for item in relevant_articles:
             url = item.get('url')
             title = item.get('title')
-            print(f"Processando resumo para: {title}")
 
             article_text = self._get_article_text(url)
             if not article_text:
@@ -1310,84 +1276,35 @@ class NewsService:
                     pass
 
             self.db.add_news_article(article_data)
-            print(f"  -> Notícia '{title}' salva no banco de dados.")
             time.sleep(4) # Respeitar o limite de RPM da API
 
         self.db.delete_old_unsaved_news()
-        print("Busca de notícias concluída.")
-
-
-# --- 5. TELA DE LOGIN ---
-class LoginWindow:
-    def __init__(self, root, on_success):
-        self.root = root
-        self.on_success = on_success
-        self.db = DatabaseManager(DB_NAME)
-
-        self.login_window = Toplevel(self.root)
-        self.login_window.title("Login - CRM Dolp Engenharia")
-        self.login_window.geometry("400x300")
-        self.login_window.configure(bg=DOLP_COLORS['white'])
-        self.login_window.transient(self.root)
-        self.login_window.grab_set()
-
-        main_frame = ttk.Frame(self.login_window, padding=20)
-        main_frame.pack(expand=True)
-
-        ttk.Label(main_frame, text="Login", font=('Segoe UI', 16, 'bold')).pack(pady=(0, 20))
-
-        ttk.Label(main_frame, text="Usuário:").pack(anchor='w')
-        self.username_entry = ttk.Entry(main_frame, width=40)
-        self.username_entry.pack(pady=(0, 10))
-
-        ttk.Label(main_frame, text="Senha:").pack(anchor='w')
-        self.password_entry = ttk.Entry(main_frame, show="*", width=40)
-        self.password_entry.pack(pady=(0, 20))
-
-        ttk.Button(main_frame, text="Entrar", command=self.check_login, style='Primary.TButton').pack()
-
-        self.username_entry.focus()
-        self.password_entry.bind("<Return>", lambda e: self.check_login())
-
-
-    def check_login(self):
-        username = self.username_entry.get()
-        password = self.password_entry.get()
-
-        if not username or not password:
-            messagebox.showerror("Erro de Login", "Usuário e senha são obrigatórios.", parent=self.login_window)
-            return
-
-        user_data = self.db.get_user_by_username(username)
-
-        if user_data and verify_password(user_data['password'], password):
-            self.login_window.destroy()
-            self.on_success(user_data) # Passa os dados do usuário para o callback
-        else:
-            messagebox.showerror("Erro de Login", "Usuário ou senha inválidos.", parent=self.login_window)
 
 
 # --- 6. APLICAÇÃO PRINCIPAL ---
 class CRMApp:
     def __init__(self, root):
         self.root = root
-        self.current_user = None # Nenhum usuário logado inicialmente
         backup_database(DB_NAME)
         self.db = DatabaseManager(DB_NAME)
+
+        # Carrega o usuário 'master' como padrão para bypassar o login
+        master_user = self.db.get_user_by_username('marcos.fernandes')
+        if not master_user:
+            messagebox.showerror("Erro Crítico", "Usuário master 'marcos.fernandes' não encontrado. O aplicativo não pode iniciar.")
+            self.root.destroy()
+            return
+        self.current_user = dict(master_user)
+
         self.news_service = NewsService(self.db)
         self.root.title("CRM Dolp Engenharia")
         self.root.geometry("1600x900")
         self.root.minsize(1280, 720)
-        self.root.withdraw() # Esconde a janela principal até o login
+        # A janela não é mais escondida (self.root.withdraw() removido)
 
         self._configure_styles()
-        LoginWindow(self.root, self.on_login_success)
 
-
-    def on_login_success(self, user_data):
-        """Callback chamado quando o login é bem-sucedido."""
-        self.current_user = dict(user_data)
-        self.root.deiconify() # Mostra a janela principal
+        # Inicia a UI principal diretamente, bypassando a tela de login
         self.setup_main_ui()
 
     def setup_main_ui(self):
@@ -1452,11 +1369,9 @@ class CRMApp:
         style.map('TNotebook.Tab', background=[('selected', DOLP_COLORS['primary_blue']), ('active', DOLP_COLORS['secondary_blue'])], foreground=[('selected', 'white'), ('active', 'white')])
 
         # Treeview
-        style.configure('Treeview', background='white', foreground=DOLP_COLORS['dark_gray'], font=('Segoe UI', 10), rowheight=25, fieldbackground=DOLP_COLORS['white'])
+        style.configure('Treeview', background='white', foreground=DOLP_COLORS['dark_gray'], font=('Segoe UI', 10), rowheight=25)
         style.configure('Treeview.Heading', background=DOLP_COLORS['primary_blue'], foreground='white', font=('Segoe UI', 10, 'bold'))
-        style.map('Treeview',
-                  background=[('selected', DOLP_COLORS['primary_blue'])],
-                  foreground=[('selected', 'white')])
+        style.map('Treeview', background=[('selected', DOLP_COLORS['primary_blue'])], foreground=[('selected', DOLP_COLORS['white'])])
 
         # --- NOVA SEÇÃO DE ESTILOS ADICIONADA ---
         # Estilos para os Cards de Oportunidade no Funil
@@ -3935,11 +3850,8 @@ class CRMApp:
         title_frame.pack(fill='x', pady=(0, 20))
 
         ttk.Label(title_frame, text="Clientes", style='Title.TLabel').pack(side='left')
-
-        # --- Filtro de Empresas ---
-        ttk.Label(title_frame, text="Filtrar por Empresa:", style='TLabel').pack(side='left', padx=(20, 5))
-        empresa_filter_combo = ttk.Combobox(title_frame, state='readonly', width=40)
-        empresa_filter_combo.pack(side='left')
+        ttk.Button(title_frame, text="Novo Cliente", command=self.show_client_form, style='Success.TButton').pack(side='right')
+        ttk.Button(title_frame, text="← Voltar", command=self.show_main_menu, style='TButton').pack(side='right', padx=(0, 10))
 
         clients_frame = ttk.Frame(self.content_frame, style='TFrame')
         clients_frame.pack(fill='both', expand=True)
@@ -3967,81 +3879,50 @@ class CRMApp:
         tree.pack(side='left', fill='both', expand=True)
         scrollbar.pack(side='right', fill='y')
 
-        def refresh_data(nome_empresa_filter=None):
-            # Guardar seleção atual do filtro
-            current_filter_selection = empresa_filter_combo.get()
+        clients = self.db.get_all_clients()
+        for client in clients:
+            status = client['status'] or 'Não cadastrado'
+            if client['data_atualizacao']:
+                try:
+                    data_atualizacao = datetime.strptime(client['data_atualizacao'], '%d/%m/%Y')
+                    if (datetime.now() - data_atualizacao).days > 365:
+                         status = 'Cadastro Desatualizado'
+                except (ValueError, TypeError):
+                    pass
 
-            # Limpar a árvore
-            for i in tree.get_children():
-                tree.delete(i)
-
-            # Recarregar dados dos clientes
-            clients = self.db.get_all_clients(nome_empresa=nome_empresa_filter)
-            for client in clients:
-                status = client['status'] or 'Não cadastrado'
-                if client['data_atualizacao']:
-                    try:
-                        data_atualizacao = datetime.strptime(client['data_atualizacao'], '%d/%m/%Y')
-                        if (datetime.now() - data_atualizacao).days > 365:
-                            status = 'Cadastro Desatualizado'
-                    except (ValueError, TypeError):
-                        pass
-                tree.insert('', 'end', values=(client['id'], client['nome_empresa'], format_cnpj(client['cnpj']) or '---', client['cidade'] or '---', client['estado'] or '---', status))
-
-            # Atualizar a lista do combobox
-            empresa_names = ['Todos'] + sorted(list(set(c['nome_empresa'] for c in self.db.get_all_clients())))
-            empresa_filter_combo['values'] = empresa_names
-
-            # Restaurar seleção do filtro se ainda existir, senão, 'Todos'
-            if current_filter_selection in empresa_names:
-                empresa_filter_combo.set(current_filter_selection)
-            else:
-                empresa_filter_combo.set('Todos')
-
-        # Carregar dados iniciais
-        refresh_data()
-        empresa_filter_combo.set('Todos')
-
-        def on_filter_change(event):
-            selected_empresa = empresa_filter_combo.get()
-            refresh_data(nome_empresa_filter=selected_empresa if selected_empresa != 'Todos' else None)
-
-        empresa_filter_combo.bind('<<ComboboxSelected>>', on_filter_change)
-
-        # Adicionar botões após a definição da função de refresh
-        ttk.Button(title_frame, text="Novo Cliente", command=lambda: self.show_client_form(refresh_callback=refresh_data), style='Success.TButton').pack(side='right')
-        ttk.Button(title_frame, text="← Voltar", command=self.show_main_menu, style='TButton').pack(side='right', padx=(0, 10))
+            tree.insert('', 'end', values=(
+                client['id'],
+                client['nome_empresa'],
+                format_cnpj(client['cnpj']) or '---',
+                client['cidade'] or '---',
+                client['estado'] or '---',
+                status
+            ))
 
         def on_double_click(event):
             selection = tree.selection()
             if selection:
                 item = tree.item(selection[0])
                 client_id = item['values'][0]
-                self.show_client_form(client_id, refresh_callback=refresh_data)
+                self.show_client_form(client_id)
 
         tree.bind('<Double-1>', on_double_click)
 
         def show_context_menu(event):
             selection = tree.selection()
             if selection:
-                item = tree.item(selection[0])
-                client_id = item['values'][0]
-                client_name = item['values'][1]
                 context_menu = tk.Menu(self.root, tearoff=0)
-                context_menu.add_command(label="Editar Cliente", command=lambda: self.show_client_form(client_id, refresh_callback=refresh_data))
-                context_menu.add_command(label="Nova Oportunidade", command=lambda: self.show_opportunity_form(client_to_prefill=client_name))
+                context_menu.add_command(label="Editar Cliente", command=lambda: self.show_client_form(tree.item(selection[0])['values'][0]))
+                context_menu.add_command(label="Nova Oportunidade", command=lambda: self.show_opportunity_form(client_to_prefill=tree.item(selection[0])['values'][1]))
                 context_menu.tk_popup(event.x_root, event.y_root)
 
         tree.bind('<Button-3>', show_context_menu)
 
-    def show_client_form(self, client_id=None, refresh_callback=None):
+    def show_client_form(self, client_id=None):
         form_win = Toplevel(self.root)
         form_win.title("Novo Cliente" if not client_id else "Editar Cliente")
         form_win.geometry("600x600") # Aumentado para melhor visualização
         form_win.configure(bg=DOLP_COLORS['white'])
-
-        if refresh_callback:
-            form_win.protocol("WM_DELETE_WINDOW", lambda: (refresh_callback(), form_win.destroy()))
 
         main_frame = ttk.Frame(form_win, padding=20, style='TFrame')
         main_frame.pack(fill='both', expand=True)
@@ -4144,8 +4025,7 @@ class CRMApp:
                     messagebox.showinfo("Sucesso", "Cliente criado com sucesso!", parent=form_win)
 
                 form_win.destroy()
-                if refresh_callback:
-                    refresh_callback()
+                self.show_clients_view()
 
             except sqlite3.IntegrityError as e:
                 error_message = str(e).lower()
@@ -4292,8 +4172,8 @@ class CRMApp:
             if selection:
                 item = tree.item(selection[0])
                 user_id = item['values'][0]
-                self.show_user_form(user_id)
-
+                if not self.db.get_user_by_id(user_id)['is_master']:
+                    self.show_user_form(user_id)
 
         tree.bind('<Double-1>', on_double_click)
 
@@ -4304,15 +4184,13 @@ class CRMApp:
                 user_id = item['values'][0]
                 user_data = self.db.get_user_by_id(user_id)
 
+                if user_data['is_master']:
+                    return
+
                 context_menu = tk.Menu(self.root, tearoff=0)
                 context_menu.add_command(label="Editar", command=lambda: self.show_user_form(user_id))
                 context_menu.add_command(label="Resetar Senha", command=lambda: self.reset_password(user_id))
-
-                if user_data['is_master']:
-                    context_menu.add_command(label="Excluir", state="disabled")
-                else:
-                    context_menu.add_command(label="Excluir", command=lambda: self.delete_user(user_id))
-
+                context_menu.add_command(label="Excluir", command=lambda: self.delete_user(user_id))
                 context_menu.tk_popup(event.x_root, event.y_root)
 
         tree.bind('<Button-3>', show_context_menu)

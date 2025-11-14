@@ -1,0 +1,15 @@
+Authorization required, but no authorization protocol specified
+
+Authorization required, but no authorization protocol specified
+
+Aviso: Locale 'pt_BR.UTF-8' não encontrado. Usando o locale padrão do sistema.
+Traceback (most recent call last):
+  File "/app/CRM.py", line 5118, in <module>
+    main()
+  File "/app/CRM.py", line 5112, in main
+    root = tk.Tk()
+           ^^^^^^^
+  File "/home/jules/.pyenv/versions/3.12.12/lib/python3.12/tkinter/__init__.py", line 2346, in __init__
+    self.tk = _tkinter.create(screenName, baseName, className, interactive, wantobjects, useTk, sync, use)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_tkinter.TclError: couldn't connect to display ":99"
