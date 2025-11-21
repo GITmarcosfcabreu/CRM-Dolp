@@ -864,7 +864,7 @@ class DatabaseManager:
         with self._connect() as conn:
             return [row['responsavel'] for row in conn.execute("SELECT DISTINCT responsavel FROM crm_tarefas WHERE oportunidade_id = ? ORDER BY responsavel", (op_id,)).fetchall()]
 
-    def get_tasks_for_opportunity(self, op_id, status=None, responsavel=None, start_date_str=None, end_date_str=None):
+    def get_tasks_for_opportunity(self, op_id, status=None, responsavel=None, start_date_str=None, end_date_str=None, category_id=None):
         with self._connect() as conn:
             base_query = "SELECT * FROM crm_tarefas WHERE oportunidade_id = ?"
             params = [op_id]
@@ -876,6 +876,10 @@ class DatabaseManager:
             if responsavel and responsavel != 'Todos':
                 base_query += " AND responsavel = ?"
                 params.append(responsavel)
+
+            if category_id:
+                base_query += " AND category_id = ?"
+                params.append(category_id)
 
             if start_date_str:
                 try:
@@ -2428,6 +2432,11 @@ class CRMApp:
         servico_equipes_data = {}
         entries['servicos_data'] = servico_equipes_data
 
+        # Preparar lista de empresas de referência formatada
+        empresas_ref_list = self.db.get_all_empresas_referencia()
+        empresa_ref_options = [f"{e['nome_empresa']} - {e['estado']} - {e['tipo_servico']}" for e in empresas_ref_list if e['ativa']]
+        empresa_ref_options = sorted(list(set(empresa_ref_options)))
+
         def _add_equipe_row(servico_id, servico_nome, container):
             row_frame = ttk.Frame(container, padding=(0, 5))
             row_frame.pack(fill='x', expand=True, pady=2)
@@ -2442,7 +2451,7 @@ class CRMApp:
 
             # Widgets da linha
             ttk.Label(row_frame, text="Tipo de Equipe:").pack(side='left', padx=(0,5))
-            tipo_combo = ttk.Combobox(row_frame, values=team_type_names, state='readonly', width=40)
+            tipo_combo = ttk.Combobox(row_frame, values=team_type_names, state='readonly', width=30)
             tipo_combo.pack(side='left', padx=5)
             row_widgets['tipo_combo'] = tipo_combo
 
@@ -2460,6 +2469,11 @@ class CRMApp:
             base_combo = ttk.Combobox(row_frame, values=base_names, state='readonly', width=15)
             base_combo.pack(side='left', padx=5)
             row_widgets['base_combo'] = base_combo
+
+            ttk.Label(row_frame, text="Empresa Ref.:").pack(side='left', padx=(5,0))
+            empresa_combo = ttk.Combobox(row_frame, values=empresa_ref_options, state='readonly', width=40)
+            empresa_combo.pack(side='left', padx=5)
+            row_widgets['empresa_combo'] = empresa_combo
 
             def remove_row():
                 servico_equipes_data[servico_nome].remove(row_widgets)
@@ -2533,17 +2547,23 @@ class CRMApp:
             entry.grid(row=start_row_after_services + i, column=1, sticky='ew', pady=5, padx=5)
             entries[key] = entry
 
-        # Empresa Referência
-        empresa_row = start_row_after_services + len(checklist_fields)
-        ttk.Label(servicos_lf, text="Empresa Referência:", font=('Segoe UI', 10, 'bold')).grid(row=empresa_row, column=0, sticky='w', pady=5, padx=5)
-        empresas_ref = self.db.get_all_empresas_referencia()
-        empresa_names = sorted(list(set([emp['nome_empresa'] for emp in empresas_ref])))
-        empresa_combo = ttk.Combobox(servicos_lf, values=empresa_names, state='readonly')
-        empresa_combo.grid(row=empresa_row, column=1, sticky='ew', pady=5, padx=5)
-        entries['empresa_referencia'] = empresa_combo
+            # Update duracao_contrato when tempo_contrato_meses changes
+            if key == 'tempo_contrato_meses':
+                def update_duracao(event=None):
+                    if 'duracao_contrato' in entries:
+                        val = entries['tempo_contrato_meses'].get()
+                        try:
+                            entries['duracao_contrato'].config(state='normal')
+                            entries['duracao_contrato'].delete(0, 'end')
+                            entries['duracao_contrato'].insert(0, val)
+                            entries['duracao_contrato'].config(state='readonly')
+                        except tk.TclError:
+                            pass
+                entry.bind('<KeyRelease>', update_duracao)
+                entry.bind('<FocusOut>', update_duracao)
 
         # Quantidade de Bases
-        bases_row = empresa_row + 1
+        bases_row = start_row_after_services + len(checklist_fields)
         ttk.Label(servicos_lf, text="Quantidade de Bases:", font=('Segoe UI', 10, 'bold')).grid(row=bases_row, column=0, sticky='w', pady=5, padx=5)
         bases_input_frame = ttk.Frame(servicos_lf)
         bases_input_frame.grid(row=bases_row, column=1, sticky='ew', pady=5, padx=5)
@@ -2649,6 +2669,9 @@ class CRMApp:
                 if key in ['mod', 'moi']:
                     entry.bind('<KeyRelease>', lambda e: calcular_total_pessoas())
                     entry.bind('<FocusOut>', lambda e: calcular_total_pessoas())
+                # Make duracao_contrato readonly
+                if key == 'duracao_contrato':
+                    entry.config(state='readonly')
             entry.grid(row=i, column=1, sticky='ew', pady=5, padx=5)
             entries[key] = entry
 
@@ -2681,12 +2704,6 @@ class CRMApp:
         entries['servicos_tree'] = servicos_tree
 
         def calcular_precos_automaticos():
-            # 1. Obter empresa de referência
-            empresa_nome = entries['empresa_referencia'].get()
-            if not empresa_nome:
-                messagebox.showwarning("Aviso", "Por favor, selecione uma Empresa Referência na aba 'Análise Prévia' primeiro.", parent=form_win)
-                return
-
             # 2. Limpar a árvore de resultados e resetar o faturamento
             for item in servicos_tree.get_children():
                 servicos_tree.delete(item)
@@ -2702,28 +2719,66 @@ class CRMApp:
                 if not (tipos_servico_vars.get(servico_nome) and tipos_servico_vars[servico_nome].get()):
                     continue
 
-                # 4. Obter dados de referência para o serviço
-                ref_data = self.db.get_empresa_referencia_by_nome_e_tipo(empresa_nome, servico_nome)
-                if not ref_data:
-                    servicos_tree.insert('', 'end', values=(servico_nome, '---', '---', 'N/A', 'Ref. não encontrada'))
-                    continue
-
-                preco_unitario = ref_data['valor_mensal']
-
-                # 5. Calcular totais para o serviço
                 total_qtd_equipes = 0
                 total_volumetria = 0.0
+                preco_total_servico = 0.0
+                preco_unitario_display = "Varia"
+
+                has_error = False
 
                 for row_widgets in equipe_rows:
                     try:
-                        total_qtd_equipes += int(row_widgets['qtd_entry'].get() or 0)
-                        total_volumetria += float(row_widgets['vol_entry'].get().replace(',', '.') or 0)
+                        qtd = int(row_widgets['qtd_entry'].get() or 0)
+                        vol = float(row_widgets['vol_entry'].get().replace(',', '.') or 0)
+                        total_qtd_equipes += qtd
+                        total_volumetria += vol
+
+                        # Get per-row reference company
+                        empresa_ref_str = row_widgets['empresa_combo'].get()
+                        if not empresa_ref_str:
+                            continue
+
+                        # Parse "Name - State - Service"
+                        # Try to find the company in DB. Since string format is unique enough
+                        # We can iterate over all companies or try to parse
+                        # Robust parsing: "Name - State - Service Type"
+                        # Use rsplit to handle cases where company name contains hyphen
+                        # But format is "{nome} - {estado} - {tipo_servico}"
+                        # So we expect exactly 2 " - " separators.
+                        parts = empresa_ref_str.split(" - ")
+                        if len(parts) >= 3:
+                            # If name contains " - ", parts will have more than 3 elements.
+                            # The last element is type, second last is state. Everything before is name.
+                            tipo_servico_ref = parts[-1]
+                            # estado = parts[-2]
+                            nome_empresa = " - ".join(parts[:-2])
+
+                            ref_data = self.db.get_empresa_referencia_by_nome_e_tipo(nome_empresa, tipo_servico_ref)
+
+                            if ref_data:
+                                preco_unitario = ref_data['valor_mensal']
+                                preco_total_servico += qtd * preco_unitario
+
+                                current_price_str = format_currency(preco_unitario)
+                                if preco_unitario_display == "Varia":
+                                    if total_qtd_equipes == qtd: # First item processed (since total_qtd_equipes accumulates)
+                                        preco_unitario_display = current_price_str
+                                    # else: already variable, keep it "Varia"
+                                elif preco_unitario_display != current_price_str:
+                                     preco_unitario_display = "Varia"
+                            else:
+                                has_error = True
+                        else:
+                             has_error = True
+
                     except (ValueError, TypeError):
                         messagebox.showerror("Erro de Formato", f"Verifique os valores de Quantidade e Volumetria para o serviço '{servico_nome}'. Devem ser números.", parent=form_win)
                         return
 
-                # 6. Calcular preço total e adicionar ao faturamento
-                preco_total_servico = total_qtd_equipes * preco_unitario
+                if has_error and preco_total_servico == 0:
+                     servicos_tree.insert('', 'end', values=(servico_nome, total_qtd_equipes, f"{total_volumetria:,.2f}", 'N/A', 'Ref. não encontrada'))
+                     continue
+
                 faturamento_total += preco_total_servico
 
                 # 7. Inserir na árvore
@@ -2731,7 +2786,7 @@ class CRMApp:
                     servico_nome,
                     total_qtd_equipes,
                     f"{total_volumetria:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
-                    format_currency(preco_unitario),
+                    preco_unitario_display,
                     format_currency(preco_total_servico)
                 ))
 
@@ -2784,7 +2839,7 @@ class CRMApp:
                 entries['tempo_contrato_meses'].insert(0, str(op_data['tempo_contrato_meses']) if 'tempo_contrato_meses' in op_keys and op_data['tempo_contrato_meses'] is not None else '')
                 entries['regional'].insert(0, str(op_data['regional']) if 'regional' in op_keys and op_data['regional'] is not None else '')
                 entries['polo'].insert(0, str(op_data['polo']) if 'polo' in op_keys and op_data['polo'] is not None else '')
-                entries['empresa_referencia'].set(str(op_data['empresa_referencia']) if 'empresa_referencia' in op_keys and op_data['empresa_referencia'] is not None else '')
+                # entries['empresa_referencia'].set(str(op_data['empresa_referencia']) if 'empresa_referencia' in op_keys and op_data['empresa_referencia'] is not None else '') # Removed global
                 entries['numero_edital'].insert(0, str(op_data['numero_edital']) if 'numero_edital' in op_keys and op_data['numero_edital'] is not None else '')
 
                 data_abertura_str = op_data['data_abertura'] if 'data_abertura' in op_keys else None
@@ -2857,6 +2912,8 @@ class CRMApp:
                                         new_row_widgets['qtd_entry'].insert(0, equipe_info.get('quantidade', ''))
                                         new_row_widgets['vol_entry'].insert(0, equipe_info.get('volumetria', ''))
                                         new_row_widgets['base_combo'].set(equipe_info.get('base', ''))
+                                        if 'empresa_referencia' in equipe_info:
+                                            new_row_widgets['empresa_combo'].set(equipe_info.get('empresa_referencia', ''))
                     except (json.JSONDecodeError, TypeError) as e:
                         print(f"Erro ao carregar dados de serviços: {e}")
                         messagebox.showwarning("Alerta de Carregamento",
@@ -2914,7 +2971,7 @@ class CRMApp:
                 data['regional'] = entries['regional'].get().strip()
                 data['polo'] = entries['polo'].get().strip()
                 data['quantidade_bases'] = entries['quantidade_bases'].get()
-                data['empresa_referencia'] = entries['empresa_referencia'].get()
+                # data['empresa_referencia'] = entries['empresa_referencia'].get() # Removed global reference
 
                 base_widgets = entries.get('bases_nomes_widgets', [])
                 data['bases_nomes'] = json.dumps([entry.get().strip() for entry in base_widgets if entry.get().strip()])
@@ -2932,7 +2989,8 @@ class CRMApp:
                                 "tipo_equipe": row_widgets['tipo_combo'].get(),
                                 "quantidade": row_widgets['qtd_entry'].get(),
                                 "volumetria": row_widgets['vol_entry'].get(),
-                                "base": row_widgets['base_combo'].get()
+                                "base": row_widgets['base_combo'].get(),
+                                "empresa_referencia": row_widgets['empresa_combo'].get()
                             }
                             equipes_to_save.append(equipe_data)
 
@@ -3035,8 +3093,8 @@ class CRMApp:
             ("Valor Estimado:", format_currency(op_data['valor'] if 'valor' in op_keys else 0)),
             ("Tempo de Contrato:", f"{op_data['tempo_contrato_meses']} meses" if 'tempo_contrato_meses' in op_keys and op_data['tempo_contrato_meses'] else "---"),
             ("Regional:", op_data['regional'] if 'regional' in op_keys else '---'),
-            ("Polo:", op_data['polo'] if 'polo' in op_keys else '---'),
-            ("Empresa Referência:", op_data['empresa_referencia'] if 'empresa_referencia' in op_keys else '---')
+            ("Polo:", op_data['polo'] if 'polo' in op_keys else '---')
+            # ("Empresa Referência:", op_data['empresa_referencia'] if 'empresa_referencia' in op_keys else '---') # Removed global reference
         ]
 
         info_frame.columnconfigure(1, weight=1)
@@ -3149,7 +3207,8 @@ class CRMApp:
                                 qtd = equipe.get('quantidade', 'N/A')
                                 vol = equipe.get('volumetria', 'N/A')
                                 base = equipe.get('base', 'N/A')
-                                info_text = f"  - Equipe: {equipe_nome} | Qtd: {qtd} | Volumetria: {vol} | Base: {base}"
+                                empresa_ref = equipe.get('empresa_referencia', 'N/A')
+                                info_text = f"  - Equipe: {equipe_nome} | Qtd: {qtd} | Volumetria: {vol} | Base: {base} | Ref: {empresa_ref}"
                                 ttk.Label(servicos_frame, text=info_text, style='Value.White.TLabel').pack(anchor='w', padx=(15,0))
             except (json.JSONDecodeError, TypeError):
                 print(f"Alerta: Falha ao carregar dados de serviço na tela de detalhes: {servicos_data_json_str}")
@@ -3378,7 +3437,7 @@ class CRMApp:
                 ['Tempo de Contrato:', f"{op_data['tempo_contrato_meses']} meses" if 'tempo_contrato_meses' in op_keys and op_data['tempo_contrato_meses'] else "---"],
                 ['Regional:', op_data['regional'] if 'regional' in op_keys and op_data['regional'] else "---"],
                 ['Polo:', op_data['polo'] if 'polo' in op_keys and op_data['polo'] else "---"],
-                ['Empresa Referência:', op_data['empresa_referencia'] if 'empresa_referencia' in op_keys and op_data['empresa_referencia'] else "---"],
+                # ['Empresa Referência:', op_data['empresa_referencia'] if 'empresa_referencia' in op_keys and op_data['empresa_referencia'] else "---"], # Removed
             ]
 
             basic_info_table = Table(basic_info_data, colWidths=[1.5*inch, 4.5*inch])
@@ -3469,15 +3528,17 @@ class CRMApp:
                             story.append(Paragraph(f"<b>Serviço: {servico_info.get('servico_nome', 'N/A')}</b>", styles['h4']))
                             equipes = servico_info.get('equipes', [])
                             if equipes:
-                                equipe_data = [['Tipo de Equipe', 'Qtd', 'Volumetria', 'Base']]
+                                equipe_data = [['Tipo de Equipe', 'Qtd', 'Volumetria', 'Base', 'Empresa Ref.']]
+                                col_widths = [2*inch, 0.5*inch, 0.8*inch, 1*inch, 2.5*inch]
                                 for equipe in equipes:
                                     equipe_data.append([
-                                        equipe.get('tipo_equipe', 'N/A'),
+                                        Paragraph(equipe.get('tipo_equipe', 'N/A'), styles['BodyText']),
                                         equipe.get('quantidade', 'N/A'),
                                         equipe.get('volumetria', 'N/A'),
-                                        equipe.get('base', 'N/A')
+                                        equipe.get('base', 'N/A'),
+                                        Paragraph(equipe.get('empresa_referencia', 'N/A'), styles['BodyText'])
                                     ])
-                                equipe_table = Table(equipe_data)
+                                equipe_table = Table(equipe_data, colWidths=col_widths)
                                 equipe_table.setStyle(TableStyle([
                                     ('BACKGROUND', (0,0), (-1,0), colors.grey),
                                     ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
@@ -3612,13 +3673,17 @@ class CRMApp:
                             servico_block = [Paragraph(f"<b>Serviço: {servico_info.get('servico_nome', 'N/A')}</b>", styles['h4'])]
                             equipes = servico_info.get('equipes', [])
                             if equipes:
-                                equipe_data = [['Tipo de Equipe', 'Qtd', 'Volumetria', 'Base']]
+                                equipe_data = [['Tipo de Equipe', 'Qtd', 'Volumetria', 'Base', 'Empresa Ref.']]
+                                col_widths = [2*inch, 0.5*inch, 0.8*inch, 1*inch, 2.5*inch]
                                 for equipe in equipes:
                                     equipe_data.append([
-                                        equipe.get('tipo_equipe', 'N/A'), equipe.get('quantidade', 'N/A'),
-                                        equipe.get('volumetria', 'N/A'), equipe.get('base', 'N/A')
+                                        Paragraph(equipe.get('tipo_equipe', 'N/A'), styles['BodyText']),
+                                        equipe.get('quantidade', 'N/A'),
+                                        equipe.get('volumetria', 'N/A'),
+                                        equipe.get('base', 'N/A'),
+                                        Paragraph(equipe.get('empresa_referencia', 'N/A'), styles['BodyText'])
                                     ])
-                                equipe_table = Table(equipe_data)
+                                equipe_table = Table(equipe_data, colWidths=col_widths)
                                 equipe_table.setStyle(TableStyle([
                                     ('BACKGROUND', (0,0), (-1,0), colors.grey), ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
                                     ('ALIGN', (0,0), (-1,-1), 'CENTER'), ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
