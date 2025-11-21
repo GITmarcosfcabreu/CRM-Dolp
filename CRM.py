@@ -875,7 +875,7 @@ class DatabaseManager:
         with self._connect() as conn:
             return [row['responsavel'] for row in conn.execute("SELECT DISTINCT responsavel FROM crm_tarefas WHERE oportunidade_id = ? ORDER BY responsavel", (op_id,)).fetchall()]
 
-    def get_tasks_for_opportunity(self, op_id, status=None, responsavel=None, start_date_str=None, end_date_str=None, category_id=None):
+    def get_tasks_for_opportunity(self, op_id, status=None, responsavel=None, start_date_str=None, end_date_str=None, category_id=None, criticidade=None):
         with self._connect() as conn:
             base_query = "SELECT * FROM crm_tarefas WHERE oportunidade_id = ?"
             params = [op_id]
@@ -887,6 +887,10 @@ class DatabaseManager:
             if responsavel and responsavel != 'Todos':
                 base_query += " AND responsavel = ?"
                 params.append(responsavel)
+
+            if criticidade and criticidade != 'Todos':
+                base_query += " AND criticidade = ?"
+                params.append(criticidade)
 
             if category_id:
                 base_query += " AND category_id = ?"
@@ -3414,6 +3418,11 @@ class CRMApp:
         category_task_filter.set('Todas')
         category_task_filter.grid(row=1, column=1, pady=(10,0))
 
+        # Criticidade (Filtro Novo)
+        ttk.Label(filters_tasks_frame, text="Criticidade:", style='TLabel').grid(row=1, column=2, sticky='w', padx=(0, 5), pady=(10,0))
+        criticidade_task_filter = ttk.Combobox(filters_tasks_frame, values=['Todos', 'Alta', 'Média', 'Baixa'], state='readonly')
+        criticidade_task_filter.set('Todos')
+        criticidade_task_filter.grid(row=1, column=3, padx=(0, 20), pady=(10,0))
 
         # Container para os resultados das tarefas
         tasks_results_frame = ttk.Frame(tarefas_tab, style='TFrame')
@@ -3428,12 +3437,13 @@ class CRMApp:
             start_date = start_date_task_filter.get()
             end_date = end_date_task_filter.get()
             category_name = category_task_filter.get()
+            criticidade = criticidade_task_filter.get()
             category_id = None
             if category_name != 'Todas':
                 category_id = category_map.get(category_name)
 
 
-            tarefas = self.db.get_tasks_for_opportunity(op_id, status, responsavel, start_date, end_date, category_id)
+            tarefas = self.db.get_tasks_for_opportunity(op_id, status, responsavel, start_date, end_date, category_id, criticidade)
             all_categories = {cat['id']: cat['name'] for cat in self.db.get_all_task_categories()}
 
 
@@ -3465,10 +3475,10 @@ class CRMApp:
                     info_frame.pack(fill='x', pady=(5, 0))
 
                     category_name = all_categories.get(tarefa['category_id'], 'Sem Categoria')
-                    criticidade = tarefa['criticidade'] if 'criticidade' in tarefa.keys() and tarefa['criticidade'] else 'Média'
+                    criticidade_val = tarefa['criticidade'] if 'criticidade' in tarefa.keys() and tarefa['criticidade'] else 'Média'
 
                     ttk.Label(info_frame, text=f"Categoria: {category_name}", style='Metric.White.TLabel').pack(side='left')
-                    ttk.Label(info_frame, text=f"Criticidade: {criticidade}", style='Metric.White.TLabel').pack(side='left', padx=20)
+                    ttk.Label(info_frame, text=f"Criticidade: {criticidade_val}", style='Metric.White.TLabel').pack(side='left', padx=20)
                     ttk.Label(info_frame, text=f"Responsável: {tarefa['responsavel']}", style='Metric.White.TLabel').pack(side='left', padx=20)
                     ttk.Label(info_frame, text=f"Vencimento: {tarefa['data_vencimento']}", style='Metric.White.TLabel').pack(side='right')
 
@@ -3479,8 +3489,8 @@ class CRMApp:
             else:
                 ttk.Label(tasks_results_frame, text="Nenhuma tarefa encontrada para os filtros selecionados.", style='Value.White.TLabel').pack(pady=20)
 
-        ttk.Button(filters_tasks_frame, text="🔍 Filtrar", command=_refilter_tasks, style='Primary.TButton').grid(row=1, column=2, padx=(20, 0), pady=(10,0))
-        ttk.Button(filters_tasks_frame, text="Nova Tarefa", command=lambda: self.add_task_dialog(op_id, details_win), style='Success.TButton').grid(row=1, column=3, padx=(10,0), pady=(10,0))
+        ttk.Button(filters_tasks_frame, text="🔍 Filtrar", command=_refilter_tasks, style='Primary.TButton').grid(row=1, column=4, padx=(20, 0), pady=(10,0))
+        ttk.Button(filters_tasks_frame, text="Nova Tarefa", command=lambda: self.add_task_dialog(op_id, details_win), style='Success.TButton').grid(row=1, column=5, padx=(10,0), pady=(10,0))
 
         # Carregar tarefas iniciais
         _refilter_tasks()
