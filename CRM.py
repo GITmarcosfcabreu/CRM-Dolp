@@ -69,7 +69,8 @@ ESTAGIOS_PIPELINE_DOLP = [
     "Avaliação do Contrato",
     "Execução do Contrato",
     "Fidelização de Clientes",
-    "Histórico"
+    "Histórico",
+    "Cancelada"
 ]
 BRAZILIAN_STATES = ["GO", "TO", "MT", "DF", "AC", "AL", "AP", "AM", "BA", "CE", "ES", "MA", "MS", "MG", "PA", "PB", "PR", "PE", "PI", "RJ", "RN", "RS", "RO", "RR", "SC", "SP", "SE"]
 SERVICE_TYPES = ["Linha Viva Cesto Duplo", "Linha Viva Cesto Simples", "Linha Morta Pesada 7 Elementos", "STC", "Plantão", "Perdas", "Motocicleta", "Atendimento Emergencial", "Novas Ligações", "Corte e Religação", "Subestações", "Grupos Geradores"]
@@ -456,6 +457,14 @@ class DatabaseManager:
             task_columns = [row['name'] for row in cursor.fetchall()]
             if 'category_id' not in task_columns:
                 cursor.execute("ALTER TABLE crm_tarefas ADD COLUMN category_id INTEGER REFERENCES crm_task_categories(id)")
+
+            # Ensure 'Cancelada' stage exists
+            cursor.execute("SELECT id FROM pipeline_estagios WHERE nome = 'Cancelada'")
+            if not cursor.fetchone():
+                # Find the max order to append 'Cancelada' at the end
+                max_order = cursor.execute("SELECT MAX(ordem) FROM pipeline_estagios").fetchone()[0]
+                new_order = (max_order if max_order is not None else 0) + 1
+                cursor.execute("INSERT INTO pipeline_estagios (nome, ordem) VALUES (?, ?)", ("Cancelada", new_order))
 
             # Commit final de todas as alterações de dados e índice
             conn.commit()
@@ -1676,6 +1685,7 @@ class CRMApp:
 
         ttk.Label(title_frame, text="Funil de Vendas", style='Title.TLabel').pack(side='left')
 
+        ttk.Button(title_frame, text="Oport. Canceladas", command=self.show_cancelled_view, style='Danger.TButton').pack(side='right', padx=(0, 10))
         ttk.Button(title_frame, text="Histórico", command=self.show_historico_view, style='Warning.TButton').pack(side='right', padx=(0,10))
         ttk.Button(title_frame, text="Nova Oportunidade", command=lambda: self.show_opportunity_form(), style='Success.TButton').pack(side='right', padx=(0, 10))
         ttk.Button(title_frame, text="← Voltar", command=self.show_main_menu, style='TButton').pack(side='right', padx=(0, 10))
@@ -1730,7 +1740,7 @@ class CRMApp:
             setor=self.kanban_setor_filter,
             segmento=self.kanban_segmento_filter
         )
-        estagios = [e for e in estagios_todos if e['nome'] != 'Histórico']
+        estagios = [e for e in estagios_todos if e['nome'] not in ['Histórico', 'Cancelada']]
         clients = self.db.get_all_clients(
             setor=self.kanban_setor_filter,
             segmento=self.kanban_segmento_filter
@@ -1855,7 +1865,7 @@ class CRMApp:
                         # --------------------------------
 
                         # Botão Resultado (principal)
-                        if estagio['nome'] != "Histórico":
+                        if estagio['nome'] not in ["Histórico", "Cancelada"]:
                             result_btn = ttk.Button(buttons_frame, text="Resultado",
                                                    command=lambda op_id=oportunidade['id'], stage_id=estagio['id']: self.show_resultado_dialog(op_id, stage_id),
                                                    style='Primary.TButton')
@@ -2161,6 +2171,81 @@ class CRMApp:
         }
         self.db.add_interaction(data)
 
+    def show_cancelled_view(self):
+        """Mostra oportunidades canceladas"""
+        self.clear_content()
+
+        # Título e botões
+        title_frame = ttk.Frame(self.content_frame, style='TFrame')
+        title_frame.pack(fill='x', pady=(0, 20))
+
+        ttk.Label(title_frame, text="Oportunidades Canceladas", style='Title.TLabel').pack(side='left')
+        ttk.Button(title_frame, text="← Voltar", command=self.show_kanban_view, style='TButton').pack(side='right')
+
+        # Results frame
+        results_frame = ttk.Frame(self.content_frame, style='TFrame')
+        results_frame.pack(fill='both', expand=True)
+
+        # Treeview
+        columns = ('num_op', 'titulo', 'cliente', 'valor', 'data_criacao')
+        results_tree = ttk.Treeview(results_frame, columns=columns, show='headings', height=15)
+
+        results_tree.heading('num_op', text='Nº Oport.')
+        results_tree.heading('titulo', text='Título')
+        results_tree.heading('cliente', text='Cliente')
+        results_tree.heading('valor', text='Valor (R$)')
+        results_tree.heading('data_criacao', text='Data Criação')
+
+        results_tree.column('num_op', width=100, anchor='center')
+        results_tree.column('titulo', width=300)
+        results_tree.column('cliente', width=200)
+        results_tree.column('valor', width=120, anchor='center')
+        results_tree.column('data_criacao', width=100, anchor='center')
+
+        v_scrollbar = ttk.Scrollbar(results_frame, orient='vertical', command=results_tree.yview)
+        h_scrollbar = ttk.Scrollbar(results_frame, orient='horizontal', command=results_tree.xview)
+        results_tree.configure(yscrollcommand=v_scrollbar.set, xscrollcommand=h_scrollbar.set)
+
+        results_tree.grid(row=0, column=0, sticky='nsew')
+        v_scrollbar.grid(row=0, column=1, sticky='ns')
+        h_scrollbar.grid(row=1, column=0, sticky='ew')
+
+        results_frame.rowconfigure(0, weight=1)
+        results_frame.columnconfigure(0, weight=1)
+
+        def on_item_double_click(event):
+            selection = results_tree.selection()
+            if selection:
+                item = results_tree.item(selection[0])
+                op_id = item['tags'][0]
+                self.show_opportunity_details(op_id)
+
+        results_tree.bind('<Double-1>', on_item_double_click)
+
+        # Load cancelled opportunities
+        # Reuse get_historico_oportunidades but filter strictly for 'Cancelada' stage
+        filters = {'estagio': 'Cancelada'}
+        oportunidades = self.db.get_historico_oportunidades(filters)
+
+        for op in oportunidades:
+            data_criacao_str = '---'
+            if op['data_criacao']:
+                try:
+                    data_obj = datetime.strptime(op['data_criacao'], '%Y-%m-%d')
+                    data_criacao_str = data_obj.strftime('%d/%m/%Y')
+                except (ValueError, TypeError):
+                    data_criacao_str = op['data_criacao']
+
+            results_tree.insert('', 'end',
+                       values=(
+                           op['numero_oportunidade'] if 'numero_oportunidade' in op.keys() else '---',
+                           op['titulo'],
+                           op['nome_empresa'],
+                           format_currency(op['valor']),
+                           data_criacao_str
+                       ),
+                       tags=(str(op['id']),))
+
     def show_historico_view(self):
         """Mostra histórico de oportunidades com filtros avançados"""
         self.clear_content()
@@ -2364,7 +2449,7 @@ class CRMApp:
         basic_fields = [
             ("Título:*", "titulo", "entry"),
             ("Cliente:*", "cliente_id", "combobox", [c['nome_empresa'] for c in clients]),
-            ("Estágio:*", "estagio_id", "combobox", [e['nome'] for e in estagios if e['nome'] != 'Histórico']),
+            ("Estágio:*", "estagio_id", "combobox", [e['nome'] for e in estagios if e['nome'] not in ['Histórico']]), # Allow Cancelada
             ("Valor Estimado (R$):", "valor", "entry")
         ]
 
