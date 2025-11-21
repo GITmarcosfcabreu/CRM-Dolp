@@ -97,7 +97,7 @@ QUALIFICATION_CHECKLIST = {
         "Quais são nossos diferenciais competitivos claros para esta oportunidade específica?",
         "Quais os principais riscos (técnicos, logísticos, regulatórios, políticos) associados ao projeto?"
     ],
-    "Análise de Interesse da Diretoria": [
+    "Análise da Gestão Comercial": [
         "O investimento de tempo e recursos na elaboração de uma análise previa de viabilidade, é justificável?"
     ]
 }
