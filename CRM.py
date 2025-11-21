@@ -457,6 +457,8 @@ class DatabaseManager:
             task_columns = [row['name'] for row in cursor.fetchall()]
             if 'category_id' not in task_columns:
                 cursor.execute("ALTER TABLE crm_tarefas ADD COLUMN category_id INTEGER REFERENCES crm_task_categories(id)")
+            if 'criticidade' not in task_columns:
+                cursor.execute("ALTER TABLE crm_tarefas ADD COLUMN criticidade TEXT DEFAULT 'Média'")
 
             # Ensure 'Cancelada' stage exists
             cursor.execute("SELECT id FROM pipeline_estagios WHERE nome = 'Cancelada'")
@@ -911,8 +913,8 @@ class DatabaseManager:
 
     def add_task(self, data):
         with self._connect() as conn:
-            conn.execute("INSERT INTO crm_tarefas (oportunidade_id, descricao, data_criacao, data_vencimento, responsavel, status, category_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                         (data['oportunidade_id'], data['descricao'], data['data_criacao'], data['data_vencimento'], data['responsavel'], data['status'], data.get('category_id')))
+            conn.execute("INSERT INTO crm_tarefas (oportunidade_id, descricao, data_criacao, data_vencimento, responsavel, status, category_id, criticidade) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                         (data['oportunidade_id'], data['descricao'], data['data_criacao'], data['data_vencimento'], data['responsavel'], data['status'], data.get('category_id'), data.get('criticidade', 'Média')))
 
     def update_task_status(self, task_id, status):
         with self._connect() as conn:
@@ -920,8 +922,8 @@ class DatabaseManager:
 
     def update_task(self, task_id, data):
         with self._connect() as conn:
-            conn.execute("UPDATE crm_tarefas SET descricao=?, data_vencimento=?, responsavel=?, status=?, category_id=? WHERE id=?",
-                         (data['descricao'], data['data_vencimento'], data['responsavel'], data['status'], data['category_id'], task_id))
+            conn.execute("UPDATE crm_tarefas SET descricao=?, data_vencimento=?, responsavel=?, status=?, category_id=?, criticidade=? WHERE id=?",
+                         (data['descricao'], data['data_vencimento'], data['responsavel'], data['status'], data['category_id'], data.get('criticidade', 'Média'), task_id))
 
     def delete_task(self, task_id):
         with self._connect() as conn:
@@ -3463,7 +3465,10 @@ class CRMApp:
                     info_frame.pack(fill='x', pady=(5, 0))
 
                     category_name = all_categories.get(tarefa['category_id'], 'Sem Categoria')
+                    criticidade = tarefa['criticidade'] if 'criticidade' in tarefa.keys() and tarefa['criticidade'] else 'Média'
+
                     ttk.Label(info_frame, text=f"Categoria: {category_name}", style='Metric.White.TLabel').pack(side='left')
+                    ttk.Label(info_frame, text=f"Criticidade: {criticidade}", style='Metric.White.TLabel').pack(side='left', padx=20)
                     ttk.Label(info_frame, text=f"Responsável: {tarefa['responsavel']}", style='Metric.White.TLabel').pack(side='left', padx=20)
                     ttk.Label(info_frame, text=f"Vencimento: {tarefa['data_vencimento']}", style='Metric.White.TLabel').pack(side='right')
 
@@ -3872,7 +3877,7 @@ class CRMApp:
     def add_task_dialog(self, op_id, parent_win):
         dialog = Toplevel(parent_win)
         dialog.title("Nova Tarefa")
-        dialog.geometry("500x350")
+        dialog.geometry("500x400")
         dialog.configure(bg=DOLP_COLORS['white'])
 
         ttk.Label(dialog, text="Descrição:", style='TLabel').pack(pady=5)
@@ -3894,6 +3899,10 @@ class CRMApp:
         category_combo = ttk.Combobox(dialog, values=category_names, state='readonly')
         category_combo.pack(pady=5, padx=20, fill='x')
 
+        ttk.Label(dialog, text="Nível de Criticidade:", style='TLabel').pack(pady=5)
+        criticidade_combo = ttk.Combobox(dialog, values=["Alta", "Média", "Baixa"], state='readonly')
+        criticidade_combo.set("Média")
+        criticidade_combo.pack(pady=5, padx=20, fill='x')
 
         def save_task():
             data = {
@@ -3902,7 +3911,8 @@ class CRMApp:
                 'data_criacao': datetime.now().strftime('%d/%m/%Y'),
                 'data_vencimento': vencimento_date.get(),
                 'responsavel': responsavel_entry.get(),
-                'status': 'Pendente'
+                'status': 'Pendente',
+                'criticidade': criticidade_combo.get()
             }
 
             if not data['descricao'] or not data['responsavel']:
@@ -3925,7 +3935,7 @@ class CRMApp:
     def edit_task_dialog(self, task_data, parent_win):
         dialog = Toplevel(parent_win)
         dialog.title("Editar Tarefa")
-        dialog.geometry("500x400")
+        dialog.geometry("500x450")
         dialog.configure(bg=DOLP_COLORS['white'])
         dialog.transient(parent_win)
         dialog.grab_set()
@@ -3963,13 +3973,20 @@ class CRMApp:
             category_combo.set(rev_category_map.get(task_data['category_id'], ''))
         category_combo.pack(pady=5, padx=20, fill='x')
 
+        ttk.Label(dialog, text="Nível de Criticidade:", style='TLabel').pack(pady=5)
+        criticidade_combo = ttk.Combobox(dialog, values=["Alta", "Média", "Baixa"], state='readonly')
+        criticidade_val = task_data['criticidade'] if 'criticidade' in task_data.keys() and task_data['criticidade'] else "Média"
+        criticidade_combo.set(criticidade_val)
+        criticidade_combo.pack(pady=5, padx=20, fill='x')
+
         def save_task():
             data = {
                 'descricao': desc_text.get('1.0', 'end-1c'),
                 'data_vencimento': vencimento_date.get(),
                 'responsavel': responsavel_entry.get(),
                 'status': status_combo.get(),
-                'category_id': category_map.get(category_combo.get())
+                'category_id': category_map.get(category_combo.get()),
+                'criticidade': criticidade_combo.get()
             }
             self.db.update_task(task_data['id'], data)
             dialog.destroy()
