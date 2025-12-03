@@ -246,6 +246,16 @@ class DatabaseManager:
                                 resumo_atuacao TEXT
                            )''')
 
+            cursor.execute('''CREATE TABLE IF NOT EXISTS crm_client_contacts (
+                                id INTEGER PRIMARY KEY,
+                                client_id INTEGER NOT NULL,
+                                nome TEXT,
+                                funcao TEXT,
+                                telefone TEXT,
+                                email TEXT,
+                                FOREIGN KEY (client_id) REFERENCES clientes(id) ON DELETE CASCADE
+                           )''')
+
             cursor.execute('CREATE TABLE IF NOT EXISTS pipeline_estagios (id INTEGER PRIMARY KEY, nome TEXT UNIQUE NOT NULL, ordem INTEGER)')
 
             # Tabela para Tipos de Serviço
@@ -567,13 +577,31 @@ class DatabaseManager:
         with self._connect() as conn:
             return conn.execute("SELECT * FROM clientes WHERE id = ?", (client_id,)).fetchone()
 
-    def add_client(self, data):
+    def get_client_contacts(self, client_id):
         with self._connect() as conn:
-            conn.execute("INSERT INTO clientes (nome_empresa, cnpj, cidade, estado, setor_atuacao, segmento_atuacao, data_atualizacao, link_portal, status, resumo_atuacao) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (data['nome_empresa'], data['cnpj'], data['cidade'], data['estado'], data['setor_atuacao'], data['segmento_atuacao'], data['data_atualizacao'], data['link_portal'], data['status'], data.get('resumo_atuacao')))
+            return conn.execute("SELECT * FROM crm_client_contacts WHERE client_id = ?", (client_id,)).fetchall()
 
-    def update_client(self, client_id, data):
+    def add_client(self, data, contacts=None):
         with self._connect() as conn:
-            conn.execute("UPDATE clientes SET nome_empresa=?, cnpj=?, cidade=?, estado=?, setor_atuacao=?, segmento_atuacao=?, data_atualizacao=?, link_portal=?, status=?, resumo_atuacao=? WHERE id=?", (data['nome_empresa'], data['cnpj'], data['cidade'], data['estado'], data['setor_atuacao'], data['segmento_atuacao'], data['data_atualizacao'], data['link_portal'], data['status'], data.get('resumo_atuacao'), client_id))
+            cursor = conn.cursor()
+            cursor.execute("INSERT INTO clientes (nome_empresa, cnpj, cidade, estado, setor_atuacao, segmento_atuacao, data_atualizacao, link_portal, status, resumo_atuacao) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (data['nome_empresa'], data['cnpj'], data['cidade'], data['estado'], data['setor_atuacao'], data['segmento_atuacao'], data['data_atualizacao'], data['link_portal'], data['status'], data.get('resumo_atuacao')))
+            client_id = cursor.lastrowid
+
+            if contacts:
+                for contact in contacts:
+                    cursor.execute("INSERT INTO crm_client_contacts (client_id, nome, funcao, telefone, email) VALUES (?, ?, ?, ?, ?)",
+                                   (client_id, contact['nome'], contact['funcao'], contact['telefone'], contact['email']))
+
+    def update_client(self, client_id, data, contacts=None):
+        with self._connect() as conn:
+            cursor = conn.cursor()
+            cursor.execute("UPDATE clientes SET nome_empresa=?, cnpj=?, cidade=?, estado=?, setor_atuacao=?, segmento_atuacao=?, data_atualizacao=?, link_portal=?, status=?, resumo_atuacao=? WHERE id=?", (data['nome_empresa'], data['cnpj'], data['cidade'], data['estado'], data['setor_atuacao'], data['segmento_atuacao'], data['data_atualizacao'], data['link_portal'], data['status'], data.get('resumo_atuacao'), client_id))
+
+            if contacts is not None:
+                cursor.execute("DELETE FROM crm_client_contacts WHERE client_id = ?", (client_id,))
+                for contact in contacts:
+                    cursor.execute("INSERT INTO crm_client_contacts (client_id, nome, funcao, telefone, email) VALUES (?, ?, ?, ?, ?)",
+                                   (client_id, contact['nome'], contact['funcao'], contact['telefone'], contact['email']))
 
     # Métodos de Usuários
     def get_user_by_username(self, username):
@@ -4147,6 +4175,139 @@ class CRMApp:
         resumo_text.pack(side='left', padx=(10, 0), fill='both', expand=True)
         entries['resumo_atuacao'] = resumo_text
 
+        # --- Seção de Contatos ---
+        contacts_frame = ttk.LabelFrame(main_frame, text="Contatos", padding=10, style='White.TLabelframe')
+        contacts_frame.pack(fill='both', expand=True, pady=10)
+
+        # Botões de ação para contatos
+        contacts_buttons_frame = ttk.Frame(contacts_frame, style='TFrame')
+        contacts_buttons_frame.pack(fill='x', pady=(0, 5))
+
+        # Lista de contatos em memória
+        contacts_list = []
+
+        def refresh_contacts_tree():
+            for item in contacts_tree.get_children():
+                contacts_tree.delete(item)
+            for contact in contacts_list:
+                contacts_tree.insert('', 'end', values=(contact['nome'], contact['funcao'], contact['telefone'], contact['email']))
+
+        def add_contact_dialog():
+            dialog = Toplevel(form_win)
+            dialog.title("Adicionar Contato")
+            dialog.geometry("400x300")
+            dialog.configure(bg=DOLP_COLORS['white'])
+            dialog.transient(form_win)
+            dialog.grab_set()
+
+            c_frame = ttk.Frame(dialog, padding=20, style='TFrame')
+            c_frame.pack(fill='both', expand=True)
+
+            c_entries = {}
+            for field in ["Nome", "Função", "Telefone", "E-mail"]:
+                row = ttk.Frame(c_frame, style='TFrame')
+                row.pack(fill='x', pady=5)
+                ttk.Label(row, text=f"{field}:", width=10).pack(side='left')
+                entry = ttk.Entry(row)
+                entry.pack(side='left', fill='x', expand=True)
+                c_entries[field.lower().replace("-", "")] = entry
+
+            def save_contact():
+                new_contact = {
+                    'nome': c_entries['nome'].get(),
+                    'funcao': c_entries['função'].get(),
+                    'telefone': c_entries['telefone'].get(),
+                    'email': c_entries['email'].get()
+                }
+                if not new_contact['nome']:
+                    messagebox.showerror("Erro", "Nome é obrigatório.", parent=dialog)
+                    return
+                contacts_list.append(new_contact)
+                refresh_contacts_tree()
+                dialog.destroy()
+
+            ttk.Button(c_frame, text="Salvar", command=save_contact, style='Success.TButton').pack(pady=10)
+
+        def edit_contact_dialog():
+            selection = contacts_tree.selection()
+            if not selection:
+                return
+            index = contacts_tree.index(selection[0])
+            contact = contacts_list[index]
+
+            dialog = Toplevel(form_win)
+            dialog.title("Editar Contato")
+            dialog.geometry("400x300")
+            dialog.configure(bg=DOLP_COLORS['white'])
+            dialog.transient(form_win)
+            dialog.grab_set()
+
+            c_frame = ttk.Frame(dialog, padding=20, style='TFrame')
+            c_frame.pack(fill='both', expand=True)
+
+            c_entries = {}
+            # Map display labels to data keys
+            field_map = {
+                "Nome": "nome",
+                "Função": "funcao",
+                "Telefone": "telefone",
+                "E-mail": "email"
+            }
+
+            for label, key in field_map.items():
+                row = ttk.Frame(c_frame, style='TFrame')
+                row.pack(fill='x', pady=5)
+                ttk.Label(row, text=f"{label}:", width=10).pack(side='left')
+                entry = ttk.Entry(row)
+                # Use explicit key mapping to avoid 'função' vs 'funcao' issues
+                if key in contact:
+                    entry.insert(0, contact[key])
+                entry.pack(side='left', fill='x', expand=True)
+                c_entries[key] = entry
+
+            def save_contact():
+                contacts_list[index] = {
+                    'nome': c_entries['nome'].get(),
+                    'funcao': c_entries['funcao'].get(),
+                    'telefone': c_entries['telefone'].get(),
+                    'email': c_entries['email'].get()
+                }
+                refresh_contacts_tree()
+                dialog.destroy()
+
+            ttk.Button(c_frame, text="Salvar", command=save_contact, style='Success.TButton').pack(pady=10)
+
+        def delete_contact():
+            selection = contacts_tree.selection()
+            if not selection:
+                return
+            if messagebox.askyesno("Confirmar", "Excluir este contato?", parent=form_win):
+                index = contacts_tree.index(selection[0])
+                del contacts_list[index]
+                refresh_contacts_tree()
+
+        ttk.Button(contacts_buttons_frame, text="Adicionar", command=add_contact_dialog, style='Success.TButton', width=10).pack(side='left', padx=5)
+        ttk.Button(contacts_buttons_frame, text="Editar", command=edit_contact_dialog, style='Primary.TButton', width=10).pack(side='left', padx=5)
+        ttk.Button(contacts_buttons_frame, text="Excluir", command=delete_contact, style='Danger.TButton', width=10).pack(side='left', padx=5)
+
+        # Treeview para contatos
+        columns = ('nome', 'funcao', 'telefone', 'email')
+        contacts_tree = ttk.Treeview(contacts_frame, columns=columns, show='headings', height=5)
+        contacts_tree.heading('nome', text='Nome')
+        contacts_tree.heading('funcao', text='Função')
+        contacts_tree.heading('telefone', text='Telefone')
+        contacts_tree.heading('email', text='E-mail')
+        contacts_tree.column('nome', width=150)
+        contacts_tree.column('funcao', width=100)
+        contacts_tree.column('telefone', width=100)
+        contacts_tree.column('email', width=150)
+
+        contacts_scrollbar = ttk.Scrollbar(contacts_frame, orient="vertical", command=contacts_tree.yview)
+        contacts_tree.configure(yscrollcommand=contacts_scrollbar.set)
+
+        contacts_tree.pack(side='left', fill='both', expand=True)
+        contacts_scrollbar.pack(side='right', fill='y')
+
 
         if client_id:
             client_data = self.db.get_client_by_id(client_id)
@@ -4170,6 +4331,17 @@ class CRMApp:
                     else:
                         widget.delete(0, 'end') # Limpa o campo antes de inserir
                         widget.insert(0, value)
+
+                # Carregar contatos existentes
+                existing_contacts = self.db.get_client_contacts(client_id)
+                for contact in existing_contacts:
+                    contacts_list.append({
+                        'nome': contact['nome'],
+                        'funcao': contact['funcao'],
+                        'telefone': contact['telefone'],
+                        'email': contact['email']
+                    })
+                refresh_contacts_tree()
         else:
             entries['data_atualizacao'].set_date(datetime.now().date())
 
@@ -4195,10 +4367,10 @@ class CRMApp:
                     return
 
                 if client_id:
-                    self.db.update_client(client_id, data)
+                    self.db.update_client(client_id, data, contacts=contacts_list)
                     messagebox.showinfo("Sucesso", "Cliente atualizado com sucesso!", parent=form_win)
                 else:
-                    self.db.add_client(data)
+                    self.db.add_client(data, contacts=contacts_list)
                     messagebox.showinfo("Sucesso", "Cliente criado com sucesso!", parent=form_win)
 
                 form_win.destroy()
