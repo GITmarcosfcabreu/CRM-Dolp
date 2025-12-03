@@ -313,7 +313,7 @@ class DatabaseManager:
                                 FOREIGN KEY (estagio_id) REFERENCES pipeline_estagios(id)
                            )''')
 
-            cursor.execute('''CREATE TABLE IF NOT EXISTS crm_interacoes (id INTEGER PRIMARY KEY, oportunidade_id INTEGER NOT NULL, data_interacao TEXT, tipo TEXT, resumo TEXT, usuario TEXT,
+            cursor.execute('''CREATE TABLE IF NOT EXISTS crm_interacoes (id INTEGER PRIMARY KEY, oportunidade_id INTEGER NOT NULL, data_interacao TEXT, tipo TEXT, resumo TEXT, usuario TEXT, responsavel_institucional INTEGER DEFAULT 0, contato_nome TEXT,
                             FOREIGN KEY (oportunidade_id) REFERENCES oportunidades(id) ON DELETE CASCADE)''')
             cursor.execute('''CREATE TABLE IF NOT EXISTS crm_task_categories (
                                 id INTEGER PRIMARY KEY,
@@ -470,6 +470,14 @@ class DatabaseManager:
             if 'criticidade' not in task_columns:
                 cursor.execute("ALTER TABLE crm_tarefas ADD COLUMN criticidade TEXT DEFAULT 'Média'")
 
+            # Migração para crm_interacoes
+            cursor.execute("PRAGMA table_info(crm_interacoes)")
+            interacao_columns = [row['name'] for row in cursor.fetchall()]
+            if 'responsavel_institucional' not in interacao_columns:
+                cursor.execute("ALTER TABLE crm_interacoes ADD COLUMN responsavel_institucional INTEGER DEFAULT 0")
+            if 'contato_nome' not in interacao_columns:
+                cursor.execute("ALTER TABLE crm_interacoes ADD COLUMN contato_nome TEXT")
+
             # Ensure 'Cancelada' stage exists
             cursor.execute("SELECT id FROM pipeline_estagios WHERE nome = 'Cancelada'")
             if not cursor.fetchone():
@@ -619,7 +627,7 @@ class DatabaseManager:
         try:
             conn = self._connect()
             cursor = conn.cursor()
-            cursor.execute("INSERT INTO crm_interacoes (oportunidade_id, data_interacao, tipo, resumo, usuario) VALUES (?, ?, ?, ?, ?)", (data['oportunidade_id'], data['data_interacao'], data['tipo'], data['resumo'], data['usuario']))
+            cursor.execute("INSERT INTO crm_interacoes (oportunidade_id, data_interacao, tipo, resumo, usuario, responsavel_institucional, contato_nome) VALUES (?, ?, ?, ?, ?, ?, ?)", (data['oportunidade_id'], data['data_interacao'], data['tipo'], data['resumo'], data['usuario'], data.get('responsavel_institucional', 0), data.get('contato_nome', '')))
             conn.commit()
         except sqlite3.Error as e:
             print(f"Database error in add_interaction: {e}")
@@ -887,7 +895,7 @@ class DatabaseManager:
         try:
             conn = self._connect()
             cursor = conn.cursor()
-            cursor.execute("INSERT INTO crm_interacoes (oportunidade_id, data_interacao, tipo, resumo, usuario) VALUES (?, ?, ?, ?, ?)", (data['oportunidade_id'], data['data_interacao'], data['tipo'], data['resumo'], data['usuario']))
+            cursor.execute("INSERT INTO crm_interacoes (oportunidade_id, data_interacao, tipo, resumo, usuario, responsavel_institucional, contato_nome) VALUES (?, ?, ?, ?, ?, ?, ?)", (data['oportunidade_id'], data['data_interacao'], data['tipo'], data['resumo'], data['usuario'], data.get('responsavel_institucional', 0), data.get('contato_nome', '')))
             conn.commit()
         except sqlite3.Error as e:
             print(f"Database error in add_interaction: {e}")
@@ -3388,9 +3396,19 @@ class CRMApp:
 
             if interacoes:
                 for interacao in interacoes:
-                    int_frame = ttk.LabelFrame(interactions_results_frame, text=f"{interacao['tipo']} - {interacao['data_interacao']}", padding=10, style='White.TLabelframe')
+                    # Formatação do cabeçalho e detalhes
+                    header_text = f"{interacao['tipo']} - {interacao['data_interacao']}"
+                    if interacao.get('responsavel_institucional'):
+                        header_text += " (Resp. Institucional)"
+
+                    int_frame = ttk.LabelFrame(interactions_results_frame, text=header_text, padding=10, style='White.TLabelframe')
                     int_frame.pack(fill='x', pady=5)
-                    ttk.Label(int_frame, text=f"Usuário: {interacao['usuario']}", style='Metric.White.TLabel').pack(anchor='w')
+
+                    user_info = f"Usuário: {interacao['usuario']}"
+                    if interacao.get('contato_nome'):
+                        user_info += f" | Falei com: {interacao['contato_nome']}"
+
+                    ttk.Label(int_frame, text=user_info, style='Metric.White.TLabel').pack(anchor='w')
                     ttk.Label(int_frame, text=interacao['resumo'], style='Value.White.TLabel', wraplength=750, justify='left').pack(anchor='w', pady=(5, 0))
             else:
                 ttk.Label(interactions_results_frame, text="Nenhuma interação encontrada para os filtros selecionados.", style='Value.White.TLabel').pack(pady=20)
@@ -3875,8 +3893,15 @@ class CRMApp:
     def add_interaction_dialog(self, op_id, parent_win):
         dialog = Toplevel(parent_win)
         dialog.title("Nova Interação")
-        dialog.geometry("500x400")
+        dialog.geometry("500x550")
         dialog.configure(bg=DOLP_COLORS['white'])
+
+        # Obter dados da oportunidade e contatos do cliente
+        op_data = self.db.get_opportunity_details(op_id)
+        contacts = []
+        if op_data and op_data['cliente_id']:
+            contacts = self.db.get_client_contacts(op_data['cliente_id'])
+        contact_names = [c['nome'] for c in contacts]
 
         ttk.Label(dialog, text="Tipo de Interação:", style='TLabel').pack(pady=5)
         tipo_combo = ttk.Combobox(dialog, values=["Reunião", "Ligação", "E-mail", "Proposta", "Negociação", "Outro"], state='readonly')
@@ -3885,6 +3910,17 @@ class CRMApp:
         ttk.Label(dialog, text="Usuário:", style='TLabel').pack(pady=5)
         usuario_entry = ttk.Entry(dialog)
         usuario_entry.pack(pady=5, padx=20, fill='x')
+        if self.current_user:
+            usuario_entry.insert(0, self.current_user['username'])
+
+        # Novo campo: Responsável Institucional
+        resp_inst_var = tk.BooleanVar()
+        ttk.Checkbutton(dialog, text="Responsável Institucional", variable=resp_inst_var).pack(pady=5, padx=20, anchor='w')
+
+        # Novo campo: Falei com (Contatos do Cliente)
+        ttk.Label(dialog, text="Falei com (Contato do Cliente):", style='TLabel').pack(pady=5)
+        contato_combo = ttk.Combobox(dialog, values=contact_names, state='readonly')
+        contato_combo.pack(pady=5, padx=20, fill='x')
 
         ttk.Label(dialog, text="Resumo:", style='TLabel').pack(pady=5)
         resumo_text = tk.Text(dialog, height=8, wrap='word', bg='white')
@@ -3896,7 +3932,9 @@ class CRMApp:
                 'data_interacao': datetime.now().strftime('%d/%m/%Y %H:%M'),
                 'tipo': tipo_combo.get(),
                 'resumo': resumo_text.get('1.0', 'end-1c'),
-                'usuario': usuario_entry.get()
+                'usuario': usuario_entry.get(),
+                'responsavel_institucional': 1 if resp_inst_var.get() else 0,
+                'contato_nome': contato_combo.get()
             }
 
             if not data['tipo'] or not data['resumo'] or not data['usuario']:
