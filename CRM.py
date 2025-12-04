@@ -3371,9 +3371,10 @@ class CRMApp:
         interactions_results_frame.pack(fill='both', expand=True, pady=(10,0))
 
         def _refilter_interactions():
-            # Limpar resultados antigos
-            for widget in interactions_results_frame.winfo_children():
-                widget.destroy()
+            # Limpar resultados antigos com verificação de existência
+            if interactions_results_frame.winfo_exists():
+                for widget in interactions_results_frame.winfo_children():
+                    widget.destroy()
 
             # Obter valores dos filtros
             tipo = tipo_int_filter.get()
@@ -3387,16 +3388,14 @@ class CRMApp:
                     # Formatação do cabeçalho e detalhes
                     header_text = f"{interacao['tipo']} - {interacao['data_interacao']}"
 
-
-                        header_text += " (Resp. Institucional)"
+                    header_text += " (Resp. Institucional)"
 
                     int_frame = ttk.LabelFrame(interactions_results_frame, text=header_text, padding=10, style='White.TLabelframe')
                     int_frame.pack(fill='x', pady=5)
 
                     user_info = f"Usuário: {interacao['usuario']}"
 
-
-                        user_info += f" | Falei com: {interacao['contato_nome']}"
+                    user_info += f" | Falei com: {interacao['contato_nome']}"
 
                     ttk.Label(int_frame, text=user_info, style='Metric.White.TLabel').pack(anchor='w')
                     ttk.Label(int_frame, text=interacao['resumo'], style='Value.White.TLabel', wraplength=750, justify='left').pack(anchor='w', pady=(5, 0))
