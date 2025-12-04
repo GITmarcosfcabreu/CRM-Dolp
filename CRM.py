@@ -881,7 +881,7 @@ class DatabaseManager:
     def add_interaction(self, data):
         conn = None
         try:
-            conn = self._connect()
+            conn = self._connect() # This line was already correctly indented.
             cursor = conn.cursor()
             cursor.execute("INSERT INTO crm_interacoes (oportunidade_id, data_interacao, tipo, resumo, usuario, responsavel_institucional, contato_nome) VALUES (?, ?, ?, ?, ?, ?, ?)", (data['oportunidade_id'], data['data_interacao'], data['tipo'], data['resumo'], data['usuario'], data.get('responsavel_institucional', 0), data.get('contato_nome', '')))
             conn.commit()
@@ -2797,7 +2797,7 @@ class CRMApp:
         # Informações sobre cálculo
         info_calculo = ttk.Label(servicos_frame, text="Os preços são calculados com base na Análise Prévia. Clique no botão para recalcular.", font=('Segoe UI', 9, 'italic'), foreground=DOLP_COLORS['medium_gray'])
         info_calculo.pack(pady=(0, 10))
-
+ 
         # Botão para calcular preços
         calculo_frame = ttk.Frame(servicos_frame)
         calculo_frame.pack(fill='x', pady=(0, 10))
