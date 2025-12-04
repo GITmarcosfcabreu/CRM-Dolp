@@ -3387,12 +3387,14 @@ class CRMApp:
                     # Formatação do cabeçalho e detalhes
                     header_text = f"{interacao['tipo']} - {interacao['data_interacao']}"
 
+
                         header_text += " (Resp. Institucional)"
 
                     int_frame = ttk.LabelFrame(interactions_results_frame, text=header_text, padding=10, style='White.TLabelframe')
                     int_frame.pack(fill='x', pady=5)
 
                     user_info = f"Usuário: {interacao['usuario']}"
+
 
                         user_info += f" | Falei com: {interacao['contato_nome']}"
 
