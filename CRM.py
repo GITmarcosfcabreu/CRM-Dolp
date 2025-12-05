@@ -381,6 +381,21 @@ class DatabaseManager:
                                 saved INTEGER DEFAULT 0
                            )''')
 
+            # Tabela para Eventos (Notificações, Glosas, Desvios)
+            cursor.execute('''CREATE TABLE IF NOT EXISTS crm_events (
+                                id INTEGER PRIMARY KEY,
+                                oportunidade_id INTEGER NOT NULL,
+                                tipo TEXT NOT NULL,
+                                numero_identificador TEXT,
+                                valor REAL,
+                                data_notificacao TEXT,
+                                data_desvio TEXT,
+                                descricao_desvio TEXT,
+                                respondida INTEGER DEFAULT 0,
+                                data_resposta TEXT,
+                                FOREIGN KEY (oportunidade_id) REFERENCES oportunidades(id) ON DELETE CASCADE
+                           )''')
+
             self._populate_initial_data(cursor)
 
     def _run_migrations(self):
@@ -1194,6 +1209,63 @@ class DatabaseManager:
             except sqlite3.Error as e:
                 print(f"Could not delete old news: {e}")
 
+    # Métodos de Eventos
+    def get_events_for_opportunity(self, op_id):
+        with self._connect() as conn:
+            return conn.execute("SELECT * FROM crm_events WHERE oportunidade_id = ? ORDER BY data_notificacao DESC", (op_id,)).fetchall()
+
+    def get_all_events(self, filters=None):
+        with self._connect() as conn:
+            base_query = """
+                SELECT e.*, o.titulo as oportunidade_titulo, c.nome_empresa as cliente_nome
+                FROM crm_events e
+                JOIN oportunidades o ON e.oportunidade_id = o.id
+                JOIN clientes c ON o.cliente_id = c.id
+            """
+            conditions = []
+            params = []
+
+            if filters:
+                if filters.get('cliente') and filters['cliente'] != 'Todos':
+                    conditions.append("c.nome_empresa = ?")
+                    params.append(filters['cliente'])
+                if filters.get('oportunidade_id'):
+                    conditions.append("e.oportunidade_id = ?")
+                    params.append(filters['oportunidade_id'])
+
+            if conditions:
+                base_query += " WHERE " + " AND ".join(conditions)
+
+            base_query += " ORDER BY e.data_notificacao DESC"
+            return conn.execute(base_query, params).fetchall()
+
+    def add_event(self, data):
+        with self._connect() as conn:
+            conn.execute("""
+                INSERT INTO crm_events (oportunidade_id, tipo, numero_identificador, valor, data_notificacao, data_desvio, descricao_desvio, respondida, data_resposta)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                data['oportunidade_id'], data['tipo'], data['numero_identificador'], data['valor'],
+                data['data_notificacao'], data['data_desvio'], data['descricao_desvio'],
+                data.get('respondida', 0), data.get('data_resposta')
+            ))
+
+    def update_event(self, event_id, data):
+        with self._connect() as conn:
+            conn.execute("""
+                UPDATE crm_events SET
+                tipo=?, numero_identificador=?, valor=?, data_notificacao=?, data_desvio=?, descricao_desvio=?, respondida=?, data_resposta=?
+                WHERE id=?
+            """, (
+                data['tipo'], data['numero_identificador'], data['valor'],
+                data['data_notificacao'], data['data_desvio'], data['descricao_desvio'],
+                data.get('respondida', 0), data.get('data_resposta'), event_id
+            ))
+
+    def delete_event(self, event_id):
+        with self._connect() as conn:
+            conn.execute("DELETE FROM crm_events WHERE id = ?", (event_id,))
+
 # --- 4. SERVIÇO DE NOTÍCIAS ---
 class NewsService:
     def __init__(self, db_manager):
@@ -1561,6 +1633,7 @@ class CRMApp:
         menu_buttons = [
             ("📊 Funil de Vendas", self.show_kanban_view, 'MainMenu.Primary.TButton'),
             ("👥 Clientes", self.show_clients_view, 'MainMenu.Primary.TButton'),
+            ("🔔 Gestão de Eventos", self.show_events_dashboard_view, 'MainMenu.Primary.TButton'),
             ("🔖 Notícias Salvas", self.show_saved_news_view, 'MainMenu.Primary.TButton')
         ]
 
@@ -1646,6 +1719,91 @@ class CRMApp:
         # Summary
         ttk.Label(card, text=news_item['content_summary'] or 'Sem resumo.', style='Card.TLabel', wraplength=800, justify='left').pack(anchor='w', pady=(5,0))
 
+    def show_events_dashboard_view(self):
+        """Mostra o painel de gerenciamento de eventos."""
+        self.clear_content()
+
+        # Título e Botão Voltar
+        title_frame = ttk.Frame(self.content_frame, style='TFrame')
+        title_frame.pack(fill='x', pady=(0, 20))
+        ttk.Label(title_frame, text="Gestão de Eventos", style='Title.TLabel').pack(side='left')
+        ttk.Button(title_frame, text="← Voltar", command=self.show_main_menu, style='TButton').pack(side='right')
+
+        # Filtros
+        filters_frame = ttk.LabelFrame(self.content_frame, text="Filtros", padding=15, style='White.TLabelframe')
+        filters_frame.pack(fill='x', pady=(0, 20))
+
+        # Filtro Cliente
+        ttk.Label(filters_frame, text="Cliente:", style='TLabel').grid(row=0, column=0, sticky='w', padx=(0, 5))
+        client_filter = ttk.Combobox(filters_frame, values=['Todos'] + [c['nome_empresa'] for c in self.db.get_all_clients()], width=25)
+        client_filter.set('Todos')
+        client_filter.grid(row=0, column=1, padx=(0, 20))
+
+        # Container para resultados
+        results_frame = ttk.Frame(self.content_frame, style='TFrame')
+        results_frame.pack(fill='both', expand=True)
+
+        # Treeview para eventos
+        columns = ('id', 'tipo', 'cliente', 'oportunidade', 'valor', 'data_notif', 'respondida', 'detalhes')
+        tree = ttk.Treeview(results_frame, columns=columns, show='headings', height=15)
+
+        tree.heading('id', text='ID Evento')
+        tree.heading('tipo', text='Tipo')
+        tree.heading('cliente', text='Cliente')
+        tree.heading('oportunidade', text='Oportunidade')
+        tree.heading('valor', text='Valor (R$)')
+        tree.heading('data_notif', text='Data Notif.')
+        tree.heading('respondida', text='Respondida?')
+        tree.heading('detalhes', text='Descrição')
+
+        tree.column('id', width=100, anchor='center')
+        tree.column('tipo', width=150)
+        tree.column('cliente', width=200)
+        tree.column('oportunidade', width=200)
+        tree.column('valor', width=100, anchor='center')
+        tree.column('data_notif', width=100, anchor='center')
+        tree.column('respondida', width=100, anchor='center')
+        tree.column('detalhes', width=300)
+
+        scrollbar = ttk.Scrollbar(results_frame, orient='vertical', command=tree.yview)
+        tree.configure(yscrollcommand=scrollbar.set)
+        tree.pack(side='left', fill='both', expand=True)
+        scrollbar.pack(side='right', fill='y')
+
+        def load_events():
+            for item in tree.get_children():
+                tree.delete(item)
+
+            filters = {}
+            if client_filter.get() != 'Todos':
+                filters['cliente'] = client_filter.get()
+
+            events = self.db.get_all_events(filters)
+
+            for event in events:
+                # Converter data ISO (YYYY-MM-DD) para PT-BR (DD/MM/YYYY) para exibição
+                data_notif_iso = event['data_notificacao']
+                data_notif_display = data_notif_iso
+                if data_notif_iso:
+                    try:
+                        data_notif_display = datetime.strptime(data_notif_iso, '%Y-%m-%d').strftime('%d/%m/%Y')
+                    except (ValueError, TypeError):
+                        pass
+
+                tree.insert('', 'end', values=(
+                    event['numero_identificador'] or '---',
+                    event['tipo'],
+                    event['cliente_nome'],
+                    event['oportunidade_titulo'],
+                    format_currency(event['valor']),
+                    data_notif_display,
+                    "Sim" if event['respondida'] else "Não",
+                    event['descricao_desvio']
+                ))
+
+        ttk.Button(filters_frame, text="🔍 Filtrar", command=load_events, style='Primary.TButton').grid(row=0, column=2, padx=(20, 0))
+
+        load_events()
 
     def show_saved_news_view(self):
         self.clear_content()
@@ -3432,7 +3590,89 @@ class CRMApp:
         # Carregar interações iniciais
         _refilter_interactions()
 
-        # Aba 4: Tarefas
+        # Aba 4: Eventos (Gestão de Notificações)
+        eventos_tab = self._create_scrollable_tab(notebook, '  Eventos  ')
+
+        # Frame de Ação
+        events_action_frame = ttk.Frame(eventos_tab, style='TFrame')
+        events_action_frame.pack(fill='x', pady=(0, 10))
+        ttk.Button(events_action_frame, text="Novo Evento", style='Success.TButton', command=lambda: self.add_event_dialog(op_id, details_win)).pack(side='right')
+
+        # Container para os eventos
+        events_results_frame = ttk.Frame(eventos_tab, style='TFrame')
+        events_results_frame.pack(fill='both', expand=True)
+
+        def _refresh_events():
+            for widget in events_results_frame.winfo_children():
+                widget.destroy()
+
+            events = self.db.get_events_for_opportunity(op_id)
+
+            if events:
+                for event in events:
+                    # Formatar datas de ISO para PT-BR
+                    data_notif_display = event['data_notificacao']
+                    if data_notif_display:
+                        try:
+                            data_notif_display = datetime.strptime(data_notif_display, '%Y-%m-%d').strftime('%d/%m/%Y')
+                        except (ValueError, TypeError):
+                            pass
+
+                    data_desvio_display = event['data_desvio']
+                    if data_desvio_display:
+                        try:
+                            data_desvio_display = datetime.strptime(data_desvio_display, '%Y-%m-%d').strftime('%d/%m/%Y')
+                        except (ValueError, TypeError):
+                            pass
+
+                    data_resposta_display = event['data_resposta']
+                    if data_resposta_display and event['respondida']:
+                        try:
+                            data_resposta_display = datetime.strptime(data_resposta_display, '%Y-%m-%d').strftime('%d/%m/%Y')
+                        except (ValueError, TypeError):
+                            pass
+                    elif not event['respondida']:
+                        data_resposta_display = "---"
+
+                    event_frame = ttk.LabelFrame(events_results_frame, text=f"{event['tipo']} - {data_notif_display}", padding=10, style='White.TLabelframe')
+                    event_frame.pack(fill='x', pady=5)
+
+                    # Detalhes
+                    grid_frame = ttk.Frame(event_frame)
+                    grid_frame.pack(fill='x', pady=(0, 5))
+
+                    fields = [
+                        ("ID Identificador:", event['numero_identificador']),
+                        ("Valor:", format_currency(event['valor'])),
+                        ("Data Desvio:", data_desvio_display),
+                        ("Respondida:", "Sim" if event['respondida'] else "Não"),
+                        ("Data Resposta:", data_resposta_display)
+                    ]
+
+                    for i, (label, value) in enumerate(fields):
+                        row = i // 2
+                        col = (i % 2) * 2
+                        ttk.Label(grid_frame, text=label, style='Metric.White.TLabel').grid(row=row, column=col, sticky='w', padx=(0, 5))
+                        ttk.Label(grid_frame, text=str(value), style='Value.White.TLabel').grid(row=row, column=col+1, sticky='w', padx=(0, 20))
+
+                    ttk.Label(event_frame, text="Descrição do Desvio:", style='Metric.White.TLabel').pack(anchor='w', pady=(5,0))
+                    ttk.Label(event_frame, text=event['descricao_desvio'], style='Value.White.TLabel', wraplength=700).pack(anchor='w')
+
+                    # Botões de Ação
+                    btn_frame = ttk.Frame(event_frame)
+                    btn_frame.pack(fill='x', pady=(5, 0))
+
+                    ttk.Button(btn_frame, text="Editar", style='Primary.TButton', width=10,
+                             command=lambda e=event: self.edit_event_dialog(e, details_win)).pack(side='right', padx=5)
+                    ttk.Button(btn_frame, text="Excluir", style='Danger.TButton', width=10,
+                             command=lambda e_id=event['id']: self.delete_event_confirm(e_id, op_id, details_win)).pack(side='right')
+
+            else:
+                ttk.Label(events_results_frame, text="Nenhum evento registrado.", style='Value.White.TLabel').pack(pady=20)
+
+        _refresh_events()
+
+        # Aba 5: Tarefas
         tarefas_tab = self._create_scrollable_tab(notebook, '  Tarefas  ')
 
         # --- Filtros para Tarefas ---
@@ -3899,6 +4139,199 @@ class CRMApp:
 
         except Exception as e:
             messagebox.showerror("Erro ao Gerar PDF", f"Ocorreu um erro: {e}", parent=self.root)
+
+    def add_event_dialog(self, op_id, parent_win):
+        dialog = Toplevel(parent_win)
+        dialog.title("Novo Evento")
+        dialog.geometry("600x500")
+        dialog.configure(bg=DOLP_COLORS['white'])
+
+        main_frame = ttk.Frame(dialog, padding=20, style='TFrame')
+        main_frame.pack(fill='both', expand=True)
+
+        entries = {}
+
+        fields = [
+            ("Tipo:*", "tipo", "combobox", ["Notificação", "Glosa", "Desvio de Medição", "Desvio de Faturamento", "Desvio Contratual"]),
+            ("Número Identificador:", "numero_identificador", "entry"),
+            ("Valor (R$):", "valor", "entry"),
+            ("Data Notificação:", "data_notificacao", "date"),
+            ("Data Desvio:", "data_desvio", "date"),
+            ("Descrição do Desvio:", "descricao_desvio", "text"),
+            ("Respondida:", "respondida", "checkbox"),
+            ("Data Resposta:", "data_resposta", "date")
+        ]
+
+        for i, field_info in enumerate(fields):
+            text, key = field_info[0], field_info[1]
+            widget_type = field_info[2]
+
+            row_frame = ttk.Frame(main_frame, style='TFrame')
+            row_frame.pack(fill='x', pady=5)
+
+            ttk.Label(row_frame, text=text, style='TLabel', width=20).pack(side='left', anchor='n')
+
+            if widget_type == 'combobox':
+                widget = ttk.Combobox(row_frame, values=field_info[3], state='readonly', width=30)
+                widget.pack(side='left', fill='x', expand=True)
+            elif widget_type == 'date':
+                widget = DateEntry(row_frame, date_pattern='dd/mm/yyyy', width=15)
+                widget.pack(side='left')
+            elif widget_type == 'text':
+                widget = tk.Text(row_frame, height=4, width=40, font=('Segoe UI', 10))
+                widget.pack(side='left', fill='both', expand=True)
+            elif widget_type == 'checkbox':
+                widget = tk.BooleanVar()
+                ttk.Checkbutton(row_frame, variable=widget).pack(side='left')
+            else:
+                widget = ttk.Entry(row_frame)
+                widget.pack(side='left', fill='x', expand=True)
+
+            entries[key] = widget
+
+        def save():
+            try:
+                # Helper to convert date from dd/mm/yyyy to YYYY-MM-DD
+                def convert_date(date_str):
+                    if not date_str: return ""
+                    try:
+                        return datetime.strptime(date_str, '%d/%m/%Y').strftime('%Y-%m-%d')
+                    except ValueError:
+                        return date_str
+
+                data = {
+                    'oportunidade_id': op_id,
+                    'tipo': entries['tipo'].get(),
+                    'numero_identificador': entries['numero_identificador'].get(),
+                    'valor': parse_brazilian_currency(entries['valor'].get()),
+                    'data_notificacao': convert_date(entries['data_notificacao'].get()),
+                    'data_desvio': convert_date(entries['data_desvio'].get()),
+                    'descricao_desvio': entries['descricao_desvio'].get('1.0', 'end-1c'),
+                    'respondida': 1 if entries['respondida'].get() else 0,
+                    'data_resposta': convert_date(entries['data_resposta'].get()) if entries['respondida'].get() else ""
+                }
+
+                if not data['tipo']:
+                    messagebox.showerror("Erro", "Tipo é obrigatório.", parent=dialog)
+                    return
+
+                self.db.add_event(data)
+                messagebox.showinfo("Sucesso", "Evento adicionado com sucesso!", parent=dialog)
+                parent_win.destroy()
+                self.show_opportunity_details(op_id)
+                dialog.destroy()
+            except Exception as e:
+                messagebox.showerror("Erro", f"Erro ao salvar: {e}", parent=dialog)
+
+        ttk.Button(main_frame, text="Salvar", command=save, style='Success.TButton').pack(pady=20)
+
+    def edit_event_dialog(self, event_data, parent_win):
+        dialog = Toplevel(parent_win)
+        dialog.title("Editar Evento")
+        dialog.geometry("600x500")
+        dialog.configure(bg=DOLP_COLORS['white'])
+
+        main_frame = ttk.Frame(dialog, padding=20, style='TFrame')
+        main_frame.pack(fill='both', expand=True)
+
+        entries = {}
+
+        fields = [
+            ("Tipo:*", "tipo", "combobox", ["Notificação", "Glosa", "Desvio de Medição", "Desvio de Faturamento", "Desvio Contratual"]),
+            ("Número Identificador:", "numero_identificador", "entry"),
+            ("Valor (R$):", "valor", "entry"),
+            ("Data Notificação:", "data_notificacao", "date"),
+            ("Data Desvio:", "data_desvio", "date"),
+            ("Descrição do Desvio:", "descricao_desvio", "text"),
+            ("Respondida:", "respondida", "checkbox"),
+            ("Data Resposta:", "data_resposta", "date")
+        ]
+
+        for i, field_info in enumerate(fields):
+            text, key = field_info[0], field_info[1]
+            widget_type = field_info[2]
+
+            row_frame = ttk.Frame(main_frame, style='TFrame')
+            row_frame.pack(fill='x', pady=5)
+
+            ttk.Label(row_frame, text=text, style='TLabel', width=20).pack(side='left', anchor='n')
+
+            if widget_type == 'combobox':
+                widget = ttk.Combobox(row_frame, values=field_info[3], state='readonly', width=30)
+                widget.pack(side='left', fill='x', expand=True)
+                widget.set(event_data['tipo'])
+            elif widget_type == 'date':
+                widget = DateEntry(row_frame, date_pattern='dd/mm/yyyy', width=15)
+                widget.pack(side='left')
+                try:
+                    if event_data[key]:
+                        # Tentar converter de ISO para dd/mm/yyyy para o DateEntry
+                        date_obj = datetime.strptime(event_data[key], '%Y-%m-%d')
+                        widget.set_date(date_obj)
+                except (ValueError, TypeError):
+                    # Fallback se já estiver em outro formato
+                    try:
+                        date_obj = datetime.strptime(event_data[key], '%d/%m/%Y')
+                        widget.set_date(date_obj)
+                    except: pass
+            elif widget_type == 'text':
+                widget = tk.Text(row_frame, height=4, width=40, font=('Segoe UI', 10))
+                widget.pack(side='left', fill='both', expand=True)
+                widget.insert('1.0', event_data[key])
+            elif widget_type == 'checkbox':
+                widget = tk.BooleanVar(value=bool(event_data[key]))
+                ttk.Checkbutton(row_frame, variable=widget).pack(side='left')
+            else:
+                widget = ttk.Entry(row_frame)
+                widget.pack(side='left', fill='x', expand=True)
+                if key == 'valor':
+                    widget.insert(0, format_brazilian_currency_for_entry(event_data[key]))
+                else:
+                    widget.insert(0, event_data[key] or '')
+
+            entries[key] = widget
+
+        def save():
+            try:
+                # Helper to convert date from dd/mm/yyyy to YYYY-MM-DD
+                def convert_date(date_str):
+                    if not date_str: return ""
+                    try:
+                        return datetime.strptime(date_str, '%d/%m/%Y').strftime('%Y-%m-%d')
+                    except ValueError:
+                        return date_str
+
+                data = {
+                    'tipo': entries['tipo'].get(),
+                    'numero_identificador': entries['numero_identificador'].get(),
+                    'valor': parse_brazilian_currency(entries['valor'].get()),
+                    'data_notificacao': convert_date(entries['data_notificacao'].get()),
+                    'data_desvio': convert_date(entries['data_desvio'].get()),
+                    'descricao_desvio': entries['descricao_desvio'].get('1.0', 'end-1c'),
+                    'respondida': 1 if entries['respondida'].get() else 0,
+                    'data_resposta': convert_date(entries['data_resposta'].get()) if entries['respondida'].get() else ""
+                }
+
+                if not data['tipo']:
+                    messagebox.showerror("Erro", "Tipo é obrigatório.", parent=dialog)
+                    return
+
+                self.db.update_event(event_data['id'], data)
+                messagebox.showinfo("Sucesso", "Evento atualizado com sucesso!", parent=dialog)
+                parent_win.destroy()
+                self.show_opportunity_details(event_data['oportunidade_id'])
+                dialog.destroy()
+            except Exception as e:
+                messagebox.showerror("Erro", f"Erro ao salvar: {e}", parent=dialog)
+
+        ttk.Button(main_frame, text="Salvar", command=save, style='Success.TButton').pack(pady=20)
+
+    def delete_event_confirm(self, event_id, op_id, parent_win):
+        if messagebox.askyesno("Confirmar Exclusão", "Tem certeza que deseja excluir este evento?"):
+            self.db.delete_event(event_id)
+            messagebox.showinfo("Sucesso", "Evento excluído.")
+            parent_win.destroy()
+            self.show_opportunity_details(op_id)
 
     def add_interaction_dialog(self, op_id, parent_win):
         dialog = Toplevel(parent_win)
