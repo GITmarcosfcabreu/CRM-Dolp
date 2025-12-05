@@ -20,7 +20,7 @@ from io import BytesIO
 import sqlite3
 import os
 import webbrowser
-from tkcalendar import DateEntry
+from tkcalendar import DateEntry, Calendar
 from datetime import datetime, timedelta
 import json
 import google.generativeai as genai
@@ -394,6 +394,21 @@ class DatabaseManager:
                                 respondida INTEGER DEFAULT 0,
                                 data_resposta TEXT,
                                 FOREIGN KEY (oportunidade_id) REFERENCES oportunidades(id) ON DELETE CASCADE
+                           )''')
+
+            # Tabela de Visitas
+            cursor.execute('''CREATE TABLE IF NOT EXISTS crm_visitas (
+                                id INTEGER PRIMARY KEY,
+                                cliente_id INTEGER NOT NULL,
+                                contato_nome TEXT,
+                                responsavel_id INTEGER NOT NULL,
+                                data_ida TEXT NOT NULL,
+                                data_volta TEXT,
+                                pautas TEXT,
+                                transporte TEXT,
+                                cor TEXT,
+                                FOREIGN KEY(cliente_id) REFERENCES clientes(id),
+                                FOREIGN KEY(responsavel_id) REFERENCES crm_users(id)
                            )''')
 
             self._populate_initial_data(cursor)
@@ -1266,6 +1281,75 @@ class DatabaseManager:
         with self._connect() as conn:
             conn.execute("DELETE FROM crm_events WHERE id = ?", (event_id,))
 
+    # Métodos de Visitas
+    def get_visitas(self, filters=None):
+        with self._connect() as conn:
+            query = """
+                SELECT v.*, c.nome_empresa, u.full_name as responsavel_nome
+                FROM crm_visitas v
+                JOIN clientes c ON v.cliente_id = c.id
+                JOIN crm_users u ON v.responsavel_id = u.id
+            """
+            conditions = []
+            params = []
+
+            if filters:
+                if filters.get('start_date'):
+                    # Assumindo data_ida como 'YYYY-MM-DD HH:MM' ou 'YYYY-MM-DD'
+                    conditions.append("substr(v.data_ida, 1, 10) >= ?")
+                    params.append(filters['start_date'])
+                if filters.get('end_date'):
+                    conditions.append("substr(v.data_ida, 1, 10) <= ?")
+                    params.append(filters['end_date'])
+                if filters.get('responsavel_id'):
+                    conditions.append("v.responsavel_id = ?")
+                    params.append(filters['responsavel_id'])
+
+            if conditions:
+                query += " WHERE " + " AND ".join(conditions)
+
+            query += " ORDER BY v.data_ida"
+            return conn.execute(query, params).fetchall()
+
+    def get_visita_by_id(self, visita_id):
+        with self._connect() as conn:
+            query = """
+                SELECT v.*, c.nome_empresa, u.full_name as responsavel_nome
+                FROM crm_visitas v
+                JOIN clientes c ON v.cliente_id = c.id
+                JOIN crm_users u ON v.responsavel_id = u.id
+                WHERE v.id = ?
+            """
+            return conn.execute(query, (visita_id,)).fetchone()
+
+    def add_visita(self, data):
+        with self._connect() as conn:
+            conn.execute("""
+                INSERT INTO crm_visitas (cliente_id, contato_nome, responsavel_id, data_ida, data_volta, pautas, transporte, cor)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                data['cliente_id'], data['contato_nome'], data['responsavel_id'],
+                data['data_ida'], data['data_volta'], data['pautas'],
+                data['transporte'], data['cor']
+            ))
+
+    def update_visita(self, visita_id, data):
+        with self._connect() as conn:
+            conn.execute("""
+                UPDATE crm_visitas SET
+                cliente_id=?, contato_nome=?, responsavel_id=?, data_ida=?, data_volta=?, pautas=?, transporte=?, cor=?
+                WHERE id=?
+            """, (
+                data['cliente_id'], data['contato_nome'], data['responsavel_id'],
+                data['data_ida'], data['data_volta'], data['pautas'],
+                data['transporte'], data['cor'], visita_id
+            ))
+
+    def delete_visita(self, visita_id):
+        with self._connect() as conn:
+            conn.execute("DELETE FROM crm_visitas WHERE id = ?", (visita_id,))
+
+
 # --- 4. SERVIÇO DE NOTÍCIAS ---
 class NewsService:
     def __init__(self, db_manager):
@@ -1632,6 +1716,7 @@ class CRMApp:
         # Botões do menu principal
         menu_buttons = [
             ("📊 Funil de Vendas", self.show_kanban_view, 'MainMenu.Primary.TButton'),
+            ("📅 Cronograma de Visitas", self.show_cronograma_view, 'MainMenu.Primary.TButton'),
             ("👥 Clientes", self.show_clients_view, 'MainMenu.Primary.TButton'),
             ("🔔 Gestão de Eventos", self.show_events_dashboard_view, 'MainMenu.Primary.TButton'),
             ("🔖 Notícias Salvas", self.show_saved_news_view, 'MainMenu.Primary.TButton')
@@ -1881,6 +1966,402 @@ class CRMApp:
         popup.transient(self.root)
         popup.grab_set()
         self.root.wait_window(popup)
+
+    def show_cronograma_view(self):
+        self.clear_content()
+
+        # Título e Botões
+        title_frame = ttk.Frame(self.content_frame, style='TFrame')
+        title_frame.pack(fill='x', pady=(0, 20))
+        ttk.Label(title_frame, text="Cronograma de Visitas", style='Title.TLabel').pack(side='left')
+        ttk.Button(title_frame, text="Nova Visita", command=lambda: self.show_visita_form(), style='Success.TButton').pack(side='right')
+        ttk.Button(title_frame, text="← Voltar", command=self.show_main_menu, style='TButton').pack(side='right', padx=(0, 10))
+
+        # Container Principal Dividido
+        main_pane = ttk.PanedWindow(self.content_frame, orient='horizontal')
+        main_pane.pack(fill='both', expand=True)
+
+        # Lado Esquerdo: Calendário
+        left_frame = ttk.Frame(main_pane, style='TFrame', padding=(0, 0, 20, 0))
+        main_pane.add(left_frame, weight=1)
+
+        # Lado Direito: Lista de Visitas do Dia
+        right_frame = ttk.Frame(main_pane, style='TFrame')
+        main_pane.add(right_frame, weight=2)
+
+        # --- Calendário ---
+        cal_frame = ttk.LabelFrame(left_frame, text="Calendário", padding=15, style='White.TLabelframe')
+        cal_frame.pack(fill='both', expand=True)
+
+        now = datetime.now()
+        self.calendar = Calendar(cal_frame, selectmode='day', year=now.year, month=now.month, day=now.day,
+                                 locale='pt_BR', cursor="hand2")
+        self.calendar.pack(fill='both', expand=True, pady=10)
+
+        # Legenda de cores
+        legend_frame = ttk.Frame(cal_frame, style='TFrame')
+        legend_frame.pack(fill='x', pady=10)
+
+        # Helper to draw colored circles
+        def draw_circle(canvas, color):
+            canvas.create_oval(2, 2, 14, 14, fill=color, outline=color)
+
+        # Exemplo de legenda simples (pode ser expandido)
+        # Por enquanto, apenas instrucional
+        ttk.Label(legend_frame, text="Clique em uma data para ver detalhes.", style='TLabel', font=('Segoe UI', 9, 'italic')).pack(anchor='w')
+
+        # --- Lista de Detalhes ---
+        details_label_text = tk.StringVar(value=f"Visitas em: {now.strftime('%d/%m/%Y')}")
+        details_frame = ttk.LabelFrame(right_frame, text="Detalhes do Dia", padding=15, style='White.TLabelframe')
+        details_frame.pack(fill='both', expand=True)
+
+        ttk.Label(details_frame, textvariable=details_label_text, style='Metric.White.TLabel').pack(anchor='nw', pady=(0, 10))
+
+        # Lista com Scroll
+        visits_canvas = tk.Canvas(details_frame, bg='white', highlightthickness=0)
+        visits_scrollbar = ttk.Scrollbar(details_frame, orient="vertical", command=visits_canvas.yview)
+        visits_scrollable_frame = ttk.Frame(visits_canvas, style='TFrame')
+
+        visits_scrollable_frame.bind(
+            "<Configure>",
+            lambda e: visits_canvas.configure(scrollregion=visits_canvas.bbox("all"))
+        )
+        visits_canvas.create_window((0, 0), window=visits_scrollable_frame, anchor="nw")
+        visits_canvas.configure(yscrollcommand=visits_scrollbar.set)
+
+        visits_canvas.pack(side="left", fill="both", expand=True)
+        visits_scrollbar.pack(side="right", fill="y")
+
+        def load_visits_for_date(event=None):
+            # Limpar lista
+            for widget in visits_scrollable_frame.winfo_children():
+                widget.destroy()
+
+            selected_date_str = self.calendar.get_date() # dd/mm/yyyy usually based on locale
+
+            # Converter para YYYY-MM-DD para busca no banco
+            try:
+                date_obj = datetime.strptime(selected_date_str, '%d/%m/%Y')
+                date_db_str = date_obj.strftime('%Y-%m-%d')
+                details_label_text.set(f"Visitas em: {selected_date_str}")
+            except ValueError:
+                # Fallback se o locale não estiver setado corretamente
+                 # Tentar parsear mm/dd/yyyy se o sistema estiver em en_US
+                try:
+                     date_obj = datetime.strptime(selected_date_str, '%m/%d/%y')
+                     date_db_str = date_obj.strftime('%Y-%m-%d')
+                     details_label_text.set(f"Visitas em: {date_obj.strftime('%d/%m/%Y')}")
+                except ValueError:
+                    print(f"Erro de formato de data no calendário: {selected_date_str}")
+                    return
+
+            # Buscar visitas que começam ou atravessam essa data
+            # Simples: Visitas que começam neste dia
+            # Mais complexo: Visitas onde data_ida <= selected <= data_volta
+            # Vamos começar com "Iniciam neste dia" para simplificar a visualização diária, ou pegar filtro customizado
+            # O filtro `get_visitas` que fiz pega range start/end.
+            # Vou buscar todas do mês e filtrar em python ou chamar get_visitas específico.
+
+            # Vamos usar o get_visitas com range do dia específico
+            all_visits = self.db.get_visitas({'start_date': date_db_str, 'end_date': date_db_str})
+
+            if not all_visits:
+                ttk.Label(visits_scrollable_frame, text="Nenhuma visita agendada para este dia.", style='Value.White.TLabel').pack(pady=20, padx=10)
+                return
+
+            for visita in all_visits:
+                card = ttk.Frame(visits_scrollable_frame, style='Card.TFrame', padding=10, borderwidth=1, relief='solid')
+                card.pack(fill='x', pady=5, padx=5)
+
+                # Color strip
+                color = visita['cor'] if visita['cor'] else '#cccccc'
+                strip = tk.Frame(card, bg=color, width=10)
+                strip.pack(side='left', fill='y', padx=(0, 10))
+
+                content = ttk.Frame(card, style='TFrame')
+                content.pack(side='left', fill='both', expand=True)
+
+                header = ttk.Frame(content)
+                header.pack(fill='x')
+
+                time_str = ""
+                try:
+                    dt = datetime.fromisoformat(visita['data_ida'])
+                    time_str = dt.strftime('%H:%M')
+                except ValueError:
+                    pass
+
+                title_text = f"{time_str} - {visita['nome_empresa']}"
+                ttk.Label(header, text=title_text, style='Card.Title.TLabel').pack(side='left')
+
+                # Actions
+                actions = ttk.Frame(header)
+                actions.pack(side='right')
+                ttk.Button(actions, text="✏️", width=3, command=lambda v_id=visita['id']: self.show_visita_form(v_id)).pack(side='left', padx=2)
+                ttk.Button(actions, text="🗑️", width=3, command=lambda v_id=visita['id']: self.delete_visita_confirm(v_id)).pack(side='left', padx=2)
+
+                # Details
+                info_text = f"Contato: {visita['contato_nome'] or 'N/A'} | Resp: {visita['responsavel_nome']}\nTransporte: {visita['transporte']}"
+                ttk.Label(content, text=info_text, style='Card.TLabel').pack(anchor='w')
+
+                if visita['pautas']:
+                    ttk.Label(content, text=f"Pauta: {visita['pautas']}", style='Card.TLabel', font=('Segoe UI', 9, 'italic')).pack(anchor='w')
+
+
+        self.calendar.bind("<<CalendarSelected>>", load_visits_for_date)
+
+        def mark_calendar_days():
+            # Remove all existing tags/events markers (tkcalendar doesn't have easy clear, so we just re-add)
+            # Fetch all visits
+            visits = self.db.get_visitas()
+
+            # Agrupar por data
+            visits_by_date = {}
+            for v in visits:
+                try:
+                    # Parse data_ida which is ISO format YYYY-MM-DD HH:MM:SS or YYYY-MM-DD
+                    date_str = v['data_ida'].split(' ')[0] # Get YYYY-MM-DD
+                    date_obj = datetime.strptime(date_str, '%Y-%m-%d').date()
+                    if date_obj not in visits_by_date:
+                        visits_by_date[date_obj] = []
+                    visits_by_date[date_obj].append(v)
+                except (ValueError, IndexError):
+                    continue
+
+            for date_obj, v_list in visits_by_date.items():
+                # Add event to calendar
+                # tkcalendar doesn't support multiple colors per day easily in standard mode without heavy customization
+                # We will use the color of the first event or a default 'has_event' color
+                # And maybe a tooltip or just the indicator.
+                # `calevent_create(date, text, tags)`
+
+                # We can create an event for each visit to allow distinct coloring if supported
+                for v in v_list:
+                    color = v['cor'] if v['cor'] else 'blue'
+                    # Create a tag for this color if not exists
+                    tag_name = f"tag_{color}"
+                    self.calendar.tag_config(tag_name, background=color, foreground='white')
+
+                    self.calendar.calevent_create(date_obj, v['pautas'] or "Visita", tags=tag_name)
+
+        # Initial Load
+        mark_calendar_days()
+        load_visits_for_date()
+
+    def show_visita_form(self, visita_id=None):
+        form_win = Toplevel(self.root)
+        form_win.title("Nova Visita" if not visita_id else "Editar Visita")
+        form_win.geometry("600x750")
+        form_win.configure(bg=DOLP_COLORS['white'])
+
+        main_frame = ttk.Frame(form_win, padding=20, style='TFrame')
+        main_frame.pack(fill='both', expand=True)
+
+        ttk.Label(main_frame, text="Agendar Visita", style='Title.TLabel').pack(pady=(0, 20))
+
+        entries = {}
+
+        # Load Data needed for combos
+        clients = self.db.get_all_clients()
+        client_names = [c['nome_empresa'] for c in clients]
+        client_map = {c['nome_empresa']: c['id'] for c in clients}
+
+        users = self.db.get_all_users()
+        # Add master user manually to list if needed or ensure get_all_users returns it?
+        # get_all_users usually excludes master in some implementations, let's check.
+        # It says "exceto o master" in docstring but let's check implementation.
+        # Impl: "SELECT * FROM crm_users ORDER BY full_name". It returns all users.
+        # Wait, get_all_users impl: "SELECT * FROM crm_users ORDER BY full_name". It does NOT filter master.
+        # But previous logic in get_all_users docstring said "exceto o master". Let's trust the code I read.
+        # Code: `return conn.execute("SELECT * FROM crm_users ORDER BY full_name").fetchall()`
+        # So it returns all. Good.
+        user_names = [u['full_name'] for u in users]
+        user_map = {u['full_name']: u['id'] for u in users}
+
+        # Client
+        ttk.Label(main_frame, text="Cliente:*", style='TLabel').pack(anchor='w', pady=(5,0))
+        client_cb = ttk.Combobox(main_frame, values=client_names, state='readonly')
+        client_cb.pack(fill='x', pady=(0, 10))
+        entries['cliente'] = client_cb
+
+        # Contact (Dependent on Client)
+        ttk.Label(main_frame, text="Contato:*", style='TLabel').pack(anchor='w', pady=(5,0))
+        contact_cb = ttk.Combobox(main_frame, state='readonly')
+        contact_cb.pack(fill='x', pady=(0, 10))
+        entries['contato'] = contact_cb
+
+        def update_contacts(event=None):
+            c_name = client_cb.get()
+            if c_name in client_map:
+                c_id = client_map[c_name]
+                contacts = self.db.get_client_contacts(c_id)
+                c_names = [c['nome'] for c in contacts]
+                contact_cb['values'] = c_names
+                if c_names:
+                    contact_cb.current(0)
+                else:
+                    contact_cb.set('')
+            else:
+                contact_cb['values'] = []
+
+        client_cb.bind("<<ComboboxSelected>>", update_contacts)
+
+        # Responsible
+        ttk.Label(main_frame, text="Responsável pela Visita:*", style='TLabel').pack(anchor='w', pady=(5,0))
+        resp_cb = ttk.Combobox(main_frame, values=user_names, state='readonly')
+        resp_cb.pack(fill='x', pady=(0, 10))
+        entries['responsavel'] = resp_cb
+        # Pre-select current user if creating new
+        if not visita_id and self.current_user:
+            if self.current_user['full_name'] in user_names:
+                resp_cb.set(self.current_user['full_name'])
+
+        # Dates Frame
+        dates_frame = ttk.Frame(main_frame, style='TFrame')
+        dates_frame.pack(fill='x', pady=5)
+
+        # Start Date/Time
+        d1_frame = ttk.Frame(dates_frame, style='TFrame')
+        d1_frame.pack(side='left', fill='x', expand=True, padx=(0, 5))
+        ttk.Label(d1_frame, text="Data/Hora Ida:*", style='TLabel').pack(anchor='w')
+        start_date = DateEntry(d1_frame, date_pattern='dd/mm/yyyy', width=12)
+        start_date.pack(side='left')
+        start_time = ttk.Entry(d1_frame, width=8)
+        start_time.insert(0, "09:00")
+        start_time.pack(side='left', padx=5)
+        entries['start_date'] = start_date
+        entries['start_time'] = start_time
+
+        # End Date/Time
+        d2_frame = ttk.Frame(dates_frame, style='TFrame')
+        d2_frame.pack(side='left', fill='x', expand=True, padx=(5, 0))
+        ttk.Label(d2_frame, text="Data/Hora Volta:", style='TLabel').pack(anchor='w')
+        end_date = DateEntry(d2_frame, date_pattern='dd/mm/yyyy', width=12)
+        end_date.pack(side='left')
+        end_time = ttk.Entry(d2_frame, width=8)
+        end_time.insert(0, "18:00")
+        end_time.pack(side='left', padx=5)
+        entries['end_date'] = end_date
+        entries['end_time'] = end_time
+
+        # Transport
+        ttk.Label(main_frame, text="Transporte:", style='TLabel').pack(anchor='w', pady=(5,0))
+        trans_cb = ttk.Combobox(main_frame, values=['Carro Dolp', 'Carro Particular', 'Ônibus', 'Avião', 'Outro'], state='readonly')
+        trans_cb.pack(fill='x', pady=(0, 10))
+        trans_cb.current(0)
+        entries['transporte'] = trans_cb
+
+        # Color
+        ttk.Label(main_frame, text="Cor no Calendário:", style='TLabel').pack(anchor='w', pady=(5,0))
+        # Simple color selection
+        colors_map = {'Azul': '#3b82f6', 'Verde': '#10b981', 'Vermelho': '#ef4444', 'Amarelo': '#f59e0b', 'Roxo': '#8b5cf6', 'Cinza': '#6b7280'}
+        color_cb = ttk.Combobox(main_frame, values=list(colors_map.keys()), state='readonly')
+        color_cb.pack(fill='x', pady=(0, 10))
+        color_cb.current(0)
+        entries['cor'] = color_cb
+
+        # Agenda/Pautas
+        ttk.Label(main_frame, text="Pautas / Agenda:", style='TLabel').pack(anchor='w', pady=(5,0))
+        pautas_text = tk.Text(main_frame, height=5, font=('Segoe UI', 10), wrap='word')
+        pautas_text.pack(fill='both', expand=True, pady=(0, 20))
+
+        # Load existing data if editing
+        if visita_id:
+            v_data = self.db.get_visita_by_id(visita_id)
+            if v_data:
+                # Client
+                c_name = v_data['nome_empresa']
+                client_cb.set(c_name)
+                update_contacts()
+                # Contact
+                contact_cb.set(v_data['contato_nome'])
+                # Resp
+                resp_cb.set(v_data['responsavel_nome'])
+                # Transport
+                trans_cb.set(v_data['transporte'])
+                # Color - find key by value
+                found_color = False
+                for k, v in colors_map.items():
+                    if v == v_data['cor']:
+                        color_cb.set(k)
+                        found_color = True
+                        break
+                if not found_color: color_cb.set('Azul') # Default
+
+                # Pautas
+                if v_data['pautas']:
+                    pautas_text.insert('1.0', v_data['pautas'])
+
+                # Dates
+                try:
+                    dt_start = datetime.fromisoformat(v_data['data_ida'])
+                    start_date.set_date(dt_start.date())
+                    start_time.delete(0, 'end')
+                    start_time.insert(0, dt_start.strftime('%H:%M'))
+
+                    if v_data['data_volta']:
+                        dt_end = datetime.fromisoformat(v_data['data_volta'])
+                        end_date.set_date(dt_end.date())
+                        end_time.delete(0, 'end')
+                        end_time.insert(0, dt_end.strftime('%H:%M'))
+                except ValueError:
+                    pass
+
+        def save():
+            try:
+                # Validation
+                if not client_cb.get() or not contact_cb.get() or not resp_cb.get():
+                    messagebox.showerror("Erro", "Cliente, Contato e Responsável são obrigatórios.", parent=form_win)
+                    return
+
+                # Construct datetimes
+                s_date = start_date.get_date()
+                s_time_str = start_time.get()
+                e_date = end_date.get_date()
+                e_time_str = end_time.get()
+
+                try:
+                     dt_start = datetime.combine(s_date, datetime.strptime(s_time_str, "%H:%M").time())
+                     dt_end = datetime.combine(e_date, datetime.strptime(e_time_str, "%H:%M").time())
+                except ValueError:
+                    messagebox.showerror("Erro de Formato", "Horário inválido. Use HH:MM (ex: 14:30).", parent=form_win)
+                    return
+
+                if dt_end < dt_start:
+                    messagebox.showerror("Erro", "Data de volta não pode ser anterior à data de ida.", parent=form_win)
+                    return
+
+                data = {
+                    'cliente_id': client_map[client_cb.get()],
+                    'contato_nome': contact_cb.get(),
+                    'responsavel_id': user_map[resp_cb.get()],
+                    'data_ida': dt_start.isoformat(' '),
+                    'data_volta': dt_end.isoformat(' '),
+                    'transporte': trans_cb.get(),
+                    'cor': colors_map.get(color_cb.get(), '#3b82f6'),
+                    'pautas': pautas_text.get('1.0', 'end-1c').strip()
+                }
+
+                if visita_id:
+                    self.db.update_visita(visita_id, data)
+                    messagebox.showinfo("Sucesso", "Visita atualizada!", parent=form_win)
+                else:
+                    self.db.add_visita(data)
+                    messagebox.showinfo("Sucesso", "Visita agendada!", parent=form_win)
+
+                form_win.destroy()
+                self.show_cronograma_view() # Refresh
+
+            except Exception as e:
+                messagebox.showerror("Erro", f"Erro ao salvar: {e}", parent=form_win)
+
+        ttk.Button(main_frame, text="Salvar Agendamento", command=save, style='Success.TButton').pack(pady=20)
+
+    def delete_visita_confirm(self, visita_id):
+        if messagebox.askyesno("Confirmar Exclusão", "Tem certeza que deseja excluir esta visita?"):
+            self.db.delete_visita(visita_id)
+            # Refresh current view
+            self.show_cronograma_view()
 
     def show_kanban_view(self):
         self.clear_content()
