@@ -1,3 +1,4 @@
+# Version: Fixed Indentation 2
 # -*- coding: utf-8 -*-
 """
 CRM Dolp Engenharia - Versão Completa com Todas as Melhorias
@@ -589,8 +590,25 @@ class DatabaseManager:
         with self._connect() as conn:
             return conn.execute("SELECT * FROM clientes WHERE id = ?", (client_id,)).fetchone()
 
+    # Fixed corruption in get_client_contacts
     def get_client_contacts(self, client_id):
+        with self._connect() as conn:
+            return conn.execute("SELECT * FROM crm_client_contacts WHERE client_id = ?", (client_id,)).fetchall()
 
+    def add_client(self, data, contacts=None):
+        with self._connect() as conn:
+            cursor = conn.cursor()
+            cursor.execute("INSERT INTO clientes (nome_empresa, cnpj, cidade, estado, setor_atuacao, segmento_atuacao, data_atualizacao, link_portal, status, resumo_atuacao) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (data['nome_empresa'], data['cnpj'], data['cidade'], data['estado'], data['setor_atuacao'], data['segmento_atuacao'], data['data_atualizacao'], data['link_portal'], data['status'], data.get('resumo_atuacao')))
+            client_id = cursor.lastrowid
+
+            if contacts:
+                for contact in contacts:
+                    cursor.execute("INSERT INTO crm_client_contacts (client_id, nome, funcao, telefone, email) VALUES (?, ?, ?, ?, ?)",
+                                   (client_id, contact['nome'], contact['funcao'], contact['telefone'], contact['email']))
+
+    def update_client(self, client_id, data, contacts=None):
+        with self._connect() as conn:
+            cursor = conn.cursor()
             cursor.execute("UPDATE clientes SET nome_empresa=?, cnpj=?, cidade=?, estado=?, setor_atuacao=?, segmento_atuacao=?, data_atualizacao=?, link_portal=?, status=?, resumo_atuacao=? WHERE id=?", (data['nome_empresa'], data['cnpj'], data['cidade'], data['estado'], data['setor_atuacao'], data['segmento_atuacao'], data['data_atualizacao'], data['link_portal'], data['status'], data.get('resumo_atuacao'), client_id))
 
             if contacts is not None:
@@ -3371,9 +3389,10 @@ class CRMApp:
         interactions_results_frame.pack(fill='both', expand=True, pady=(10,0))
 
         def _refilter_interactions():
-            # Limpar resultados antigos
-            for widget in interactions_results_frame.winfo_children():
-                widget.destroy()
+            # Limpar resultados antigos com verificação de existência
+            if interactions_results_frame.winfo_exists():
+                for widget in interactions_results_frame.winfo_children():
+                    widget.destroy()
 
             # Obter valores dos filtros
             tipo = tipo_int_filter.get()
@@ -3387,7 +3406,8 @@ class CRMApp:
                     # Formatação do cabeçalho e detalhes
                     header_text = f"{interacao['tipo']} - {interacao['data_interacao']}"
 
-
+                    # Safe access to column that might not exist in old rows or if column is missing (though migration ensures it)
+                    if 'responsavel_institucional' in interacao.keys() and interacao['responsavel_institucional']:
                         header_text += " (Resp. Institucional)"
 
                     int_frame = ttk.LabelFrame(interactions_results_frame, text=header_text, padding=10, style='White.TLabelframe')
@@ -3395,7 +3415,7 @@ class CRMApp:
 
                     user_info = f"Usuário: {interacao['usuario']}"
 
-
+                    if 'contato_nome' in interacao.keys() and interacao['contato_nome']:
                         user_info += f" | Falei com: {interacao['contato_nome']}"
 
                     ttk.Label(int_frame, text=user_info, style='Metric.White.TLabel').pack(anchor='w')
