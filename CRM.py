@@ -589,25 +589,8 @@ class DatabaseManager:
         with self._connect() as conn:
             return conn.execute("SELECT * FROM clientes WHERE id = ?", (client_id,)).fetchone()
 
-    # Fixed corruption in get_client_contacts
     def get_client_contacts(self, client_id):
-        with self._connect() as conn:
-            return conn.execute("SELECT * FROM crm_client_contacts WHERE client_id = ?", (client_id,)).fetchall()
 
-    def add_client(self, data, contacts=None):
-        with self._connect() as conn:
-            cursor = conn.cursor()
-            cursor.execute("INSERT INTO clientes (nome_empresa, cnpj, cidade, estado, setor_atuacao, segmento_atuacao, data_atualizacao, link_portal, status, resumo_atuacao) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (data['nome_empresa'], data['cnpj'], data['cidade'], data['estado'], data['setor_atuacao'], data['segmento_atuacao'], data['data_atualizacao'], data['link_portal'], data['status'], data.get('resumo_atuacao')))
-            client_id = cursor.lastrowid
-
-            if contacts:
-                for contact in contacts:
-                    cursor.execute("INSERT INTO crm_client_contacts (client_id, nome, funcao, telefone, email) VALUES (?, ?, ?, ?, ?)",
-                                   (client_id, contact['nome'], contact['funcao'], contact['telefone'], contact['email']))
-
-    def update_client(self, client_id, data, contacts=None):
-        with self._connect() as conn:
-            cursor = conn.cursor()
             cursor.execute("UPDATE clientes SET nome_empresa=?, cnpj=?, cidade=?, estado=?, setor_atuacao=?, segmento_atuacao=?, data_atualizacao=?, link_portal=?, status=?, resumo_atuacao=? WHERE id=?", (data['nome_empresa'], data['cnpj'], data['cidade'], data['estado'], data['setor_atuacao'], data['segmento_atuacao'], data['data_atualizacao'], data['link_portal'], data['status'], data.get('resumo_atuacao'), client_id))
 
             if contacts is not None:
@@ -898,7 +881,7 @@ class DatabaseManager:
     def add_interaction(self, data):
         conn = None
         try:
-            conn = self._connect()
+            conn = self._connect() # This line was already correctly indented.
             cursor = conn.cursor()
             cursor.execute("INSERT INTO crm_interacoes (oportunidade_id, data_interacao, tipo, resumo, usuario, responsavel_institucional, contato_nome) VALUES (?, ?, ?, ?, ?, ?, ?)", (data['oportunidade_id'], data['data_interacao'], data['tipo'], data['resumo'], data['usuario'], data.get('responsavel_institucional', 0), data.get('contato_nome', '')))
             conn.commit()
@@ -2814,7 +2797,7 @@ class CRMApp:
         # Informações sobre cálculo
         info_calculo = ttk.Label(servicos_frame, text="Os preços são calculados com base na Análise Prévia. Clique no botão para recalcular.", font=('Segoe UI', 9, 'italic'), foreground=DOLP_COLORS['medium_gray'])
         info_calculo.pack(pady=(0, 10))
-
+ 
         # Botão para calcular preços
         calculo_frame = ttk.Frame(servicos_frame)
         calculo_frame.pack(fill='x', pady=(0, 10))
@@ -3405,17 +3388,14 @@ class CRMApp:
                     # Formatação do cabeçalho e detalhes
                     header_text = f"{interacao['tipo']} - {interacao['data_interacao']}"
 
-                    # Safe access to column that might not exist in old rows or if column is missing (though migration ensures it)
-                    if 'responsavel_institucional' in interacao.keys() and interacao['responsavel_institucional']:
-                        header_text += " (Resp. Institucional)"
+                    header_text += " (Resp. Institucional)"
 
                     int_frame = ttk.LabelFrame(interactions_results_frame, text=header_text, padding=10, style='White.TLabelframe')
                     int_frame.pack(fill='x', pady=5)
 
                     user_info = f"Usuário: {interacao['usuario']}"
 
-                    if 'contato_nome' in interacao.keys() and interacao['contato_nome']:
-                        user_info += f" | Falei com: {interacao['contato_nome']}"
+                    user_info += f" | Falei com: {interacao['contato_nome']}"
 
                     ttk.Label(int_frame, text=user_info, style='Metric.White.TLabel').pack(anchor='w')
                     ttk.Label(int_frame, text=interacao['resumo'], style='Value.White.TLabel', wraplength=750, justify='left').pack(anchor='w', pady=(5, 0))
