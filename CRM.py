@@ -881,7 +881,7 @@ class DatabaseManager:
     def add_interaction(self, data):
         conn = None
         try:
-            conn = self._connect() # This line was already correctly indented.
+            conn = self._connect()
             cursor = conn.cursor()
             cursor.execute("INSERT INTO crm_interacoes (oportunidade_id, data_interacao, tipo, resumo, usuario, responsavel_institucional, contato_nome) VALUES (?, ?, ?, ?, ?, ?, ?)", (data['oportunidade_id'], data['data_interacao'], data['tipo'], data['resumo'], data['usuario'], data.get('responsavel_institucional', 0), data.get('contato_nome', '')))
             conn.commit()
@@ -2797,7 +2797,7 @@ class CRMApp:
         # Informações sobre cálculo
         info_calculo = ttk.Label(servicos_frame, text="Os preços são calculados com base na Análise Prévia. Clique no botão para recalcular.", font=('Segoe UI', 9, 'italic'), foreground=DOLP_COLORS['medium_gray'])
         info_calculo.pack(pady=(0, 10))
- 
+
         # Botão para calcular preços
         calculo_frame = ttk.Frame(servicos_frame)
         calculo_frame.pack(fill='x', pady=(0, 10))
@@ -3371,10 +3371,9 @@ class CRMApp:
         interactions_results_frame.pack(fill='both', expand=True, pady=(10,0))
 
         def _refilter_interactions():
-            # Limpar resultados antigos com verificação de existência
-            if interactions_results_frame.winfo_exists():
-                for widget in interactions_results_frame.winfo_children():
-                    widget.destroy()
+            # Limpar resultados antigos
+            for widget in interactions_results_frame.winfo_children():
+                widget.destroy()
 
             # Obter valores dos filtros
             tipo = tipo_int_filter.get()
@@ -3388,14 +3387,16 @@ class CRMApp:
                     # Formatação do cabeçalho e detalhes
                     header_text = f"{interacao['tipo']} - {interacao['data_interacao']}"
 
-                    header_text += " (Resp. Institucional)"
+
+                        header_text += " (Resp. Institucional)"
 
                     int_frame = ttk.LabelFrame(interactions_results_frame, text=header_text, padding=10, style='White.TLabelframe')
                     int_frame.pack(fill='x', pady=5)
 
                     user_info = f"Usuário: {interacao['usuario']}"
 
-                    user_info += f" | Falei com: {interacao['contato_nome']}"
+
+                        user_info += f" | Falei com: {interacao['contato_nome']}"
 
                     ttk.Label(int_frame, text=user_info, style='Metric.White.TLabel').pack(anchor='w')
                     ttk.Label(int_frame, text=interacao['resumo'], style='Value.White.TLabel', wraplength=750, justify='left').pack(anchor='w', pady=(5, 0))
