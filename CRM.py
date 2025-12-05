@@ -1304,6 +1304,20 @@ class DatabaseManager:
                 if filters.get('responsavel_id'):
                     conditions.append("v.responsavel_id = ?")
                     params.append(filters['responsavel_id'])
+                if filters.get('active_on_date'):
+                    target_date = filters['active_on_date']
+                    # Visit is active if Start <= Target AND (End >= Target OR End is missing)
+                    # We treat missing end date as end=start.
+                    conditions.append("substr(v.data_ida, 1, 10) <= ?")
+                    params.append(target_date)
+                    conditions.append("""
+                        CASE
+                            WHEN v.data_volta IS NOT NULL AND v.data_volta != ''
+                            THEN substr(v.data_volta, 1, 10)
+                            ELSE substr(v.data_ida, 1, 10)
+                        END >= ?
+                    """)
+                    params.append(target_date)
 
             if conditions:
                 query += " WHERE " + " AND ".join(conditions)
@@ -2056,14 +2070,7 @@ class CRMApp:
                     return
 
             # Buscar visitas que começam ou atravessam essa data
-            # Simples: Visitas que começam neste dia
-            # Mais complexo: Visitas onde data_ida <= selected <= data_volta
-            # Vamos começar com "Iniciam neste dia" para simplificar a visualização diária, ou pegar filtro customizado
-            # O filtro `get_visitas` que fiz pega range start/end.
-            # Vou buscar todas do mês e filtrar em python ou chamar get_visitas específico.
-
-            # Vamos usar o get_visitas com range do dia específico
-            all_visits = self.db.get_visitas({'start_date': date_db_str, 'end_date': date_db_str})
+            all_visits = self.db.get_visitas({'active_on_date': date_db_str})
 
             if not all_visits:
                 ttk.Label(visits_scrollable_frame, text="Nenhuma visita agendada para este dia.", style='Value.White.TLabel').pack(pady=20, padx=10)
@@ -2111,38 +2118,39 @@ class CRMApp:
         self.calendar.bind("<<CalendarSelected>>", load_visits_for_date)
 
         def mark_calendar_days():
-            # Remove all existing tags/events markers (tkcalendar doesn't have easy clear, so we just re-add)
+            # Remove all existing tags/events markers
             # Fetch all visits
             visits = self.db.get_visitas()
 
-            # Agrupar por data
-            visits_by_date = {}
             for v in visits:
                 try:
-                    # Parse data_ida which is ISO format YYYY-MM-DD HH:MM:SS or YYYY-MM-DD
-                    date_str = v['data_ida'].split(' ')[0] # Get YYYY-MM-DD
-                    date_obj = datetime.strptime(date_str, '%Y-%m-%d').date()
-                    if date_obj not in visits_by_date:
-                        visits_by_date[date_obj] = []
-                    visits_by_date[date_obj].append(v)
-                except (ValueError, IndexError):
-                    continue
+                    # Parse start date
+                    start_str = v['data_ida'].split(' ')[0]
+                    start_date = datetime.strptime(start_str, '%Y-%m-%d').date()
 
-            for date_obj, v_list in visits_by_date.items():
-                # Add event to calendar
-                # tkcalendar doesn't support multiple colors per day easily in standard mode without heavy customization
-                # We will use the color of the first event or a default 'has_event' color
-                # And maybe a tooltip or just the indicator.
-                # `calevent_create(date, text, tags)`
+                    # Parse end date (or use start date if missing)
+                    if v['data_volta']:
+                        end_str = v['data_volta'].split(' ')[0]
+                        end_date = datetime.strptime(end_str, '%Y-%m-%d').date()
+                    else:
+                        end_date = start_date
 
-                # We can create an event for each visit to allow distinct coloring if supported
-                for v in v_list:
+                    # Ensure end date is not before start date
+                    if end_date < start_date:
+                        end_date = start_date
+
                     color = v['cor'] if v['cor'] else 'blue'
-                    # Create a tag for this color if not exists
                     tag_name = f"tag_{color}"
                     self.calendar.tag_config(tag_name, background=color, foreground='white')
 
-                    self.calendar.calevent_create(date_obj, v['pautas'] or "Visita", tags=tag_name)
+                    # Loop through range and add event for each day
+                    current_date = start_date
+                    while current_date <= end_date:
+                        self.calendar.calevent_create(current_date, v['pautas'] or "Visita", tags=tag_name)
+                        current_date += timedelta(days=1)
+
+                except (ValueError, IndexError):
+                    continue
 
         # Initial Load
         mark_calendar_days()
