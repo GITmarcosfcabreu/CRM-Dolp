@@ -411,6 +411,23 @@ class DatabaseManager:
                                 FOREIGN KEY(responsavel_id) REFERENCES crm_users(id)
                            )''')
 
+            # Tabela de Termos Aditivos
+            cursor.execute('''CREATE TABLE IF NOT EXISTS crm_termos_aditivos (
+                                id INTEGER PRIMARY KEY,
+                                oportunidade_id INTEGER NOT NULL,
+                                numero_termo TEXT,
+                                data_assinatura TEXT,
+                                data_inicio TEXT,
+                                data_fim TEXT,
+                                tipo_alteracao TEXT,
+                                valor_adicionado_mensal REAL DEFAULT 0,
+                                prazo_adicionado_meses INTEGER DEFAULT 0,
+                                servicos_data TEXT,
+                                valor_global_aditivo REAL DEFAULT 0,
+                                observacoes TEXT,
+                                FOREIGN KEY (oportunidade_id) REFERENCES oportunidades(id) ON DELETE CASCADE
+                           )''')
+
             self._populate_initial_data(cursor)
 
     def _run_migrations(self):
@@ -1362,6 +1379,47 @@ class DatabaseManager:
     def delete_visita(self, visita_id):
         with self._connect() as conn:
             conn.execute("DELETE FROM crm_visitas WHERE id = ?", (visita_id,))
+
+    # Métodos de Termos Aditivos
+    def get_termos_aditivos(self, op_id):
+        with self._connect() as conn:
+            return conn.execute("SELECT * FROM crm_termos_aditivos WHERE oportunidade_id = ? ORDER BY data_assinatura", (op_id,)).fetchall()
+
+    def get_termo_aditivo_by_id(self, termo_id):
+        with self._connect() as conn:
+            return conn.execute("SELECT * FROM crm_termos_aditivos WHERE id = ?", (termo_id,)).fetchone()
+
+    def add_termo_aditivo(self, data):
+        with self._connect() as conn:
+            conn.execute("""
+                INSERT INTO crm_termos_aditivos
+                (oportunidade_id, numero_termo, data_assinatura, data_inicio, data_fim, tipo_alteracao,
+                 valor_adicionado_mensal, prazo_adicionado_meses, servicos_data, valor_global_aditivo, observacoes)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                data['oportunidade_id'], data['numero_termo'], data['data_assinatura'],
+                data['data_inicio'], data['data_fim'], data['tipo_alteracao'],
+                data.get('valor_adicionado_mensal', 0), data.get('prazo_adicionado_meses', 0),
+                data.get('servicos_data'), data.get('valor_global_aditivo', 0), data.get('observacoes')
+            ))
+
+    def update_termo_aditivo(self, termo_id, data):
+        with self._connect() as conn:
+            conn.execute("""
+                UPDATE crm_termos_aditivos SET
+                numero_termo=?, data_assinatura=?, data_inicio=?, data_fim=?, tipo_alteracao=?,
+                valor_adicionado_mensal=?, prazo_adicionado_meses=?, servicos_data=?, valor_global_aditivo=?, observacoes=?
+                WHERE id=?
+            """, (
+                data['numero_termo'], data['data_assinatura'], data['data_inicio'], data['data_fim'],
+                data['tipo_alteracao'], data.get('valor_adicionado_mensal', 0), data.get('prazo_adicionado_meses', 0),
+                data.get('servicos_data'), data.get('valor_global_aditivo', 0), data.get('observacoes'),
+                termo_id
+            ))
+
+    def delete_termo_aditivo(self, termo_id):
+        with self._connect() as conn:
+            conn.execute("DELETE FROM crm_termos_aditivos WHERE id = ?", (termo_id,))
 
 
 # --- 4. SERVIÇO DE NOTÍCIAS ---
@@ -4161,7 +4219,97 @@ class CRMApp:
 
         _refresh_events()
 
-        # Aba 5: Tarefas
+        # Aba 5: Termos Aditivos
+        aditivos_tab = self._create_scrollable_tab(notebook, '  Termos Aditivos  ')
+
+        # === CONTEÚDO DA ABA DE TERMOS ADITIVOS ===
+        # Resumo
+        summary_aditivo_frame = ttk.LabelFrame(aditivos_tab, text="Resumo Financeiro e Contratual", padding=15, style='White.TLabelframe')
+        summary_aditivo_frame.pack(fill='x', pady=(0, 10))
+
+        # Cálculos
+        original_value = op_data['valor'] if 'valor' in op_keys else 0
+        aditivos = self.db.get_termos_aditivos(op_id)
+        total_aditivos = sum(a['valor_global_aditivo'] for a in aditivos)
+        current_global = original_value + total_aditivos
+
+        # Data Fim Original (estimada baseada na duração)
+        data_fim_original = "---"
+        data_fim_atual = "---"
+
+        # Tentativa de calcular data fim original
+        # Isso depende de termos data_assinatura ou data_inicio_contrato na oportunidade, que talvez não tenhamos explicitamente
+        # Mas podemos usar a data_criacao ou data_abertura como proxy se não houver melhor campo
+        # O ideal seria ter um campo 'data_inicio_vigencia' na oportunidade.
+        # Por enquanto, vamos exibir o que temos.
+
+
+        summary_aditivo_frame.columnconfigure(1, weight=1)
+        summary_aditivo_frame.columnconfigure(3, weight=1)
+
+        ttk.Label(summary_aditivo_frame, text="Valor Inicial:", style='Metric.White.TLabel').grid(row=0, column=0, sticky='w')
+        ttk.Label(summary_aditivo_frame, text=format_currency(original_value), style='Value.White.TLabel').grid(row=0, column=1, sticky='w')
+
+        ttk.Label(summary_aditivo_frame, text="Total em Aditivos:", style='Metric.White.TLabel').grid(row=0, column=2, sticky='w')
+        ttk.Label(summary_aditivo_frame, text=format_currency(total_aditivos), style='Value.White.TLabel', foreground=DOLP_COLORS['primary_blue']).grid(row=0, column=3, sticky='w')
+
+        ttk.Label(summary_aditivo_frame, text="Valor Global Atual:", style='Metric.White.TLabel').grid(row=1, column=0, sticky='w', pady=(10,0))
+        ttk.Label(summary_aditivo_frame, text=format_currency(current_global), style='Value.White.TLabel', font=('Segoe UI', 12, 'bold')).grid(row=1, column=1, sticky='w', pady=(10,0))
+
+        # Botão Novo Termo
+        ttk.Button(summary_aditivo_frame, text="Novo Termo Aditivo", style='Success.TButton',
+                   command=lambda: self.show_termo_aditivo_form(op_id, parent_win=details_win)).grid(row=1, column=3, sticky='e', pady=(10,0))
+
+        # Tabela de Histórico
+        history_aditivo_frame = ttk.LabelFrame(aditivos_tab, text="Histórico de Termos", padding=15, style='White.TLabelframe')
+        history_aditivo_frame.pack(fill='both', expand=True, pady=10)
+
+        cols_aditivo = ('numero', 'data', 'tipo', 'mensal', 'prazo', 'global')
+        tree_aditivo = ttk.Treeview(history_aditivo_frame, columns=cols_aditivo, show='headings', height=8)
+
+        tree_aditivo.heading('numero', text='Nº Termo')
+        tree_aditivo.heading('data', text='Data Assinatura')
+        tree_aditivo.heading('tipo', text='Tipo')
+        tree_aditivo.heading('mensal', text='Adic. Mensal')
+        tree_aditivo.heading('prazo', text='Prazo (+)')
+        tree_aditivo.heading('global', text='Valor Global Aditivo')
+
+        tree_aditivo.column('numero', width=100)
+        tree_aditivo.column('data', width=100)
+        tree_aditivo.column('tipo', width=150)
+        tree_aditivo.column('mensal', width=120)
+        tree_aditivo.column('prazo', width=80)
+        tree_aditivo.column('global', width=120)
+
+        aditivo_scrollbar = ttk.Scrollbar(history_aditivo_frame, orient="vertical", command=tree_aditivo.yview)
+        tree_aditivo.configure(yscrollcommand=aditivo_scrollbar.set)
+
+        tree_aditivo.pack(side='left', fill='both', expand=True)
+        aditivo_scrollbar.pack(side='right', fill='y')
+
+        if aditivos:
+            for aditivo in aditivos:
+                tree_aditivo.insert('', 'end', values=(
+                    aditivo['numero_termo'],
+                    aditivo['data_assinatura'],
+                    aditivo['tipo_alteracao'],
+                    format_currency(aditivo['valor_adicionado_mensal']),
+                    f"{aditivo['prazo_adicionado_meses']} meses",
+                    format_currency(aditivo['valor_global_aditivo'])
+                ))
+
+        # Double click to view details (could implement edit/view logic later)
+        # For now, maybe just show JSON or simple view? Or allow delete.
+        def on_aditivo_double_click(event):
+            selection = tree_aditivo.selection()
+            if selection:
+                # Logic to edit or view details
+                pass
+
+        tree_aditivo.bind("<Double-1>", on_aditivo_double_click)
+
+
+        # Aba 6: Tarefas
         tarefas_tab = self._create_scrollable_tab(notebook, '  Tarefas  ')
 
         # --- Filtros para Tarefas ---
@@ -4881,6 +5029,338 @@ class CRMApp:
 
 
         ttk.Button(dialog, text="Salvar", command=save_interaction, style='Success.TButton').pack(pady=10)
+
+    def show_termo_aditivo_form(self, op_id, termo_id=None, parent_win=None):
+        form_win = Toplevel(parent_win if parent_win else self.root)
+        form_win.title("Novo Termo Aditivo" if not termo_id else "Editar Termo Aditivo")
+        form_win.geometry("900x800")
+        form_win.configure(bg=DOLP_COLORS['white'])
+
+        main_frame = ttk.Frame(form_win, padding=20, style='TFrame')
+        main_frame.pack(fill='both', expand=True)
+
+        # Scrollable Content
+        canvas = tk.Canvas(main_frame, bg=DOLP_COLORS['white'], highlightthickness=0)
+        scrollbar = ttk.Scrollbar(main_frame, orient="vertical", command=canvas.yview)
+        scrollable_frame = ttk.Frame(canvas, style='TFrame', padding=(0,0,20,0))
+
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        def _on_mousewheel(event):
+            canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
+        canvas.bind_all("<MouseWheel>", _on_mousewheel)
+        form_win.bind("<Destroy>", lambda e: canvas.unbind_all("<MouseWheel>"))
+
+
+        ttk.Label(scrollable_frame, text="Dados do Termo Aditivo", style='Title.TLabel').pack(pady=(0, 20))
+
+        entries = {}
+
+        # Basic Fields
+        basic_frame = ttk.LabelFrame(scrollable_frame, text="Informações Gerais", padding=15, style='White.TLabelframe')
+        basic_frame.pack(fill='x', pady=(0, 10))
+
+        fields = [
+            ("Número do Termo:*", "numero_termo", "entry"),
+            ("Data Assinatura:*", "data_assinatura", "date"),
+            ("Data Início Vigência:", "data_inicio", "date"),
+            ("Data Fim Vigência:", "data_fim", "date"),
+            ("Tipo de Alteração:", "tipo_alteracao", "combobox", ["Reajuste de Valor", "Prorrogação de Prazo", "Alteração de Escopo", "Outros"]),
+            ("Prazo Adicionado (meses):", "prazo_adicionado_meses", "entry"),
+            ("Observações:", "observacoes", "text")
+        ]
+
+        for i, field_info in enumerate(fields):
+            text, key = field_info[0], field_info[1]
+            row_frame = ttk.Frame(basic_frame, style='TFrame')
+            row_frame.pack(fill='x', pady=2)
+            ttk.Label(row_frame, text=text, style='TLabel', width=25).pack(side='left')
+
+            if len(field_info) > 3:
+                widget = ttk.Combobox(row_frame, values=field_info[3], state='readonly')
+            elif field_info[2] == "date":
+                widget = DateEntry(row_frame, date_pattern='dd/mm/yyyy', width=15)
+            elif field_info[2] == "text":
+                widget = tk.Text(row_frame, height=3, width=40, font=('Segoe UI', 10))
+            else:
+                widget = ttk.Entry(row_frame)
+
+            widget.pack(side='left', fill='x', expand=True, padx=10)
+            entries[key] = widget
+
+        # --- Reusing Analysis Logic for Teams ---
+        servicos_frame_wrapper = ttk.LabelFrame(scrollable_frame, text="Escopo e Equipes (Adicionar/Remover)", padding=15, style='White.TLabelframe')
+        servicos_frame_wrapper.pack(fill='x', pady=(10, 10))
+
+        servicos = self.db.get_all_servicos()
+        servico_map = {s['nome']: s['id'] for s in servicos}
+        servico_names = [s['nome'] for s in servicos if s['ativa']]
+
+        # Checkboxes for services
+        tipos_vars = {}
+        for nome in servico_names:
+            tipos_vars[nome] = tk.BooleanVar()
+
+        # Frame for checkboxes
+        cb_frame = ttk.Frame(servicos_frame_wrapper, style='TFrame')
+        cb_frame.pack(fill='x', pady=5)
+
+        col_count = 4
+        for idx, (nome, var) in enumerate(tipos_vars.items()):
+            row = idx // col_count
+            col = idx % col_count
+            cb = ttk.Checkbutton(cb_frame, text=nome, variable=var, command=lambda: _update_servicos_ui())
+            cb.grid(row=row, column=col, sticky='w', padx=5, pady=2)
+
+        # Dynamic area for services
+        servicos_config_frame = ttk.Frame(servicos_frame_wrapper, style='TFrame')
+        servicos_config_frame.pack(fill='x', pady=10)
+
+        servico_frames = {}
+        servico_equipes_data = {} # Stores list of widgets for each service
+
+        # Helper data for teams
+        empresas_ref_list = self.db.get_all_empresas_referencia()
+        empresa_ref_options = sorted(list(set([f"{e['nome_empresa']} - {e['estado']} - {e['tipo_servico']}" for e in empresas_ref_list if e['ativa']])))
+
+        def _add_equipe_row(servico_id, servico_nome, container, row_data=None):
+            row_frame = ttk.Frame(container, padding=(0, 5))
+            row_frame.pack(fill='x', expand=True, pady=2)
+
+            row_widgets = {}
+
+            team_types = self.db.get_team_types_for_service(servico_id)
+            team_type_names = [t['nome'] for t in team_types]
+
+            # Simplified row compared to full analysis (no base selection logic dependency for now)
+            # Or replicate base selection if we want strict parity.
+            # For Aditivo, maybe we assume bases are already defined or just text input for simplicity?
+            # Let's keep it consistent: text input for base if list not available from Op context easily.
+            # Actually, let's fetch bases from the Op to be helpful.
+            op_details = self.db.get_opportunity_details(op_id)
+            bases_json = op_details['bases_nomes'] if op_details and 'bases_nomes' in op_details.keys() else '[]'
+            try:
+                base_names = json.loads(bases_json)
+            except:
+                base_names = []
+
+            if not base_names: base_names = ["Base Única"] # Fallback
+
+            # Widgets
+            ttk.Label(row_frame, text="Tipo:").pack(side='left', padx=(0,2))
+            tipo_combo = ttk.Combobox(row_frame, values=team_type_names, state='readonly', width=25)
+            tipo_combo.pack(side='left', padx=2)
+            row_widgets['tipo_combo'] = tipo_combo
+
+            ttk.Label(row_frame, text="Qtd:").pack(side='left', padx=(5,2))
+            qtd_entry = ttk.Entry(row_frame, width=4)
+            qtd_entry.pack(side='left', padx=2)
+            row_widgets['qtd_entry'] = qtd_entry
+
+            ttk.Label(row_frame, text="Vol:").pack(side='left', padx=(5,2))
+            vol_entry = ttk.Entry(row_frame, width=6)
+            vol_entry.pack(side='left', padx=2)
+            row_widgets['vol_entry'] = vol_entry
+
+            ttk.Label(row_frame, text="Base:").pack(side='left', padx=(5,2))
+            base_combo = ttk.Combobox(row_frame, values=base_names, width=12) # Allow typing if needed
+            base_combo.pack(side='left', padx=2)
+            row_widgets['base_combo'] = base_combo
+
+            ttk.Label(row_frame, text="Ref:").pack(side='left', padx=(5,2))
+            empresa_combo = ttk.Combobox(row_frame, values=empresa_ref_options, width=25) # state normal to allow filtering? keep readonly for now
+            empresa_combo.pack(side='left', padx=2)
+            row_widgets['empresa_combo'] = empresa_combo
+
+            # Pre-fill if editing
+            if row_data:
+                tipo_combo.set(row_data.get('tipo_equipe', ''))
+                qtd_entry.insert(0, row_data.get('quantidade', ''))
+                vol_entry.insert(0, row_data.get('volumetria', ''))
+                base_combo.set(row_data.get('base', ''))
+                empresa_combo.set(row_data.get('empresa_referencia', ''))
+
+            def remove_row():
+                if row_widgets in servico_equipes_data[servico_nome]:
+                    servico_equipes_data[servico_nome].remove(row_widgets)
+                row_frame.destroy()
+                calculate_values()
+
+            ttk.Button(row_frame, text="X", command=remove_row, style='Danger.TButton', width=2).pack(side='right', padx=5)
+
+            # Bind events for calculation
+            qtd_entry.bind('<KeyRelease>', lambda e: calculate_values())
+
+            # Add to list
+            if servico_nome not in servico_equipes_data:
+                servico_equipes_data[servico_nome] = []
+            servico_equipes_data[servico_nome].append(row_widgets)
+
+        def _update_servicos_ui():
+            for servico_nome, var in tipos_vars.items():
+                if var.get():
+                    if servico_nome not in servico_frames:
+                        servico_id = servico_map[servico_nome]
+
+                        frame = ttk.LabelFrame(servicos_config_frame, text=f"{servico_nome}", padding=10)
+                        frame.pack(fill='x', expand=True, pady=5, padx=5)
+                        servico_frames[servico_nome] = frame
+
+                        equipes_container = ttk.Frame(frame)
+                        equipes_container.pack(fill='x', expand=True)
+
+                        add_button = ttk.Button(frame, text="+ Adicionar Equipe", style='Success.TButton',
+                                                command=lambda s_id=servico_id, s_nome=servico_nome, c=equipes_container: _add_equipe_row(s_id, s_nome, c))
+                        add_button.pack(pady=5, anchor='w')
+
+                        if servico_nome not in servico_equipes_data:
+                            servico_equipes_data[servico_nome] = []
+                else:
+                    if servico_nome in servico_frames:
+                        servico_frames[servico_nome].destroy()
+                        del servico_frames[servico_nome]
+                        # Do not delete data immediately? Better to clear to avoid saving hidden data
+                        if servico_nome in servico_equipes_data:
+                            del servico_equipes_data[servico_nome]
+            calculate_values()
+
+        # Calculation Logic
+        total_monthly_var = tk.StringVar(value="R$ 0,00")
+        total_global_var = tk.StringVar(value="R$ 0,00")
+
+        def calculate_values():
+            total_mensal = 0.0
+
+            # Iterate through all configured teams
+            for s_nome, widgets_list in servico_equipes_data.items():
+                for w in widgets_list:
+                    try:
+                        qtd = float(w['qtd_entry'].get().replace(',', '.'))
+                        ref_string = w['empresa_combo'].get()
+                        # Extract price from reference
+                        # Need to fetch price from DB based on selection string "Name - State - Service"
+                        # Or we can just try to find the matching empresa record
+
+                        if ref_string:
+                            # Use locally available list instead of DB call
+                            for e in empresas_ref_list:
+                                e_str = f"{e['nome_empresa']} - {e['estado']} - {e['tipo_servico']}"
+                                if e_str == ref_string:
+                                    price = e['valor_mensal']
+                                    total_mensal += price * qtd
+                                    break
+                    except (ValueError, IndexError):
+                        continue
+
+            total_monthly_var.set(format_currency(total_mensal))
+
+            # Calculate Global
+            try:
+                months = float(entries['prazo_adicionado_meses'].get().replace(',', '.'))
+            except ValueError:
+                months = 0
+
+            # Note: This simple calculation assumes the monthly addition lasts for the added duration
+            # OR for the remaining contract duration?
+            # The requirement says "Valor global... somatório... sem decréscimo".
+            # Usually Additive Global Value = Monthly Added * Duration.
+
+            total_global = total_mensal * months
+            total_global_var.set(format_currency(total_global))
+
+        # Financial Summary Section
+        fin_frame = ttk.LabelFrame(scrollable_frame, text="Impacto Financeiro (Calculado)", padding=15, style='White.TLabelframe')
+        fin_frame.pack(fill='x', pady=10)
+
+        ttk.Label(fin_frame, text="Valor Adicionado Mensal:", style='Metric.White.TLabel').grid(row=0, column=0, sticky='w')
+        ttk.Label(fin_frame, textvariable=total_monthly_var, style='Value.White.TLabel', font=('Segoe UI', 11, 'bold')).grid(row=0, column=1, sticky='w', padx=20)
+
+        ttk.Label(fin_frame, text="Valor Global do Aditivo:", style='Metric.White.TLabel').grid(row=1, column=0, sticky='w', pady=(10,0))
+        ttk.Label(fin_frame, textvariable=total_global_var, style='Value.White.TLabel', font=('Segoe UI', 12, 'bold'), foreground=DOLP_COLORS['success_green']).grid(row=1, column=1, sticky='w', padx=20, pady=(10,0))
+
+        # Bind events to recalc when duration changes
+        entries['prazo_adicionado_meses'].bind('<KeyRelease>', lambda e: calculate_values())
+
+        # Save Button
+        def save_termo():
+            # Validate
+            if not entries['numero_termo'].get() or not entries['data_assinatura'].get():
+                messagebox.showerror("Erro", "Número do Termo e Data de Assinatura são obrigatórios.", parent=form_win)
+                return
+
+            # Construct servicos_data JSON
+            final_servicos_data = []
+            for s_nome, w_list in servico_equipes_data.items():
+                equipes = []
+                for w in w_list:
+                    equipes.append({
+                        'tipo_equipe': w['tipo_combo'].get(),
+                        'quantidade': w['qtd_entry'].get(),
+                        'volumetria': w['vol_entry'].get(),
+                        'base': w['base_combo'].get(),
+                        'empresa_referencia': w['empresa_combo'].get()
+                    })
+                if equipes:
+                    final_servicos_data.append({'servico_nome': s_nome, 'equipes': equipes})
+
+            # Get calculated values
+            try:
+                val_mensal = parse_brazilian_currency(total_monthly_var.get().replace('R$', '').strip())
+                val_global = parse_brazilian_currency(total_global_var.get().replace('R$', '').strip())
+                prazo = 0
+                try:
+                    prazo = int(entries['prazo_adicionado_meses'].get())
+                except: pass
+            except:
+                val_mensal = 0
+                val_global = 0
+                prazo = 0
+
+            # Data object
+            data = {
+                'oportunidade_id': op_id,
+                'numero_termo': entries['numero_termo'].get(),
+                'data_assinatura': entries['data_assinatura'].get(),
+                'data_inicio': entries['data_inicio'].get(),
+                'data_fim': entries['data_fim'].get(),
+                'tipo_alteracao': entries['tipo_alteracao'].get(),
+                'prazo_adicionado_meses': prazo,
+                'valor_adicionado_mensal': val_mensal,
+                'valor_global_aditivo': val_global,
+                'observacoes': entries['observacoes'].get("1.0", "end-1c"),
+                'servicos_data': json.dumps(final_servicos_data)
+            }
+
+            if termo_id:
+                self.db.update_termo_aditivo(termo_id, data)
+                messagebox.showinfo("Sucesso", "Termo Aditivo atualizado!", parent=form_win)
+            else:
+                self.db.add_termo_aditivo(data)
+                messagebox.showinfo("Sucesso", "Termo Aditivo criado!", parent=form_win)
+
+            form_win.destroy()
+            # Refresh details view if parent exists
+            if parent_win:
+                parent_win.destroy()
+                self.show_opportunity_details(op_id)
+
+        ttk.Button(scrollable_frame, text="Salvar Termo Aditivo", style='Success.TButton', command=save_termo).pack(pady=20)
+
+        # Pre-load data if editing (termo_id)
+        if termo_id:
+            # TODO: Implement loading logic if edit is needed.
+            # For now, this is primarily for creation as per user request flow emphasis.
+            pass
+
 
     def add_task_dialog(self, op_id, parent_win):
         dialog = Toplevel(parent_win)
