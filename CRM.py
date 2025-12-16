@@ -1429,7 +1429,7 @@ class NewsService:
         self.gemini_api_key = os.environ.get('GEMINI_API_KEY')
         if self.gemini_api_key:
             genai.configure(api_key=self.gemini_api_key)
-            self.model = genai.GenerativeModel('gemini-1.5-flash')
+            self.model = genai.GenerativeModel('gemini-flash-latest')
         else:
             self.model = None
             print("AVISO: Chave da API do Gemini não configurada.")
