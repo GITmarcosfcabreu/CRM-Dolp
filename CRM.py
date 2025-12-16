@@ -1152,6 +1152,46 @@ class DatabaseManager:
         with self._connect() as conn:
             return conn.execute("SELECT * FROM crm_empresas_referencia WHERE nome_empresa = ? AND tipo_servico = ? AND ativa = 1", (nome_empresa, tipo_servico)).fetchone()
 
+    def get_empresa_referencia_price_by_string(self, ref_string):
+        """
+        Parses 'Name - State - Service' string and returns the monthly value.
+        Returns 0.0 if not found or parse error.
+        """
+        if not ref_string:
+            return 0.0
+        try:
+            # Expecting "Name - State - Service Type"
+            # Split by ' - ' which is the separator used in UI
+            parts = ref_string.split(' - ')
+            if len(parts) >= 3:
+                # Name is first part
+                # Service is last part
+                # State is middle (parts[1]) - but we might not strictly need it for unique lookup if name+service is unique enough,
+                # but let's use what we have or try match.
+                # Actually, get_empresa_referencia_by_nome_e_tipo uses name and service.
+                # State is extra.
+                # If name contains ' - ', this split might be tricky.
+                # Assuming standard format: "Name" - "UF" - "Service"
+                # Name might be "Company A", Service "Type B"
+
+                # Careful: The name itself might contain " - ".
+                # But the UI constructs it as: f"{e['nome_empresa']} - {e['estado']} - {e['tipo_servico']}"
+                # Service types are fixed strings. States are 2 chars.
+
+                # Let's try to parse from the end?
+                # Service is the last part. State is the second to last. Name is everything before.
+
+                tipo_servico = parts[-1]
+                # estado = parts[-2] # Not used in query currently but could be added
+                nome_empresa = " - ".join(parts[:-2])
+
+                empresa = self.get_empresa_referencia_by_nome_e_tipo(nome_empresa, tipo_servico)
+                if empresa:
+                    return empresa['valor_mensal']
+        except Exception:
+            pass
+        return 0.0
+
     # --- Métodos para o Dashboard ---
     def get_opportunity_stats_by_client(self):
         """Retorna contagem e valor total de oportunidades por cliente."""
@@ -4042,12 +4082,31 @@ class CRMApp:
                         else:
                             for equipe in equipes:
                                 equipe_nome = equipe.get('tipo_equipe', 'N/A')
-                                qtd = equipe.get('quantidade', 'N/A')
-                                vol = equipe.get('volumetria', 'N/A')
+                                qtd_str = equipe.get('quantidade', '0')
+                                vol_str = equipe.get('volumetria', '0')
                                 base = equipe.get('base', 'N/A')
-                                empresa_ref = equipe.get('empresa_referencia', 'N/A')
-                                info_text = f"  - Equipe: {equipe_nome} | Qtd: {qtd} | Volumetria: {vol} | Base: {base} | Ref: {empresa_ref}"
-                                ttk.Label(servicos_frame, text=info_text, style='Value.White.TLabel').pack(anchor='w', padx=(15,0))
+                                empresa_ref = equipe.get('empresa_referencia', '')
+
+                                # Calculations
+                                try:
+                                    qtd = float(str(qtd_str).replace(',', '.'))
+                                except: qtd = 0.0
+
+                                try:
+                                    vol = float(str(vol_str).replace(',', '.'))
+                                except: vol = 0.0
+
+                                unit_price = self.db.get_empresa_referencia_price_by_string(empresa_ref)
+                                total_team_value = unit_price * qtd
+                                value_us_ups_upe = (total_team_value / vol) if vol > 0 else 0.0
+
+                                info_text = f"  - Equipe: {equipe_nome} | Qtd: {qtd_str} | Volumetria: {vol_str} | Base: {base} | Ref: {empresa_ref}"
+                                calc_text = f"    Valor Total Equipe: {format_currency(total_team_value)} | Valor US/UPS/UPE: {format_currency(value_us_ups_upe)}"
+
+                                team_frame = ttk.Frame(servicos_frame)
+                                team_frame.pack(fill='x', padx=(15,0), pady=2)
+                                ttk.Label(team_frame, text=info_text, style='Value.White.TLabel').pack(anchor='w')
+                                ttk.Label(team_frame, text=calc_text, style='Value.White.TLabel', foreground=DOLP_COLORS['secondary_blue']).pack(anchor='w')
             except (json.JSONDecodeError, TypeError):
                 print(f"Alerta: Falha ao carregar dados de serviço na tela de detalhes: {servicos_data_json_str}")
         descricao_detalhada = op_data['descricao_detalhada'] if 'descricao_detalhada' in op_keys else None
@@ -4289,7 +4348,7 @@ class CRMApp:
 
         if aditivos:
             for aditivo in aditivos:
-                tree_aditivo.insert('', 'end', values=(
+                tree_aditivo.insert('', 'end', tags=(str(aditivo['id']),), values=(
                     aditivo['numero_termo'],
                     aditivo['data_assinatura'],
                     aditivo['tipo_alteracao'],
@@ -4298,16 +4357,38 @@ class CRMApp:
                     format_currency(aditivo['valor_global_aditivo'])
                 ))
 
-        # Double click to view details (could implement edit/view logic later)
-        # For now, maybe just show JSON or simple view? Or allow delete.
+        def on_aditivo_right_click(event):
+            selection = tree_aditivo.selection()
+            if selection:
+                # Get ID from tags
+                item_id = selection[0]
+                aditivo_id = tree_aditivo.item(item_id, 'tags')[0]
+
+                menu = tk.Menu(self.root, tearoff=0)
+                menu.add_command(label="Editar", command=lambda: self.show_termo_aditivo_form(op_id, aditivo_id, parent_win=details_win))
+                menu.add_command(label="Exportar PDF (Sumário Executivo)", command=lambda: self.export_termo_aditivo_pdf(aditivo_id))
+                menu.add_separator()
+                menu.add_command(label="Excluir", command=lambda: self.delete_termo_aditivo_confirm(aditivo_id, op_id, details_win))
+                menu.tk_popup(event.x_root, event.y_root)
+
+        tree_aditivo.bind("<Button-3>", on_aditivo_right_click)
+
+        # Double click to edit
         def on_aditivo_double_click(event):
             selection = tree_aditivo.selection()
             if selection:
-                # Logic to edit or view details
-                pass
+                item_id = selection[0]
+                aditivo_id = tree_aditivo.item(item_id, 'tags')[0]
+                self.show_termo_aditivo_form(op_id, aditivo_id, parent_win=details_win)
 
         tree_aditivo.bind("<Double-1>", on_aditivo_double_click)
 
+    def delete_termo_aditivo_confirm(self, termo_id, op_id, parent_win):
+        if messagebox.askyesno("Confirmar Exclusão", "Tem certeza que deseja excluir este termo aditivo?"):
+            self.db.delete_termo_aditivo(termo_id)
+            messagebox.showinfo("Sucesso", "Termo Aditivo excluído.")
+            parent_win.destroy()
+            self.show_opportunity_details(op_id)
 
         # Aba 6: Tarefas
         tarefas_tab = self._create_scrollable_tab(notebook, '  Tarefas  ')
@@ -4561,15 +4642,35 @@ class CRMApp:
                             story.append(Paragraph(f"<b>Serviço: {servico_info.get('servico_nome', 'N/A')}</b>", styles['h4']))
                             equipes = servico_info.get('equipes', [])
                             if equipes:
-                                equipe_data = [['Tipo de Equipe', 'Qtd', 'Volumetria', 'Base', 'Empresa Ref.']]
-                                col_widths = [2*inch, 0.5*inch, 0.8*inch, 1*inch, 2.5*inch]
+                                # Headers
+                                equipe_data = [['Tipo de Equipe', 'Qtd', 'Vol.', 'Base', 'Empresa Ref.', 'Valor Total', 'Valor US/UPS']]
+                                # Widths - Adjusted to fit A4 width (~8.27 inch, margins are 72pt=1inch each side -> ~6.27 usable)
+                                # Reduced widths to fit more columns
+                                col_widths = [1.4*inch, 0.4*inch, 0.5*inch, 0.7*inch, 1.6*inch, 0.9*inch, 0.9*inch]
+
                                 for equipe in equipes:
+                                    # Calculate values
+                                    try:
+                                        qtd = float(str(equipe.get('quantidade', '0')).replace(',', '.'))
+                                    except: qtd = 0.0
+                                    try:
+                                        vol = float(str(equipe.get('volumetria', '0')).replace(',', '.'))
+                                    except: vol = 0.0
+
+                                    ref_str = equipe.get('empresa_referencia', '')
+                                    unit_price = self.db.get_empresa_referencia_price_by_string(ref_str)
+
+                                    total_val = unit_price * qtd
+                                    us_val = (total_val / vol) if vol > 0 else 0.0
+
                                     equipe_data.append([
                                         Paragraph(equipe.get('tipo_equipe', 'N/A'), styles['BodyText']),
                                         equipe.get('quantidade', 'N/A'),
                                         equipe.get('volumetria', 'N/A'),
                                         equipe.get('base', 'N/A'),
-                                        Paragraph(equipe.get('empresa_referencia', 'N/A'), styles['BodyText'])
+                                        Paragraph(ref_str, styles['BodyText']),
+                                        Paragraph(format_currency(total_val), styles['BodyText']),
+                                        Paragraph(format_currency(us_val), styles['BodyText'])
                                     ])
                                 equipe_table = Table(equipe_data, colWidths=col_widths)
                                 equipe_table.setStyle(TableStyle([
@@ -4619,6 +4720,162 @@ class CRMApp:
 
         except Exception as e:
             messagebox.showerror("Erro ao Gerar PDF", f"Ocorreu um erro: {e}", parent=self.root)
+
+    def export_termo_aditivo_pdf(self, termo_id):
+        termo_data = self.db.get_termo_aditivo_by_id(termo_id)
+        if not termo_data:
+            messagebox.showerror("Erro", "Termo Aditivo não encontrado!")
+            return
+
+        op_id = termo_data['oportunidade_id']
+        op_data = self.db.get_opportunity_details(op_id)
+        op_title = op_data['titulo'] if op_data and 'titulo' in op_data.keys() else 'N/A'
+        op_num = op_data['numero_oportunidade'] if op_data and 'numero_oportunidade' in op_data.keys() else 'NA'
+
+        # Ask for save location
+        file_path = filedialog.asksaveasfilename(
+            defaultextension=".pdf",
+            filetypes=[("PDF files", "*.pdf"), ("All files", "*.*")],
+            title="Salvar Sumário Executivo - Termo Aditivo",
+            initialfile=f"Sumario_Aditivo_{termo_data['numero_termo']}_{op_num}.pdf".replace(" ", "_")
+        )
+
+        if not file_path:
+            return
+
+        try:
+            doc = SimpleDocTemplate(file_path, pagesize=A4,
+                                    rightMargin=72, leftMargin=72,
+                                    topMargin=90, bottomMargin=72)
+            story = []
+            styles = getSampleStyleSheet()
+            styles.add(ParagraphStyle(name='Justify', alignment=4))
+
+            # Title
+            story.append(Paragraph(f"Sumário Executivo - Termo Aditivo {termo_data['numero_termo']}", styles['h1']))
+            story.append(Spacer(1, 12))
+            story.append(Paragraph(f"Oportunidade: {op_title}", styles['h2']))
+            story.append(Spacer(1, 24))
+
+            # 1. General Info
+            story.append(Paragraph("1. Informações Gerais do Aditivo", styles['h3']))
+            story.append(Spacer(1, 12))
+
+            general_info = [
+                ['Data de Assinatura:', termo_data['data_assinatura'] or '---'],
+                ['Tipo de Alteração:', termo_data['tipo_alteracao'] or '---'],
+                ['Vigência:', f"{termo_data['data_inicio'] or '---'} até {termo_data['data_fim'] or '---'}"],
+                ['Prazo Adicionado:', f"{termo_data['prazo_adicionado_meses']} meses"],
+                ['Valor Mensal Adicionado:', format_currency(termo_data['valor_adicionado_mensal'])],
+                ['Valor Global Aditivo:', format_currency(termo_data['valor_global_aditivo'])]
+            ]
+
+            info_table = Table(general_info, colWidths=[2*inch, 4*inch])
+            info_table.setStyle(TableStyle([
+                ('ALIGN', (0,0), (-1,-1), 'LEFT'),
+                ('FONTNAME', (0,0), (0,-1), 'Helvetica-Bold'),
+                ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+            ]))
+            story.append(info_table)
+            story.append(Spacer(1, 24))
+
+            # 2. Scope Details
+            story.append(Paragraph("2. Detalhes de Escopo e Preços", styles['h3']))
+            story.append(Spacer(1, 12))
+
+            servicos_data_json = termo_data['servicos_data']
+            has_services = False
+            if servicos_data_json:
+                try:
+                    servicos_data = json.loads(servicos_data_json)
+                    if servicos_data:
+                        has_services = True
+                        for servico_info in servicos_data:
+                            servico_block = [Paragraph(f"<b>Serviço: {servico_info.get('servico_nome', 'N/A')}</b>", styles['h4'])]
+                            equipes = servico_info.get('equipes', [])
+                            if equipes:
+                                # Headers
+                                equipe_data = [['Tipo de Equipe', 'Qtd', 'Vol.', 'Base', 'Empresa Ref.', 'Valor Total', 'Valor US/UPS']]
+                                col_widths = [1.4*inch, 0.4*inch, 0.5*inch, 0.7*inch, 1.6*inch, 0.9*inch, 0.9*inch]
+
+                                for equipe in equipes:
+                                    try:
+                                        qtd = float(str(equipe.get('quantidade', '0')).replace(',', '.'))
+                                    except: qtd = 0.0
+                                    try:
+                                        vol = float(str(equipe.get('volumetria', '0')).replace(',', '.'))
+                                    except: vol = 0.0
+
+                                    ref_str = equipe.get('empresa_referencia', '')
+                                    unit_price = self.db.get_empresa_referencia_price_by_string(ref_str)
+
+                                    total_val = unit_price * qtd
+                                    us_val = (total_val / vol) if vol > 0 else 0.0
+
+                                    equipe_data.append([
+                                        Paragraph(equipe.get('tipo_equipe', 'N/A'), styles['BodyText']),
+                                        equipe.get('quantidade', 'N/A'),
+                                        equipe.get('volumetria', 'N/A'),
+                                        equipe.get('base', 'N/A'),
+                                        Paragraph(ref_str, styles['BodyText']),
+                                        Paragraph(format_currency(total_val), styles['BodyText']),
+                                        Paragraph(format_currency(us_val), styles['BodyText'])
+                                    ])
+
+                                equipe_table = Table(equipe_data, colWidths=col_widths)
+                                equipe_table.setStyle(TableStyle([
+                                    ('BACKGROUND', (0,0), (-1,0), colors.grey), ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
+                                    ('ALIGN', (0,0), (-1,-1), 'CENTER'), ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+                                    ('BOTTOMPADDING', (0,0), (-1,0), 12), ('BACKGROUND', (0,1), (-1,-1), colors.beige),
+                                    ('GRID', (0,0), (-1,-1), 1, colors.black),
+                                    ('FONTSIZE', (0,0), (-1,-1), 8)
+                                ]))
+                                servico_block.append(equipe_table)
+                            else:
+                                servico_block.append(Paragraph("Nenhuma equipe configurada.", styles['BodyText']))
+
+                            story.append(KeepTogether(servico_block))
+                            story.append(Spacer(1, 12))
+                except (json.JSONDecodeError, TypeError):
+                    story.append(Paragraph("Erro ao carregar dados de escopo.", styles['BodyText']))
+
+            if not has_services:
+                story.append(Paragraph("Nenhum detalhe de escopo registrado.", styles['BodyText']))
+
+            story.append(Spacer(1, 24))
+
+            # 3. Observations
+            story.append(Paragraph("3. Observações", styles['h3']))
+            story.append(Spacer(1, 12))
+            obs = termo_data['observacoes'] or "Nenhuma observação."
+            story.append(Paragraph(obs.replace('\n', '<br/>'), styles['BodyText']))
+
+            story.append(Spacer(1, 48))
+
+            # Header Footer
+            def header_footer(canvas, doc):
+                canvas.saveState()
+                if os.path.exists(LOGO_PATH):
+                    try:
+                        logo = ImageReader(LOGO_PATH)
+                        img_width, img_height = logo.getSize()
+                        aspect = img_height / float(img_width)
+                        display_width = 1.5 * inch
+                        display_height = display_width * aspect
+                        canvas.drawImage(logo, doc.leftMargin, A4[1] - 1.0 * inch, width=display_width, height=display_height, mask='auto')
+                    except Exception: pass
+
+                now = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+                canvas.setFont('Helvetica', 9)
+                canvas.drawRightString(A4[0] - doc.rightMargin, A4[1] - 0.75 * inch, f"Gerado em: {now}")
+                canvas.restoreState()
+
+            doc.build(story, onFirstPage=header_footer, onLaterPages=header_footer)
+            messagebox.showinfo("Sucesso", f"PDF do Termo Aditivo gerado com sucesso!", parent=self.root)
+
+        except Exception as e:
+            messagebox.showerror("Erro ao Gerar PDF", f"Ocorreu um erro: {e}", parent=self.root)
+
 
     def export_sumario_executivo_pdf(self, op_id):
         op_data = self.db.get_opportunity_details(op_id)
