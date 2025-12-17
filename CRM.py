@@ -3527,17 +3527,19 @@ class CRMApp:
         ttk.Button(calculo_frame, text="Calcular Preços Automaticamente", command=lambda: calcular_precos_automaticos(), style='Primary.TButton').pack(side='left', padx=5)
 
         # Lista de serviços calculados
-        servicos_tree = ttk.Treeview(servicos_frame, columns=('servico', 'quantidade', 'volumetria', 'preco_unitario', 'preco_total'), show='headings', height=6)
+        servicos_tree = ttk.Treeview(servicos_frame, columns=('servico', 'quantidade', 'volumetria', 'preco_unitario', 'valor_total_equipe', 'valor_us_ups'), show='headings', height=6)
         servicos_tree.heading('servico', text='Serviço')
         servicos_tree.heading('quantidade', text='Qtd Equipes')
         servicos_tree.heading('volumetria', text='Volumetria')
         servicos_tree.heading('preco_unitario', text='Preço Unit. (R$)')
-        servicos_tree.heading('preco_total', text='Preço Total (R$)')
+        servicos_tree.heading('valor_total_equipe', text='Valor Total por Tipo de Equipe')
+        servicos_tree.heading('valor_us_ups', text='Valor US/UPS/UPE')
         servicos_tree.column('servico', width=200)
         servicos_tree.column('quantidade', width=80, anchor='center')
         servicos_tree.column('volumetria', width=100, anchor='center')
         servicos_tree.column('preco_unitario', width=120, anchor='center')
-        servicos_tree.column('preco_total', width=120, anchor='center')
+        servicos_tree.column('valor_total_equipe', width=180, anchor='center')
+        servicos_tree.column('valor_us_ups', width=120, anchor='center')
         servicos_tree.pack(fill='x', pady=5)
         entries['servicos_tree'] = servicos_tree
 
@@ -3614,10 +3616,13 @@ class CRMApp:
                         return
 
                 if has_error and preco_total_servico == 0:
-                     servicos_tree.insert('', 'end', values=(servico_nome, total_qtd_equipes, f"{total_volumetria:,.2f}", 'N/A', 'Ref. não encontrada'))
+                     servicos_tree.insert('', 'end', values=(servico_nome, total_qtd_equipes, f"{total_volumetria:,.2f}", 'N/A', 'Ref. não encontrada', 'N/A'))
                      continue
 
                 faturamento_total += preco_total_servico
+
+                # Calcular Valor US/UPS/UPE
+                valor_us_ups = preco_total_servico / total_volumetria if total_volumetria > 0 else 0.0
 
                 # 7. Inserir na árvore
                 servicos_tree.insert('', 'end', values=(
@@ -3625,7 +3630,8 @@ class CRMApp:
                     total_qtd_equipes,
                     f"{total_volumetria:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
                     preco_unitario_display,
-                    format_currency(preco_total_servico)
+                    format_currency(preco_total_servico),
+                    format_currency(valor_us_ups)
                 ))
 
             # 8. Atualizar campo de faturamento estimado
@@ -4724,8 +4730,8 @@ class CRMApp:
                             servico_block = [Paragraph(f"<b>Serviço: {servico_info.get('servico_nome', 'N/A')}</b>", styles['h4'])]
                             equipes = servico_info.get('equipes', [])
                             if equipes:
-                                equipe_data = [['Tipo de Equipe', 'Qtd', 'Vol.', 'Base', 'Empresa Ref.', 'V. Total', 'V. US/UPS']]
-                                col_widths = [1.4*inch, 0.4*inch, 0.5*inch, 0.8*inch, 1.8*inch, 1.0*inch, 1.0*inch]
+                                equipe_data = [['Tipo de Equipe', 'Qtd', 'Vol.', 'Base', 'Empresa Ref.', 'Valor Total\npor Tipo de Equipe', 'Valor\nUS/UPS/UPE']]
+                                col_widths = [1.2*inch, 0.4*inch, 0.5*inch, 0.6*inch, 1.6*inch, 1.4*inch, 1.2*inch]
                                 for equipe in equipes:
                                     try:
                                         qtd = float(str(equipe.get('quantidade', 0)).replace(',', '.'))
@@ -4880,8 +4886,8 @@ class CRMApp:
                             servico_block = [Paragraph(f"<b>Serviço: {servico_info.get('servico_nome', 'N/A')}</b>", styles['h4'])]
                             equipes = servico_info.get('equipes', [])
                             if equipes:
-                                equipe_data = [['Tipo de Equipe', 'Qtd', 'Vol.', 'Base', 'Empresa Ref.', 'V. Total', 'V. US/UPS']]
-                                col_widths = [1.4*inch, 0.4*inch, 0.5*inch, 0.8*inch, 1.8*inch, 1.0*inch, 1.0*inch]
+                                equipe_data = [['Tipo de Equipe', 'Qtd', 'Vol.', 'Base', 'Empresa Ref.', 'Valor Total\npor Tipo de Equipe', 'Valor\nUS/UPS/UPE']]
+                                col_widths = [1.2*inch, 0.4*inch, 0.5*inch, 0.6*inch, 1.6*inch, 1.4*inch, 1.2*inch]
                                 for equipe in equipes:
                                     try:
                                         qtd = float(str(equipe.get('quantidade', 0)).replace(',', '.'))
