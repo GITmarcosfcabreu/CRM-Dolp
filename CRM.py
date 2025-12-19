@@ -12,6 +12,8 @@ Funcionalidades implementadas:
 - Empresas referência para cálculos
 """
 
+APP_VERSION = "#120"
+
 import tkinter as tk
 from tkinter import ttk, messagebox, Toplevel, font, filedialog
 from PIL import Image, ImageTk
@@ -1725,6 +1727,10 @@ class CRMApp:
 
         title_label = ttk.Label(header_frame, text="Customer Relationship Management (CRM) - Dolp Engenharia", style='Header.TLabel')
         title_label.pack(side='left')
+
+        # Version
+        version_label = ttk.Label(header_frame, text=APP_VERSION, font=('Segoe UI', 12, 'bold'), foreground=DOLP_COLORS['medium_gray'])
+        version_label.pack(side='right', anchor='ne', padx=10)
 
         # Área de conteúdo
         self.content_frame = ttk.Frame(self.main_container, style='TFrame')
@@ -4131,32 +4137,35 @@ class CRMApp:
         # Aba 3: Histórico de Interações
         interacoes_tab = self._create_scrollable_tab(notebook, '  Histórico de Interações  ')
 
-        # --- Filtros para Interações ---
-        filters_interactions_frame = ttk.LabelFrame(interacoes_tab, text="Filtros", padding=15, style='White.TLabelframe')
-        filters_interactions_frame.pack(fill='x', pady=(0, 10))
+        try:
+            # --- Filtros para Interações ---
+            filters_interactions_frame = ttk.LabelFrame(interacoes_tab, text="Filtros", padding=15, style='White.TLabelframe')
+            filters_interactions_frame.pack(fill='x', pady=(0, 10))
 
-        # Tipo
-        ttk.Label(filters_interactions_frame, text="Tipo:", style='TLabel').grid(row=0, column=0, sticky='w', padx=(0, 5))
-        interaction_types = ['Todos'] + self.db.get_interaction_types()
-        tipo_int_filter = ttk.Combobox(filters_interactions_frame, values=interaction_types, state='readonly')
-        tipo_int_filter.set('Todos')
-        tipo_int_filter.grid(row=0, column=1, padx=(0, 20))
+            # Tipo
+            ttk.Label(filters_interactions_frame, text="Tipo:", style='TLabel').grid(row=0, column=0, sticky='w', padx=(0, 5))
+            interaction_types = ['Todos'] + self.db.get_interaction_types()
+            tipo_int_filter = ttk.Combobox(filters_interactions_frame, values=interaction_types, state='readonly')
+            tipo_int_filter.set('Todos')
+            tipo_int_filter.grid(row=0, column=1, padx=(0, 20))
 
-        # Data Início
-        ttk.Label(filters_interactions_frame, text="De:", style='TLabel').grid(row=0, column=2, sticky='w', padx=(0, 5))
-        start_date_int_filter = DateEntry(filters_interactions_frame, date_pattern='dd/mm/yyyy', width=12)
-        start_date_int_filter.delete(0, 'end') # Limpar campo inicial
-        start_date_int_filter.grid(row=0, column=3, padx=(0, 20))
+            # Data Início
+            ttk.Label(filters_interactions_frame, text="De:", style='TLabel').grid(row=0, column=2, sticky='w', padx=(0, 5))
+            start_date_int_filter = DateEntry(filters_interactions_frame, date_pattern='dd/mm/yyyy', width=12)
+            start_date_int_filter.delete(0, 'end') # Limpar campo inicial
+            start_date_int_filter.grid(row=0, column=3, padx=(0, 20))
 
-        # Data Fim
-        ttk.Label(filters_interactions_frame, text="Até:", style='TLabel').grid(row=0, column=4, sticky='w', padx=(0, 5))
-        end_date_int_filter = DateEntry(filters_interactions_frame, date_pattern='dd/mm/yyyy', width=12)
-        end_date_int_filter.delete(0, 'end') # Limpar campo inicial
-        end_date_int_filter.grid(row=0, column=5, padx=(0, 20))
+            # Data Fim
+            ttk.Label(filters_interactions_frame, text="Até:", style='TLabel').grid(row=0, column=4, sticky='w', padx=(0, 5))
+            end_date_int_filter = DateEntry(filters_interactions_frame, date_pattern='dd/mm/yyyy', width=12)
+            end_date_int_filter.delete(0, 'end') # Limpar campo inicial
+            end_date_int_filter.grid(row=0, column=5, padx=(0, 20))
 
-        # Container para os resultados
-        interactions_results_frame = ttk.Frame(interacoes_tab, style='TFrame')
-        interactions_results_frame.pack(fill='both', expand=True, pady=(10,0))
+            # Container para os resultados
+            interactions_results_frame = ttk.Frame(interacoes_tab, style='TFrame')
+            interactions_results_frame.pack(fill='both', expand=True, pady=(10,0))
+        except Exception as e:
+            ttk.Label(interacoes_tab, text=f"Erro ao carregar aba: {e}", foreground='red').pack(pady=20)
 
         def _refilter_interactions():
             # Limpar resultados antigos com verificação de existência
@@ -4399,23 +4408,26 @@ class CRMApp:
         # Aba 6: Tarefas
         tarefas_tab = self._create_scrollable_tab(notebook, '  Tarefas  ')
 
-        # --- Filtros para Tarefas ---
-        filters_tasks_frame = ttk.LabelFrame(tarefas_tab, text="Filtros", padding=15, style='White.TLabelframe')
-        filters_tasks_frame.pack(fill='x', pady=(0, 10))
-        filters_tasks_frame.columnconfigure(7, weight=1) # Coluna do botão de nova tarefa
+        try:
+            # --- Filtros para Tarefas ---
+            filters_tasks_frame = ttk.LabelFrame(tarefas_tab, text="Filtros", padding=15, style='White.TLabelframe')
+            filters_tasks_frame.pack(fill='x', pady=(0, 10))
+            filters_tasks_frame.columnconfigure(7, weight=1) # Coluna do botão de nova tarefa
 
-        # Status
-        ttk.Label(filters_tasks_frame, text="Status:", style='TLabel').grid(row=0, column=0, sticky='w', padx=(0, 5))
-        status_task_filter = ttk.Combobox(filters_tasks_frame, values=['Todos', 'Pendente', 'Concluída'], state='readonly')
-        status_task_filter.set('Todos')
-        status_task_filter.grid(row=0, column=1, padx=(0, 20))
+            # Status
+            ttk.Label(filters_tasks_frame, text="Status:", style='TLabel').grid(row=0, column=0, sticky='w', padx=(0, 5))
+            status_task_filter = ttk.Combobox(filters_tasks_frame, values=['Todos', 'Pendente', 'Concluída'], state='readonly')
+            status_task_filter.set('Todos')
+            status_task_filter.grid(row=0, column=1, padx=(0, 20))
 
-        # Responsável
-        ttk.Label(filters_tasks_frame, text="Responsável:", style='TLabel').grid(row=0, column=2, sticky='w', padx=(0, 5))
-        responsibles = ['Todos'] + self.db.get_task_responsibles(op_id)
-        responsavel_filter = ttk.Combobox(filters_tasks_frame, values=responsibles, state='readonly')
-        responsavel_filter.set('Todos')
-        responsavel_filter.grid(row=0, column=3, padx=(0, 20))
+            # Responsável
+            ttk.Label(filters_tasks_frame, text="Responsável:", style='TLabel').grid(row=0, column=2, sticky='w', padx=(0, 5))
+            responsibles = ['Todos'] + self.db.get_task_responsibles(op_id)
+            responsavel_filter = ttk.Combobox(filters_tasks_frame, values=responsibles, state='readonly')
+            responsavel_filter.set('Todos')
+            responsavel_filter.grid(row=0, column=3, padx=(0, 20))
+        except Exception as e:
+            ttk.Label(tarefas_tab, text=f"Erro ao carregar aba: {e}", foreground='red').pack(pady=20)
 
         # Data Vencimento Início
         ttk.Label(filters_tasks_frame, text="Vencimento de:", style='TLabel').grid(row=0, column=4, sticky='w', padx=(0, 5))
