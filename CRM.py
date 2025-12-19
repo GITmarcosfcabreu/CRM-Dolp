@@ -5368,6 +5368,17 @@ class CRMApp:
             empresa_combo.pack(side='left', padx=2)
             row_widgets['empresa_combo'] = empresa_combo
 
+            # New Columns for Display
+            ttk.Label(row_frame, text="V.Total:").pack(side='left', padx=(5,2))
+            vtotal_lbl = ttk.Label(row_frame, text="R$ 0,00", width=12, anchor="e")
+            vtotal_lbl.pack(side='left', padx=2)
+            row_widgets['vtotal_lbl'] = vtotal_lbl
+
+            ttk.Label(row_frame, text="US/UPS:").pack(side='left', padx=(5,2))
+            vidx_lbl = ttk.Label(row_frame, text="R$ 0,00", width=10, anchor="e")
+            vidx_lbl.pack(side='left', padx=2)
+            row_widgets['vidx_lbl'] = vidx_lbl
+
             # Pre-fill if editing
             if row_data:
                 tipo_combo.set(row_data.get('tipo_equipe', ''))
@@ -5386,6 +5397,8 @@ class CRMApp:
 
             # Bind events for calculation
             qtd_entry.bind('<KeyRelease>', lambda e: calculate_values())
+            vol_entry.bind('<KeyRelease>', lambda e: calculate_values())
+            empresa_combo.bind('<<ComboboxSelected>>', lambda e: calculate_values())
 
             # Add to list
             if servico_nome not in servico_equipes_data:
@@ -5431,20 +5444,32 @@ class CRMApp:
             for s_nome, widgets_list in servico_equipes_data.items():
                 for w in widgets_list:
                     try:
-                        qtd = float(w['qtd_entry'].get().replace(',', '.'))
-                        ref_string = w['empresa_combo'].get()
-                        # Extract price from reference
-                        # Need to fetch price from DB based on selection string "Name - State - Service"
-                        # Or we can just try to find the matching empresa record
+                        qtd_str = w['qtd_entry'].get().replace(',', '.')
+                        qtd = float(qtd_str) if qtd_str else 0.0
 
+                        vol_str = w['vol_entry'].get().replace(',', '.')
+                        vol = float(vol_str) if vol_str else 0.0
+
+                        ref_string = w['empresa_combo'].get()
+
+                        row_price = 0.0
+                        # Extract price from reference
                         if ref_string:
                             # Use locally available list instead of DB call
                             for e in empresas_ref_list:
                                 e_str = f"{e['nome_empresa']} - {e['estado']} - {e['tipo_servico']}"
                                 if e_str == ref_string:
                                     price = e['valor_mensal']
-                                    total_mensal += price * qtd
+                                    row_price = price * qtd
+                                    total_mensal += row_price
                                     break
+
+                        # Update row display
+                        if 'vtotal_lbl' in w:
+                            w['vtotal_lbl'].config(text=format_currency(row_price))
+                            idx_val = row_price / vol if vol > 0 else 0.0
+                            w['vidx_lbl'].config(text=format_currency(idx_val))
+
                     except (ValueError, IndexError):
                         continue
 
