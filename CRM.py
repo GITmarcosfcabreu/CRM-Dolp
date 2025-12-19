@@ -4279,21 +4279,23 @@ class CRMApp:
         history_aditivo_frame = ttk.LabelFrame(aditivos_tab, text="Histórico de Termos", padding=15, style='White.TLabelframe')
         history_aditivo_frame.pack(fill='both', expand=True, pady=10)
 
-        cols_aditivo = ('numero', 'data', 'tipo', 'mensal', 'prazo', 'global')
+        cols_aditivo = ('numero', 'data', 'tipo', 'prazo', 'mensal', 'us_ups', 'global')
         tree_aditivo = ttk.Treeview(history_aditivo_frame, columns=cols_aditivo, show='headings', height=8)
 
         tree_aditivo.heading('numero', text='Nº Termo')
         tree_aditivo.heading('data', text='Data Assinatura')
         tree_aditivo.heading('tipo', text='Tipo')
-        tree_aditivo.heading('mensal', text='Adic. Mensal')
         tree_aditivo.heading('prazo', text='Prazo (+)')
+        tree_aditivo.heading('mensal', text='Valor Total por Tipo de Equipe')
+        tree_aditivo.heading('us_ups', text='Valor US/UPS/UPE')
         tree_aditivo.heading('global', text='Valor Global Aditivo')
 
-        tree_aditivo.column('numero', width=100)
+        tree_aditivo.column('numero', width=80)
         tree_aditivo.column('data', width=100)
-        tree_aditivo.column('tipo', width=150)
-        tree_aditivo.column('mensal', width=120)
+        tree_aditivo.column('tipo', width=120)
         tree_aditivo.column('prazo', width=80)
+        tree_aditivo.column('mensal', width=180)
+        tree_aditivo.column('us_ups', width=120)
         tree_aditivo.column('global', width=120)
 
         aditivo_scrollbar = ttk.Scrollbar(history_aditivo_frame, orient="vertical", command=tree_aditivo.yview)
@@ -4304,12 +4306,29 @@ class CRMApp:
 
         if aditivos:
             for aditivo in aditivos:
+                # Calculate metrics
+                total_vol = 0.0
+                try:
+                    if 'servicos_data' in aditivo.keys() and aditivo['servicos_data']:
+                        s_data = json.loads(aditivo['servicos_data'])
+                        for s in s_data:
+                            for team in s.get('equipes', []):
+                                try:
+                                    vol = float(str(team.get('volumetria', 0)).replace(',', '.'))
+                                    total_vol += vol
+                                except ValueError: pass
+                except Exception: pass
+
+                valor_mensal = aditivo['valor_adicionado_mensal']
+                valor_us_ups = valor_mensal / total_vol if total_vol > 0 else 0.0
+
                 tree_aditivo.insert('', 'end', iid=aditivo['id'], values=(
                     aditivo['numero_termo'],
                     aditivo['data_assinatura'],
                     aditivo['tipo_alteracao'],
-                    format_currency(aditivo['valor_adicionado_mensal']),
                     f"{aditivo['prazo_adicionado_meses']} meses",
+                    format_currency(valor_mensal),
+                    format_currency(valor_us_ups),
                     format_currency(aditivo['valor_global_aditivo'])
                 ))
 
@@ -4670,8 +4689,8 @@ class CRMApp:
 
         try:
             doc = SimpleDocTemplate(file_path, pagesize=A4,
-                                    rightMargin=72, leftMargin=72,
-                                    topMargin=90, bottomMargin=72) # Increased margins
+                                    rightMargin=36, leftMargin=36,
+                                    topMargin=90, bottomMargin=72)
             story = []
             styles = getSampleStyleSheet()
             styles.add(ParagraphStyle(name='Justify', alignment=4)) # TA_JUSTIFY
@@ -4849,7 +4868,7 @@ class CRMApp:
 
         try:
             doc = SimpleDocTemplate(file_path, pagesize=A4,
-                                    rightMargin=72, leftMargin=72,
+                                    rightMargin=36, leftMargin=36,
                                     topMargin=90, bottomMargin=72)
             story = []
             styles = getSampleStyleSheet()
