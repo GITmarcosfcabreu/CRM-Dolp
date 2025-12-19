@@ -1469,7 +1469,7 @@ class NewsService:
         self.gemini_api_key = os.environ.get('GEMINI_API_KEY')
         if self.gemini_api_key:
             genai.configure(api_key=self.gemini_api_key)
-            self.model = genai.GenerativeModel('gemini-1.5-flash')
+            self.model = genai.GenerativeModel('gemini-flash-latest')
         else:
             self.model = None
             print("AVISO: Chave da API do Gemini não configurada.")
@@ -3567,17 +3567,19 @@ class CRMApp:
         ttk.Button(calculo_frame, text="Calcular Preços Automaticamente", command=lambda: calcular_precos_automaticos(), style='Primary.TButton').pack(side='left', padx=5)
 
         # Lista de serviços calculados
-        servicos_tree = ttk.Treeview(servicos_frame, columns=('servico', 'quantidade', 'volumetria', 'preco_unitario', 'preco_total'), show='headings', height=6)
+        servicos_tree = ttk.Treeview(servicos_frame, columns=('servico', 'quantidade', 'volumetria', 'preco_unitario', 'valor_total_equipe', 'valor_us_ups'), show='headings', height=6)
         servicos_tree.heading('servico', text='Serviço')
         servicos_tree.heading('quantidade', text='Qtd Equipes')
         servicos_tree.heading('volumetria', text='Volumetria')
         servicos_tree.heading('preco_unitario', text='Preço Unit. (R$)')
-        servicos_tree.heading('preco_total', text='Preço Total (R$)')
+        servicos_tree.heading('valor_total_equipe', text='Valor Total por Tipo de Equipe')
+        servicos_tree.heading('valor_us_ups', text='Valor US/UPS/UPE')
         servicos_tree.column('servico', width=200)
         servicos_tree.column('quantidade', width=80, anchor='center')
         servicos_tree.column('volumetria', width=100, anchor='center')
         servicos_tree.column('preco_unitario', width=120, anchor='center')
-        servicos_tree.column('preco_total', width=120, anchor='center')
+        servicos_tree.column('valor_total_equipe', width=180, anchor='center')
+        servicos_tree.column('valor_us_ups', width=120, anchor='center')
         servicos_tree.pack(fill='x', pady=5)
         entries['servicos_tree'] = servicos_tree
 
@@ -3654,10 +3656,13 @@ class CRMApp:
                         return
 
                 if has_error and preco_total_servico == 0:
-                     servicos_tree.insert('', 'end', values=(servico_nome, total_qtd_equipes, f"{total_volumetria:,.2f}", 'N/A', 'Ref. não encontrada'))
+                     servicos_tree.insert('', 'end', values=(servico_nome, total_qtd_equipes, f"{total_volumetria:,.2f}", 'N/A', 'Ref. não encontrada', 'N/A'))
                      continue
 
                 faturamento_total += preco_total_servico
+
+                # Calcular Valor US/UPS/UPE
+                valor_us_ups = preco_total_servico / total_volumetria if total_volumetria > 0 else 0.0
 
                 # 7. Inserir na árvore
                 servicos_tree.insert('', 'end', values=(
@@ -3665,7 +3670,8 @@ class CRMApp:
                     total_qtd_equipes,
                     f"{total_volumetria:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
                     preco_unitario_display,
-                    format_currency(preco_total_servico)
+                    format_currency(preco_total_servico),
+                    format_currency(valor_us_ups)
                 ))
 
             # 8. Atualizar campo de faturamento estimado
@@ -4959,19 +4965,40 @@ class CRMApp:
                 try:
                     servicos_data = json.loads(servicos_data_json)
                     if servicos_data:
+                        # Pre-fetch prices for reference companies
+                        empresas_ref = self.db.get_all_empresas_referencia()
+                        empresa_ref_map = {}
+                        for e in empresas_ref:
+                            key = f"{e['nome_empresa']} - {e['estado']} - {e['tipo_servico']}"
+                            empresa_ref_map[key] = e['valor_mensal']
+
                         for servico_info in servicos_data:
                             servico_block = [Paragraph(f"<b>Serviço: {servico_info.get('servico_nome', 'N/A')}</b>", styles['h4'])]
                             equipes = servico_info.get('equipes', [])
                             if equipes:
-                                equipe_data = [['Tipo de Equipe', 'Qtd', 'Volumetria', 'Base', 'Empresa Ref.']]
-                                col_widths = [2*inch, 0.5*inch, 0.8*inch, 1*inch, 2.5*inch]
+                                equipe_data = [['Tipo de Equipe', 'Qtd', 'Vol.', 'Base', 'Empresa Ref.', 'Valor Total\npor Tipo de Equipe', 'Valor\nUS/UPS/UPE']]
+                                col_widths = [1.2*inch, 0.4*inch, 0.5*inch, 0.6*inch, 1.6*inch, 1.4*inch, 1.2*inch]
                                 for equipe in equipes:
+                                    try:
+                                        qtd = float(str(equipe.get('quantidade', 0)).replace(',', '.'))
+                                    except ValueError: qtd = 0.0
+                                    try:
+                                        vol = float(str(equipe.get('volumetria', 0)).replace(',', '.'))
+                                    except ValueError: vol = 0.0
+
+                                    ref_str = equipe.get('empresa_referencia', '')
+                                    valor_mensal = empresa_ref_map.get(ref_str, 0.0)
+                                    valor_total = valor_mensal * qtd
+                                    valor_unit = valor_total / vol if vol > 0 else 0.0
+
                                     equipe_data.append([
                                         Paragraph(equipe.get('tipo_equipe', 'N/A'), styles['BodyText']),
                                         equipe.get('quantidade', 'N/A'),
                                         equipe.get('volumetria', 'N/A'),
                                         equipe.get('base', 'N/A'),
-                                        Paragraph(equipe.get('empresa_referencia', 'N/A'), styles['BodyText'])
+                                        Paragraph(equipe.get('empresa_referencia', 'N/A'), styles['BodyText']),
+                                        format_currency(valor_total),
+                                        format_currency(valor_unit)
                                     ])
                                 equipe_table = Table(equipe_data, colWidths=col_widths)
                                 equipe_table.setStyle(TableStyle([
@@ -5033,6 +5060,155 @@ class CRMApp:
 
         except Exception as e:
             messagebox.showerror("Erro ao Gerar PDF", f"Ocorreu um erro: {e}", parent=self.root)
+
+    def export_termo_aditivo_pdf(self, termo_id):
+        termo = self.db.get_termo_aditivo_by_id(termo_id)
+        if not termo:
+            messagebox.showerror("Erro", "Termo Aditivo não encontrado!")
+            return
+
+        op_data = self.db.get_opportunity_details(termo['oportunidade_id'])
+
+        # Ask for save location
+        default_filename = f"Termo_Aditivo_{termo['numero_termo']}_{op_data['nome_empresa']}.pdf".replace(" ", "_")
+        file_path = filedialog.asksaveasfilename(
+            defaultextension=".pdf",
+            filetypes=[("PDF files", "*.pdf"), ("All files", "*.*")],
+            title="Salvar Sumário Executivo do Termo Aditivo",
+            initialfile=default_filename
+        )
+
+        if not file_path:
+            return
+
+        try:
+            doc = SimpleDocTemplate(file_path, pagesize=A4,
+                                    rightMargin=72, leftMargin=72,
+                                    topMargin=90, bottomMargin=72)
+            story = []
+            styles = getSampleStyleSheet()
+            styles.add(ParagraphStyle(name='Justify', alignment=4))
+
+            story.append(Paragraph("Sumário Executivo - Termo Aditivo", styles['h1']))
+            story.append(Spacer(1, 12))
+            story.append(Paragraph(f"Oportunidade: {op_data['titulo']}", styles['h2']))
+            story.append(Spacer(1, 24))
+
+            # Info Básica
+            story.append(Paragraph("1. Informações do Termo", styles['h3']))
+            story.append(Spacer(1, 12))
+            info_data = [
+                ['Número do Termo:', termo['numero_termo']],
+                ['Data Assinatura:', termo['data_assinatura']],
+                ['Tipo de Alteração:', termo['tipo_alteracao']],
+                ['Prazo Adicionado:', f"{termo['prazo_adicionado_meses']} meses"],
+                ['Valor Adicionado Mensal:', format_currency(termo['valor_adicionado_mensal'])],
+                ['Valor Global do Aditivo:', format_currency(termo['valor_global_aditivo'])],
+            ]
+            info_table = Table(info_data, colWidths=[2*inch, 4*inch])
+            info_table.setStyle(TableStyle([
+                ('ALIGN', (0,0), (-1,-1), 'LEFT'), ('FONTNAME', (0,0), (0,-1), 'Helvetica-Bold'), ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+            ]))
+            story.append(info_table)
+            story.append(Spacer(1, 24))
+
+            # Services
+            story.append(Paragraph("2. Detalhes de Serviços e Equipes (Aditivo)", styles['h3']))
+            story.append(Spacer(1, 12))
+
+            servicos_data_json = termo['servicos_data']
+            if servicos_data_json:
+                try:
+                    servicos_data = json.loads(servicos_data_json)
+                    if servicos_data:
+                        # Pre-fetch prices
+                        empresas_ref = self.db.get_all_empresas_referencia()
+                        empresa_ref_map = {}
+                        for e in empresas_ref:
+                            key = f"{e['nome_empresa']} - {e['estado']} - {e['tipo_servico']}"
+                            empresa_ref_map[key] = e['valor_mensal']
+
+                        for servico_info in servicos_data:
+                            servico_block = [Paragraph(f"<b>Serviço: {servico_info.get('servico_nome', 'N/A')}</b>", styles['h4'])]
+                            equipes = servico_info.get('equipes', [])
+                            if equipes:
+                                equipe_data = [['Tipo de Equipe', 'Qtd', 'Vol.', 'Base', 'Empresa Ref.', 'Valor Total\npor Tipo de Equipe', 'Valor\nUS/UPS/UPE']]
+                                col_widths = [1.2*inch, 0.4*inch, 0.5*inch, 0.6*inch, 1.6*inch, 1.4*inch, 1.2*inch]
+                                for equipe in equipes:
+                                    try:
+                                        qtd = float(str(equipe.get('quantidade', 0)).replace(',', '.'))
+                                    except ValueError: qtd = 0.0
+                                    try:
+                                        vol = float(str(equipe.get('volumetria', 0)).replace(',', '.'))
+                                    except ValueError: vol = 0.0
+
+                                    ref_str = equipe.get('empresa_referencia', '')
+                                    valor_mensal = empresa_ref_map.get(ref_str, 0.0)
+                                    valor_total = valor_mensal * qtd
+                                    valor_unit = valor_total / vol if vol > 0 else 0.0
+
+                                    equipe_data.append([
+                                        Paragraph(equipe.get('tipo_equipe', 'N/A'), styles['BodyText']),
+                                        equipe.get('quantidade', 'N/A'),
+                                        equipe.get('volumetria', 'N/A'),
+                                        equipe.get('base', 'N/A'),
+                                        Paragraph(equipe.get('empresa_referencia', 'N/A'), styles['BodyText']),
+                                        format_currency(valor_total),
+                                        format_currency(valor_unit)
+                                    ])
+                                equipe_table = Table(equipe_data, colWidths=col_widths)
+                                equipe_table.setStyle(TableStyle([
+                                    ('BACKGROUND', (0,0), (-1,0), colors.grey), ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
+                                    ('ALIGN', (0,0), (-1,-1), 'CENTER'), ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+                                    ('BOTTOMPADDING', (0,0), (-1,0), 12), ('BACKGROUND', (0,1), (-1,-1), colors.beige),
+                                    ('GRID', (0,0), (-1,-1), 1, colors.black)
+                                ]))
+                                servico_block.append(equipe_table)
+                            else:
+                                servico_block.append(Paragraph("Nenhuma equipe configurada.", styles['BodyText']))
+                            story.append(KeepTogether(servico_block))
+                            story.append(Spacer(1, 12))
+                    else:
+                        story.append(Paragraph("Nenhum serviço configurado.", styles['BodyText']))
+                except json.JSONDecodeError:
+                    story.append(Paragraph("Erro nos dados de serviços.", styles['BodyText']))
+            else:
+                story.append(Paragraph("Nenhum serviço configurado.", styles['BodyText']))
+
+            story.append(Spacer(1, 24))
+
+            # Observações
+            story.append(Paragraph("3. Observações", styles['h3']))
+            story.append(Spacer(1, 12))
+            obs = termo['observacoes'] if termo['observacoes'] else "Sem observações."
+            story.append(Paragraph(obs.replace('\n', '<br/>'), styles['BodyText']))
+
+            def header_footer(canvas, doc):
+                canvas.saveState()
+                if os.path.exists(LOGO_PATH):
+                    try:
+                        logo = ImageReader(LOGO_PATH)
+                        img_width, img_height = logo.getSize()
+                        aspect = img_height / float(img_width)
+                        display_width = 1.5 * inch
+                        display_height = display_width * aspect
+                        canvas.drawImage(logo, doc.leftMargin, A4[1] - 1.0 * inch, width=display_width, height=display_height, mask='auto')
+                    except Exception: pass
+
+                now = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+                canvas.setFont('Helvetica', 9)
+                canvas.drawRightString(A4[0] - doc.rightMargin, A4[1] - 0.75 * inch, f"Gerado em: {now}")
+
+                canvas.setFont('Helvetica', 10)
+                canvas.drawString(doc.leftMargin, 0.75 * inch, "_________________________________________")
+                canvas.drawString(doc.leftMargin, 0.5 * inch, "Assinatura da Diretoria")
+                canvas.restoreState()
+
+            doc.build(story, onFirstPage=header_footer, onLaterPages=header_footer)
+            messagebox.showinfo("Sucesso", f"PDF gerado com sucesso em:\n{file_path}", parent=self.root)
+
+        except Exception as e:
+            messagebox.showerror("Erro", f"Erro ao gerar PDF: {e}", parent=self.root)
 
     def add_event_dialog(self, op_id, parent_win):
         dialog = Toplevel(parent_win)
@@ -5438,6 +5614,17 @@ class CRMApp:
             empresa_combo.pack(side='left', padx=2)
             row_widgets['empresa_combo'] = empresa_combo
 
+            # New Columns for Display
+            ttk.Label(row_frame, text="V.Total:").pack(side='left', padx=(5,2))
+            vtotal_lbl = ttk.Label(row_frame, text="R$ 0,00", width=12, anchor="e")
+            vtotal_lbl.pack(side='left', padx=2)
+            row_widgets['vtotal_lbl'] = vtotal_lbl
+
+            ttk.Label(row_frame, text="US/UPS:").pack(side='left', padx=(5,2))
+            vidx_lbl = ttk.Label(row_frame, text="R$ 0,00", width=10, anchor="e")
+            vidx_lbl.pack(side='left', padx=2)
+            row_widgets['vidx_lbl'] = vidx_lbl
+
             # Pre-fill if editing
             if row_data:
                 tipo_combo.set(row_data.get('tipo_equipe', ''))
@@ -5456,6 +5643,8 @@ class CRMApp:
 
             # Bind events for calculation
             qtd_entry.bind('<KeyRelease>', lambda e: calculate_values())
+            vol_entry.bind('<KeyRelease>', lambda e: calculate_values())
+            empresa_combo.bind('<<ComboboxSelected>>', lambda e: calculate_values())
 
             # Add to list
             if servico_nome not in servico_equipes_data:
@@ -5501,20 +5690,32 @@ class CRMApp:
             for s_nome, widgets_list in servico_equipes_data.items():
                 for w in widgets_list:
                     try:
-                        qtd = float(w['qtd_entry'].get().replace(',', '.'))
-                        ref_string = w['empresa_combo'].get()
-                        # Extract price from reference
-                        # Need to fetch price from DB based on selection string "Name - State - Service"
-                        # Or we can just try to find the matching empresa record
+                        qtd_str = w['qtd_entry'].get().replace(',', '.')
+                        qtd = float(qtd_str) if qtd_str else 0.0
 
+                        vol_str = w['vol_entry'].get().replace(',', '.')
+                        vol = float(vol_str) if vol_str else 0.0
+
+                        ref_string = w['empresa_combo'].get()
+
+                        row_price = 0.0
+                        # Extract price from reference
                         if ref_string:
                             # Use locally available list instead of DB call
                             for e in empresas_ref_list:
                                 e_str = f"{e['nome_empresa']} - {e['estado']} - {e['tipo_servico']}"
                                 if e_str == ref_string:
                                     price = e['valor_mensal']
-                                    total_mensal += price * qtd
+                                    row_price = price * qtd
+                                    total_mensal += row_price
                                     break
+
+                        # Update row display
+                        if 'vtotal_lbl' in w:
+                            w['vtotal_lbl'].config(text=format_currency(row_price))
+                            idx_val = row_price / vol if vol > 0 else 0.0
+                            w['vidx_lbl'].config(text=format_currency(idx_val))
+
                     except (ValueError, IndexError):
                         continue
 
