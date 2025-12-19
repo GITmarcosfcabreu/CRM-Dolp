@@ -1436,6 +1436,35 @@ class NewsService:
             self.model = None
             print("AVISO: Chave da API do Gemini não configurada.")
 
+    def _call_gemini_with_retry(self, prompt, retries=5, initial_delay=15):
+        if not self.model:
+            raise Exception("API Gemini não configurada.")
+
+        delay = initial_delay
+        for i in range(retries):
+            try:
+                response = self.model.generate_content(prompt)
+                return response
+            except Exception as e:
+                error_str = str(e)
+                if "429" in error_str or "Quota exceeded" in error_str:
+                    print(f"Cota excedida (Tentativa {i+1}/{retries}). Aguardando recuperação...")
+
+                    # Tentar extrair o tempo de espera sugerido
+                    match = re.search(r'retry_delay.*?seconds:\s*(\d+)', error_str, re.DOTALL)
+                    if match:
+                        wait_time = int(match.group(1)) + 2 # Add buffer
+                        print(f"Aguardando {wait_time} segundos conforme solicitado pela API...")
+                        time.sleep(wait_time)
+                    else:
+                        print(f"Aguardando {delay} segundos (backoff)...")
+                        time.sleep(delay)
+
+                    delay *= 2 # Exponential backoff fallback
+                else:
+                    raise e
+        raise Exception("Falha após várias tentativas devido a limite de cota.")
+
     def _search_news(self):
         """Busca notícias usando DuckDuckGo."""
         queries = [
@@ -1497,7 +1526,7 @@ class NewsService:
         }}
         '''
         try:
-            response = self.model.generate_content(prompt)
+            response = self._call_gemini_with_retry(prompt)
             # Extrair o JSON da resposta
             if '```json' in response.text:
                 json_str = response.text.split('```json')[1].split('```')[0].strip()
@@ -1522,7 +1551,7 @@ class NewsService:
         Conteúdo: "{text[:10000]}"
         '''
         try:
-            response = self.model.generate_content(prompt)
+            response = self._call_gemini_with_retry(prompt)
             return response.text.strip()
         except Exception as e:
             print(f"Erro ao gerar resumo para '{title}': {e}")
@@ -1567,7 +1596,7 @@ class NewsService:
                     pass
 
             self.db.add_news_article(article_data)
-            time.sleep(4) # Respeitar o limite de RPM da API
+            time.sleep(15) # Respeitar o limite de RPM da API (15s para garantir < 5 RPM)
 
         self.db.delete_old_unsaved_news()
 
