@@ -532,12 +532,6 @@ class DatabaseManager:
             if 'contato_nome' not in interacao_columns:
                 cursor.execute("ALTER TABLE crm_interacoes ADD COLUMN contato_nome TEXT")
 
-            # Migração para crm_termos_aditivos
-            cursor.execute("PRAGMA table_info(crm_termos_aditivos)")
-            termo_columns = [row['name'] for row in cursor.fetchall()]
-            if 'valor_aditivo_capa' not in termo_columns:
-                cursor.execute("ALTER TABLE crm_termos_aditivos ADD COLUMN valor_aditivo_capa REAL DEFAULT 0")
-
             # Ensure 'Cancelada' stage exists
             cursor.execute("SELECT id FROM pipeline_estagios WHERE nome = 'Cancelada'")
             if not cursor.fetchone():
@@ -1442,13 +1436,13 @@ class DatabaseManager:
             conn.execute("""
                 INSERT INTO crm_termos_aditivos
                 (oportunidade_id, numero_termo, data_assinatura, data_inicio, data_fim, tipo_alteracao,
-                 valor_adicionado_mensal, prazo_adicionado_meses, servicos_data, valor_global_aditivo, observacoes, valor_aditivo_capa)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 valor_adicionado_mensal, prazo_adicionado_meses, servicos_data, valor_global_aditivo, observacoes)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 data['oportunidade_id'], data['numero_termo'], data['data_assinatura'],
                 data['data_inicio'], data['data_fim'], data['tipo_alteracao'],
                 data.get('valor_adicionado_mensal', 0), data.get('prazo_adicionado_meses', 0),
-                data.get('servicos_data'), data.get('valor_global_aditivo', 0), data.get('observacoes'), data.get('valor_aditivo_capa', 0)
+                data.get('servicos_data'), data.get('valor_global_aditivo', 0), data.get('observacoes')
             ))
 
     def update_termo_aditivo(self, termo_id, data):
@@ -1456,12 +1450,12 @@ class DatabaseManager:
             conn.execute("""
                 UPDATE crm_termos_aditivos SET
                 numero_termo=?, data_assinatura=?, data_inicio=?, data_fim=?, tipo_alteracao=?,
-                valor_adicionado_mensal=?, prazo_adicionado_meses=?, servicos_data=?, valor_global_aditivo=?, observacoes=?, valor_aditivo_capa=?
+                valor_adicionado_mensal=?, prazo_adicionado_meses=?, servicos_data=?, valor_global_aditivo=?, observacoes=?
                 WHERE id=?
             """, (
                 data['numero_termo'], data['data_assinatura'], data['data_inicio'], data['data_fim'],
                 data['tipo_alteracao'], data.get('valor_adicionado_mensal', 0), data.get('prazo_adicionado_meses', 0),
-                data.get('servicos_data'), data.get('valor_global_aditivo', 0), data.get('observacoes'), data.get('valor_aditivo_capa', 0),
+                data.get('servicos_data'), data.get('valor_global_aditivo', 0), data.get('observacoes'),
                 termo_id
             ))
 
@@ -4746,6 +4740,160 @@ class CRMApp:
         except Exception as e:
             messagebox.showerror("Erro ao Gerar PDF", f"Ocorreu um erro: {e}", parent=self.root)
 
+    def export_termo_aditivo_pdf(self, termo_id):
+        termo_data = self.db.get_termo_aditivo_by_id(termo_id)
+        if not termo_data:
+            messagebox.showerror("Erro", "Termo Aditivo não encontrado!")
+            return
+
+        op_id = termo_data['oportunidade_id']
+        op_data = self.db.get_opportunity_details(op_id)
+        op_title = op_data['titulo'] if op_data and 'titulo' in op_data.keys() else 'N/A'
+        op_num = op_data['numero_oportunidade'] if op_data and 'numero_oportunidade' in op_data.keys() else 'NA'
+
+        # Ask for save location
+        file_path = filedialog.asksaveasfilename(
+            defaultextension=".pdf",
+            filetypes=[("PDF files", "*.pdf"), ("All files", "*.*")],
+            title="Salvar Sumário Executivo - Termo Aditivo",
+            initialfile=f"Sumario_Aditivo_{termo_data['numero_termo']}_{op_num}.pdf".replace(" ", "_")
+        )
+
+        if not file_path:
+            return
+
+        try:
+            doc = SimpleDocTemplate(file_path, pagesize=A4,
+                                    rightMargin=72, leftMargin=72,
+                                    topMargin=90, bottomMargin=72)
+            story = []
+            styles = getSampleStyleSheet()
+            styles.add(ParagraphStyle(name='Justify', alignment=4))
+
+            # Title
+            story.append(Paragraph(f"Sumário Executivo - Termo Aditivo {termo_data['numero_termo']}", styles['h1']))
+            story.append(Spacer(1, 12))
+            story.append(Paragraph(f"Oportunidade: {op_title}", styles['h2']))
+            story.append(Spacer(1, 24))
+
+            # 1. General Info
+            story.append(Paragraph("1. Informações Gerais do Aditivo", styles['h3']))
+            story.append(Spacer(1, 12))
+
+            general_info = [
+                ['Data de Assinatura:', termo_data['data_assinatura'] or '---'],
+                ['Tipo de Alteração:', termo_data['tipo_alteracao'] or '---'],
+                ['Vigência:', f"{termo_data['data_inicio'] or '---'} até {termo_data['data_fim'] or '---'}"],
+                ['Prazo Adicionado:', f"{termo_data['prazo_adicionado_meses']} meses"],
+                ['Valor Mensal Adicionado:', format_currency(termo_data['valor_adicionado_mensal'])],
+                ['Valor Global Aditivo:', format_currency(termo_data['valor_global_aditivo'])]
+            ]
+
+            info_table = Table(general_info, colWidths=[2*inch, 4*inch])
+            info_table.setStyle(TableStyle([
+                ('ALIGN', (0,0), (-1,-1), 'LEFT'),
+                ('FONTNAME', (0,0), (0,-1), 'Helvetica-Bold'),
+                ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+            ]))
+            story.append(info_table)
+            story.append(Spacer(1, 24))
+
+            # 2. Scope Details
+            story.append(Paragraph("2. Detalhes de Escopo e Preços", styles['h3']))
+            story.append(Spacer(1, 12))
+
+            servicos_data_json = termo_data['servicos_data']
+            has_services = False
+            if servicos_data_json:
+                try:
+                    servicos_data = json.loads(servicos_data_json)
+                    if servicos_data:
+                        has_services = True
+                        for servico_info in servicos_data:
+                            servico_block = [Paragraph(f"<b>Serviço: {servico_info.get('servico_nome', 'N/A')}</b>", styles['h4'])]
+                            equipes = servico_info.get('equipes', [])
+                            if equipes:
+                                # Headers
+                                equipe_data = [['Tipo de Equipe', 'Qtd', 'Vol.', 'Base', 'Empresa Ref.', 'Valor Total', 'Valor US/UPS']]
+                                col_widths = [1.4*inch, 0.4*inch, 0.5*inch, 0.7*inch, 1.6*inch, 0.9*inch, 0.9*inch]
+
+                                for equipe in equipes:
+                                    try:
+                                        qtd = float(str(equipe.get('quantidade', '0')).replace(',', '.'))
+                                    except: qtd = 0.0
+                                    try:
+                                        vol = float(str(equipe.get('volumetria', '0')).replace(',', '.'))
+                                    except: vol = 0.0
+
+                                    ref_str = equipe.get('empresa_referencia', '')
+                                    unit_price = self.db.get_empresa_referencia_price_by_string(ref_str)
+
+                                    total_val = unit_price * qtd
+                                    us_val = (total_val / vol) if vol > 0 else 0.0
+
+                                    equipe_data.append([
+                                        Paragraph(equipe.get('tipo_equipe', 'N/A'), styles['BodyText']),
+                                        equipe.get('quantidade', 'N/A'),
+                                        equipe.get('volumetria', 'N/A'),
+                                        equipe.get('base', 'N/A'),
+                                        Paragraph(ref_str, styles['BodyText']),
+                                        Paragraph(format_currency(total_val), styles['BodyText']),
+                                        Paragraph(format_currency(us_val), styles['BodyText'])
+                                    ])
+
+                                equipe_table = Table(equipe_data, colWidths=col_widths)
+                                equipe_table.setStyle(TableStyle([
+                                    ('BACKGROUND', (0,0), (-1,0), colors.grey), ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
+                                    ('ALIGN', (0,0), (-1,-1), 'CENTER'), ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+                                    ('BOTTOMPADDING', (0,0), (-1,0), 12), ('BACKGROUND', (0,1), (-1,-1), colors.beige),
+                                    ('GRID', (0,0), (-1,-1), 1, colors.black),
+                                    ('FONTSIZE', (0,0), (-1,-1), 8)
+                                ]))
+                                servico_block.append(equipe_table)
+                            else:
+                                servico_block.append(Paragraph("Nenhuma equipe configurada.", styles['BodyText']))
+
+                            story.append(KeepTogether(servico_block))
+                            story.append(Spacer(1, 12))
+                except (json.JSONDecodeError, TypeError):
+                    story.append(Paragraph("Erro ao carregar dados de escopo.", styles['BodyText']))
+
+            if not has_services:
+                story.append(Paragraph("Nenhum detalhe de escopo registrado.", styles['BodyText']))
+
+            story.append(Spacer(1, 24))
+
+            # 3. Observations
+            story.append(Paragraph("3. Observações", styles['h3']))
+            story.append(Spacer(1, 12))
+            obs = termo_data['observacoes'] or "Nenhuma observação."
+            story.append(Paragraph(obs.replace('\n', '<br/>'), styles['BodyText']))
+
+            story.append(Spacer(1, 48))
+
+            # Header Footer
+            def header_footer(canvas, doc):
+                canvas.saveState()
+                if os.path.exists(LOGO_PATH):
+                    try:
+                        logo = ImageReader(LOGO_PATH)
+                        img_width, img_height = logo.getSize()
+                        aspect = img_height / float(img_width)
+                        display_width = 1.5 * inch
+                        display_height = display_width * aspect
+                        canvas.drawImage(logo, doc.leftMargin, A4[1] - 1.0 * inch, width=display_width, height=display_height, mask='auto')
+                    except Exception: pass
+
+                now = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+                canvas.setFont('Helvetica', 9)
+                canvas.drawRightString(A4[0] - doc.rightMargin, A4[1] - 0.75 * inch, f"Gerado em: {now}")
+                canvas.restoreState()
+
+            doc.build(story, onFirstPage=header_footer, onLaterPages=header_footer)
+            messagebox.showinfo("Sucesso", f"PDF do Termo Aditivo gerado com sucesso!", parent=self.root)
+
+        except Exception as e:
+            messagebox.showerror("Erro ao Gerar PDF", f"Ocorreu um erro: {e}", parent=self.root)
 
 
     def export_sumario_executivo_pdf(self, op_id):
@@ -4967,7 +5115,6 @@ class CRMApp:
                 ['Data Assinatura:', termo['data_assinatura']],
                 ['Tipo de Alteração:', termo['tipo_alteracao']],
                 ['Prazo Adicionado:', f"{termo['prazo_adicionado_meses']} meses"],
-                ['Valor do Aditivo (Capa):', format_currency(termo.get('valor_aditivo_capa', 0))],
                 ['Valor Adicionado Mensal:', format_currency(termo['valor_adicionado_mensal'])],
                 ['Valor Global do Aditivo:', format_currency(termo['valor_global_aditivo'])],
             ]
@@ -5373,8 +5520,7 @@ class CRMApp:
             ("Data Assinatura:*", "data_assinatura", "date"),
             ("Data Início Vigência:", "data_inicio", "date"),
             ("Data Fim Vigência:", "data_fim", "date"),
-            ("Tipo de Alteração:", "tipo_alteracao", "combobox", ["Reajuste de Valor", "Prorrogação de Prazo", "Alteração de Escopo", "Aditivo de Saldo", "Outros"]),
-            ("Valor do Aditivo (R$):", "valor_aditivo_capa", "entry"),
+            ("Tipo de Alteração:", "tipo_alteracao", "combobox", ["Reajuste de Valor", "Prorrogação de Prazo", "Alteração de Escopo", "Outros"]),
             ("Prazo Adicionado (meses):", "prazo_adicionado_meses", "entry"),
             ("Observações:", "observacoes", "text")
         ]
@@ -5640,22 +5786,14 @@ class CRMApp:
             # Get calculated values
             try:
                 val_mensal = parse_brazilian_currency(total_monthly_var.get().replace('R$', '').strip())
+                val_global = parse_brazilian_currency(total_global_var.get().replace('R$', '').strip())
+                prazo = 0
+                try:
+                    prazo = int(entries['prazo_adicionado_meses'].get())
+                except: pass
             except:
                 val_mensal = 0
-
-            try:
-                val_global = parse_brazilian_currency(total_global_var.get().replace('R$', '').strip())
-            except:
                 val_global = 0
-
-            try:
-                val_capa = parse_brazilian_currency(entries['valor_aditivo_capa'].get())
-            except:
-                val_capa = 0
-
-            try:
-                prazo = int(entries['prazo_adicionado_meses'].get())
-            except:
                 prazo = 0
 
             # Data object
@@ -5670,8 +5808,7 @@ class CRMApp:
                 'valor_adicionado_mensal': val_mensal,
                 'valor_global_aditivo': val_global,
                 'observacoes': entries['observacoes'].get("1.0", "end-1c"),
-                'servicos_data': json.dumps(final_servicos_data),
-                'valor_aditivo_capa': val_capa
+                'servicos_data': json.dumps(final_servicos_data)
             }
 
             if termo_id:
