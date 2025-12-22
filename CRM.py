@@ -3940,6 +3940,13 @@ class CRMApp:
         ttk.Button(buttons_frame, text="Salvar Alterações" if op_id else "Criar Oportunidade", command=on_save, style='Success.TButton').pack(side='right')
         ttk.Button(buttons_frame, text="Cancelar", command=form_win.destroy, style='TButton').pack(side='right', padx=(0, 10))
 
+    def delete_termo_aditivo_confirm(self, termo_id, op_id, parent_win):
+        if messagebox.askyesno("Confirmar Exclusão", "Tem certeza que deseja excluir este termo aditivo?"):
+            self.db.delete_termo_aditivo(termo_id)
+            messagebox.showinfo("Sucesso", "Termo Aditivo excluído.")
+            parent_win.destroy()
+            self.show_opportunity_details(op_id)
+
     def show_opportunity_details(self, op_id):
         details_win = Toplevel(self.root)
         details_win.title("Detalhes da Oportunidade")
@@ -4398,12 +4405,6 @@ class CRMApp:
 
         tree_aditivo.bind("<Double-1>", on_aditivo_double_click)
 
-    def delete_termo_aditivo_confirm(self, termo_id, op_id, parent_win):
-        if messagebox.askyesno("Confirmar Exclusão", "Tem certeza que deseja excluir este termo aditivo?"):
-            self.db.delete_termo_aditivo(termo_id)
-            messagebox.showinfo("Sucesso", "Termo Aditivo excluído.")
-            parent_win.destroy()
-            self.show_opportunity_details(op_id)
 
         # Aba 6: Tarefas
         tarefas_tab = self._create_scrollable_tab(notebook, '  Tarefas  ')
