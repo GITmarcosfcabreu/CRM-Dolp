@@ -4824,14 +4824,17 @@ class CRMApp:
 
             # Table Data
             for interaction in interactions_list:
-                # Format summary for cell (handle long text)
-                summary = Paragraph(interaction['resumo'].replace('\n', '<br/>'), styles['BodyText'])
+                # Format text for cells to ensure wrapping using Paragraph
+                date_para = Paragraph(interaction['data_interacao'], styles['BodyText'])
+                type_para = Paragraph(interaction['tipo'], styles['BodyText'])
+                user_para = Paragraph(interaction['usuario'], styles['BodyText'])
+                summary_para = Paragraph(interaction['resumo'].replace('\n', '<br/>'), styles['BodyText'])
 
                 row = [
-                    interaction['data_interacao'],
-                    interaction['tipo'],
-                    interaction['usuario'],
-                    summary
+                    date_para,
+                    type_para,
+                    user_para,
+                    summary_para
                 ]
                 data.append(row)
 
