@@ -2676,8 +2676,13 @@ class CRMApp:
                         client_label = ttk.Label(op_card, text=f"Cliente: {oportunidade['nome_empresa']}", style='Card.TLabel')
                         client_label.pack(anchor='w')
 
+                        # Calcular Valor Global Atual (com aditivos)
+                        aditivos_op = self.db.get_termos_aditivos(oportunidade['id'])
+                        total_aditivos_op = sum((a['valor_aditivo_capa'] if a['valor_aditivo_capa'] else 0.0) for a in aditivos_op)
+                        valor_global_op = oportunidade['valor'] + total_aditivos_op
+
                         # Valor (usando novo estilo)
-                        valor_label = ttk.Label(op_card, text=f"Valor: {format_currency(oportunidade['valor'])}", style='Card.TLabel')
+                        valor_label = ttk.Label(op_card, text=f"Valor: {format_currency(valor_global_op)}", style='Card.TLabel')
                         valor_label.pack(anchor='w')
 
                         # Frame para botões (usando novo estilo)
@@ -4357,7 +4362,8 @@ class CRMApp:
         # Cálculos
         original_value = op_data['valor'] if 'valor' in op_keys else 0
         aditivos = self.db.get_termos_aditivos(op_id)
-        total_aditivos = sum(a['valor_global_aditivo'] for a in aditivos)
+        # Using 'valor_aditivo_capa' as requested by user
+        total_aditivos = sum((a['valor_aditivo_capa'] if a['valor_aditivo_capa'] else 0.0) for a in aditivos)
         current_global = original_value + total_aditivos
 
         # Data Fim Original (estimada baseada na duração)
