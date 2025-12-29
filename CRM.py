@@ -951,6 +951,22 @@ class DatabaseManager:
             base_query += " ORDER BY substr(data_interacao, 7, 4) DESC, substr(data_interacao, 4, 2) DESC, substr(data_interacao, 1, 2) DESC, substr(data_interacao, 12) DESC"
             return conn.execute(base_query, params).fetchall()
 
+    def get_interaction_by_id(self, interaction_id):
+        with self._connect() as conn:
+            return conn.execute("SELECT * FROM crm_interacoes WHERE id = ?", (interaction_id,)).fetchone()
+
+    def update_interaction(self, interaction_id, data):
+        with self._connect() as conn:
+            conn.execute("""
+                UPDATE crm_interacoes SET
+                data_interacao=?, tipo=?, resumo=?, usuario=?, responsavel_institucional=?, contato_nome=?
+                WHERE id=?
+            """, (
+                data['data_interacao'], data['tipo'], data['resumo'], data['usuario'],
+                data.get('responsavel_institucional', 0), data.get('contato_nome', ''),
+                interaction_id
+            ))
+
     def add_interaction(self, data):
         conn = None
         try:
@@ -4205,12 +4221,21 @@ class CRMApp:
                     int_frame = ttk.LabelFrame(interactions_results_frame, text=header_text, padding=10, style='White.TLabelframe')
                     int_frame.pack(fill='x', pady=5)
 
+                    # Top Frame inside interaction card to hold info and Edit button
+                    top_int_frame = ttk.Frame(int_frame, style='TFrame')
+                    top_int_frame.pack(fill='x')
+
                     user_info = f"Usuário: {interacao['usuario']}"
 
                     if 'contato_nome' in interacao.keys() and interacao['contato_nome']:
                         user_info += f" | Falei com: {interacao['contato_nome']}"
 
-                    ttk.Label(int_frame, text=user_info, style='Metric.White.TLabel').pack(anchor='w')
+                    ttk.Label(top_int_frame, text=user_info, style='Metric.White.TLabel').pack(side='left', anchor='w')
+
+                    # Edit Button
+                    ttk.Button(top_int_frame, text="✏️", width=3, style='TButton',
+                               command=lambda i_id=interacao['id']: self.edit_interaction_dialog(i_id, op_id, details_win)).pack(side='right')
+
                     ttk.Label(int_frame, text=interacao['resumo'], style='Value.White.TLabel', wraplength=750, justify='left').pack(anchor='w', pady=(5, 0))
             else:
                 ttk.Label(interactions_results_frame, text="Nenhuma interação encontrada para os filtros selecionados.", style='Value.White.TLabel').pack(pady=20)
@@ -4220,6 +4245,21 @@ class CRMApp:
 
         # Botão de Nova Interação (movido para o frame de filtros para melhor layout)
         ttk.Button(filters_interactions_frame, text="Nova Interação", command=lambda: self.add_interaction_dialog(op_id, details_win), style='Success.TButton').grid(row=0, column=7, padx=(10,0))
+
+        # Export PDF Button
+        def _export_current_interactions():
+            # Re-fetch based on current filters to ensure we are exporting what is visible/selected criteria
+            tipo = tipo_int_filter.get()
+            start_date = start_date_int_filter.get()
+            end_date = end_date_int_filter.get()
+            current_interactions = self.db.get_interactions_for_opportunity(op_id, tipo, start_date, end_date)
+
+            if current_interactions:
+                self.export_interactions_pdf(op_id, current_interactions)
+            else:
+                messagebox.showinfo("Exportar PDF", "Não há interações para exportar com os filtros atuais.")
+
+        ttk.Button(filters_interactions_frame, text="Exportar PDF", command=_export_current_interactions, style='Primary.TButton').grid(row=0, column=8, padx=(10,0))
 
         # Carregar interações iniciais
         _refilter_interactions()
@@ -4748,6 +4788,99 @@ class CRMApp:
 
 
 
+    def export_interactions_pdf(self, op_id, interactions_list):
+        op_data = self.db.get_opportunity_details(op_id)
+        if not op_data:
+            messagebox.showerror("Erro", "Oportunidade não encontrada!")
+            return
+
+        # Ask for save location
+        file_path = filedialog.asksaveasfilename(
+            defaultextension=".pdf",
+            filetypes=[("PDF files", "*.pdf"), ("All files", "*.*")],
+            title="Salvar Histórico de Interações",
+            initialfile=f"Interacoes_{op_data['numero_oportunidade']}_{op_data['titulo']}.pdf".replace(" ", "_")
+        )
+
+        if not file_path:
+            return
+
+        try:
+            doc = SimpleDocTemplate(file_path, pagesize=A4,
+                                    rightMargin=72, leftMargin=72,
+                                    topMargin=90, bottomMargin=72)
+            story = []
+            styles = getSampleStyleSheet()
+
+            # Title
+            story.append(Paragraph("Histórico de Interações", styles['h1']))
+            story.append(Spacer(1, 12))
+            story.append(Paragraph(f"Oportunidade: {op_data['titulo']}", styles['h2']))
+            story.append(Paragraph(f"Cliente: {op_data['nome_empresa']}", styles['h3']))
+            story.append(Spacer(1, 24))
+
+            # Table Header
+            data = [['Data', 'Tipo', 'Usuário', 'Resumo']]
+
+            # Table Data
+            for interaction in interactions_list:
+                # Format summary for cell (handle long text)
+                summary = Paragraph(interaction['resumo'].replace('\n', '<br/>'), styles['BodyText'])
+
+                row = [
+                    interaction['data_interacao'],
+                    interaction['tipo'],
+                    interaction['usuario'],
+                    summary
+                ]
+                data.append(row)
+
+            # Create Table
+            # Adjust column widths: Data, Tipo, Usuario are smaller, Resumo gets rest
+            # A4 width is ~595 pts. Margins 72*2 = 144. Usable = 451.
+            col_widths = [1.2*inch, 1.0*inch, 1.0*inch, 3.0*inch]
+
+            t = Table(data, colWidths=col_widths, repeatRows=1)
+            t.setStyle(TableStyle([
+                ('BACKGROUND', (0,0), (-1,0), colors.grey),
+                ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
+                ('ALIGN', (0,0), (-1,-1), 'LEFT'),
+                ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+                ('BOTTOMPADDING', (0,0), (-1,0), 12),
+                ('BACKGROUND', (0,1), (-1,-1), colors.beige),
+                ('GRID', (0,0), (-1,-1), 1, colors.black),
+                ('VALIGN', (0,0), (-1,-1), 'TOP'),
+                ('LEFTPADDING', (0,0), (-1,-1), 6),
+                ('RIGHTPADDING', (0,0), (-1,-1), 6),
+                ('TOPPADDING', (0,0), (-1,-1), 6),
+                ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+            ]))
+
+            story.append(t)
+
+            def header_footer(canvas, doc):
+                canvas.saveState()
+                if os.path.exists(LOGO_PATH):
+                    try:
+                        logo = ImageReader(LOGO_PATH)
+                        img_width, img_height = logo.getSize()
+                        aspect = img_height / float(img_width)
+                        display_width = 1.5 * inch
+                        display_height = display_width * aspect
+                        canvas.drawImage(logo, doc.leftMargin, A4[1] - 1.0 * inch, width=display_width, height=display_height, mask='auto')
+                    except Exception: pass
+
+                now = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+                canvas.setFont('Helvetica', 9)
+                canvas.drawRightString(A4[0] - doc.rightMargin, A4[1] - 0.75 * inch, f"Gerado em: {now}")
+                canvas.restoreState()
+
+            doc.build(story, onFirstPage=header_footer, onLaterPages=header_footer)
+            messagebox.showinfo("Sucesso", f"PDF gerado com sucesso em:\n{file_path}", parent=self.root)
+
+        except Exception as e:
+            messagebox.showerror("Erro", f"Erro ao gerar PDF: {e}", parent=self.root)
+
     def export_sumario_executivo_pdf(self, op_id):
         op_data = self.db.get_opportunity_details(op_id)
         if not op_data:
@@ -5272,7 +5405,7 @@ class CRMApp:
     def add_interaction_dialog(self, op_id, parent_win):
         dialog = Toplevel(parent_win)
         dialog.title("Nova Interação")
-        dialog.geometry("500x550")
+        dialog.geometry("500x600")
         dialog.configure(bg=DOLP_COLORS['white'])
 
         # Obter dados da oportunidade e contatos do cliente
@@ -5285,6 +5418,20 @@ class CRMApp:
         ttk.Label(dialog, text="Tipo de Interação:", style='TLabel').pack(pady=5)
         tipo_combo = ttk.Combobox(dialog, values=["Reunião", "Ligação", "E-mail", "Proposta", "Negociação", "Outro"], state='readonly')
         tipo_combo.pack(pady=5, padx=20, fill='x')
+
+        # Data e Hora
+        date_frame = ttk.Frame(dialog, style='TFrame')
+        date_frame.pack(pady=5, padx=20, fill='x')
+
+        ttk.Label(date_frame, text="Data:", style='TLabel').pack(side='left')
+        date_entry = DateEntry(date_frame, date_pattern='dd/mm/yyyy', width=12)
+        date_entry.pack(side='left', padx=(5, 15))
+        date_entry.set_date(datetime.now())
+
+        ttk.Label(date_frame, text="Hora:", style='TLabel').pack(side='left')
+        time_entry = ttk.Entry(date_frame, width=8)
+        time_entry.insert(0, datetime.now().strftime('%H:%M'))
+        time_entry.pack(side='left', padx=(5, 0))
 
         ttk.Label(dialog, text="Usuário:", style='TLabel').pack(pady=5)
         usuario_entry = ttk.Entry(dialog)
@@ -5306,9 +5453,18 @@ class CRMApp:
         resumo_text.pack(pady=5, padx=20, fill='both', expand=True)
 
         def save_interaction():
+            # Validate Time
+            try:
+                datetime.strptime(time_entry.get(), '%H:%M')
+            except ValueError:
+                messagebox.showerror("Erro", "Formato de hora inválido. Use HH:MM.", parent=dialog)
+                return
+
+            data_str = f"{date_entry.get()} {time_entry.get()}"
+
             data = {
                 'oportunidade_id': op_id,
-                'data_interacao': datetime.now().strftime('%d/%m/%Y %H:%M'),
+                'data_interacao': data_str,
                 'tipo': tipo_combo.get(),
                 'resumo': resumo_text.get('1.0', 'end-1c'),
                 'usuario': usuario_entry.get(),
@@ -5328,6 +5484,105 @@ class CRMApp:
 
 
         ttk.Button(dialog, text="Salvar", command=save_interaction, style='Success.TButton').pack(pady=10)
+
+    def edit_interaction_dialog(self, interaction_id, op_id, parent_win):
+        dialog = Toplevel(parent_win)
+        dialog.title("Editar Interação")
+        dialog.geometry("500x600")
+        dialog.configure(bg=DOLP_COLORS['white'])
+
+        # Obter dados da interação
+        interaction = self.db.get_interaction_by_id(interaction_id)
+        if not interaction:
+            messagebox.showerror("Erro", "Interação não encontrada!", parent=dialog)
+            dialog.destroy()
+            return
+
+        # Obter contatos do cliente
+        op_data = self.db.get_opportunity_details(op_id)
+        contacts = []
+        if op_data and op_data['cliente_id']:
+            contacts = self.db.get_client_contacts(op_data['cliente_id'])
+        contact_names = [c['nome'] for c in contacts]
+
+        ttk.Label(dialog, text="Tipo de Interação:", style='TLabel').pack(pady=5)
+        tipo_combo = ttk.Combobox(dialog, values=["Reunião", "Ligação", "E-mail", "Proposta", "Negociação", "Outro"], state='readonly')
+        tipo_combo.pack(pady=5, padx=20, fill='x')
+        tipo_combo.set(interaction['tipo'])
+
+        # Data e Hora
+        date_frame = ttk.Frame(dialog, style='TFrame')
+        date_frame.pack(pady=5, padx=20, fill='x')
+
+        ttk.Label(date_frame, text="Data:", style='TLabel').pack(side='left')
+        date_entry = DateEntry(date_frame, date_pattern='dd/mm/yyyy', width=12)
+        date_entry.pack(side='left', padx=(5, 15))
+
+        ttk.Label(date_frame, text="Hora:", style='TLabel').pack(side='left')
+        time_entry = ttk.Entry(date_frame, width=8)
+        time_entry.pack(side='left', padx=(5, 0))
+
+        # Parse existing date/time
+        try:
+            dt_obj = datetime.strptime(interaction['data_interacao'], '%d/%m/%Y %H:%M')
+            date_entry.set_date(dt_obj)
+            time_entry.insert(0, dt_obj.strftime('%H:%M'))
+        except (ValueError, TypeError):
+            # Fallback if format is weird
+            date_entry.set_date(datetime.now())
+            time_entry.insert(0, "00:00")
+
+        ttk.Label(dialog, text="Usuário:", style='TLabel').pack(pady=5)
+        usuario_entry = ttk.Entry(dialog)
+        usuario_entry.pack(pady=5, padx=20, fill='x')
+        usuario_entry.insert(0, interaction['usuario'])
+
+        # Responsável Institucional
+        resp_inst_var = tk.BooleanVar(value=bool(interaction['responsavel_institucional']))
+        ttk.Checkbutton(dialog, text="Responsável Institucional", variable=resp_inst_var).pack(pady=5, padx=20, anchor='w')
+
+        # Falei com
+        ttk.Label(dialog, text="Falei com (Contato do Cliente):", style='TLabel').pack(pady=5)
+        contato_combo = ttk.Combobox(dialog, values=contact_names, state='readonly')
+        contato_combo.pack(pady=5, padx=20, fill='x')
+        if interaction['contato_nome']:
+            contato_combo.set(interaction['contato_nome'])
+
+        ttk.Label(dialog, text="Resumo:", style='TLabel').pack(pady=5)
+        resumo_text = tk.Text(dialog, height=8, wrap='word', bg='white')
+        resumo_text.pack(pady=5, padx=20, fill='both', expand=True)
+        resumo_text.insert('1.0', interaction['resumo'])
+
+        def save_changes():
+            # Validate Time
+            try:
+                datetime.strptime(time_entry.get(), '%H:%M')
+            except ValueError:
+                messagebox.showerror("Erro", "Formato de hora inválido. Use HH:MM.", parent=dialog)
+                return
+
+            data_str = f"{date_entry.get()} {time_entry.get()}"
+
+            data = {
+                'data_interacao': data_str,
+                'tipo': tipo_combo.get(),
+                'resumo': resumo_text.get('1.0', 'end-1c'),
+                'usuario': usuario_entry.get(),
+                'responsavel_institucional': 1 if resp_inst_var.get() else 0,
+                'contato_nome': contato_combo.get()
+            }
+
+            if not data['tipo'] or not data['resumo'] or not data['usuario']:
+                messagebox.showerror("Erro", "Todos os campos são obrigatórios!", parent=dialog)
+                return
+
+            self.db.update_interaction(interaction_id, data)
+            messagebox.showinfo("Sucesso", "Interação atualizada com sucesso!", parent=dialog)
+            parent_win.destroy()
+            self.show_opportunity_details(op_id)
+            dialog.destroy()
+
+        ttk.Button(dialog, text="Salvar Alterações", command=save_changes, style='Success.TButton').pack(pady=10)
 
     def show_termo_aditivo_form(self, op_id, termo_id=None, parent_win=None):
         form_win = Toplevel(parent_win if parent_win else self.root)
