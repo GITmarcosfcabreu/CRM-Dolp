@@ -5946,9 +5946,57 @@ class CRMApp:
 
         # Pre-load data if editing (termo_id)
         if termo_id:
-            # TODO: Implement loading logic if edit is needed.
-            # For now, this is primarily for creation as per user request flow emphasis.
-            pass
+            termo = self.db.get_termo_aditivo_by_id(termo_id)
+            if termo:
+                entries['numero_termo'].insert(0, termo['numero_termo'])
+                if termo['data_assinatura']: entries['data_assinatura'].set_date(termo['data_assinatura'])
+                if termo['data_inicio']: entries['data_inicio'].set_date(termo['data_inicio'])
+                if termo['data_fim']: entries['data_fim'].set_date(termo['data_fim'])
+                entries['tipo_alteracao'].set(termo['tipo_alteracao'])
+
+                val_capa = termo['valor_aditivo_capa'] if termo['valor_aditivo_capa'] else 0.0
+                entries['valor_aditivo_capa'].insert(0, format_currency(val_capa))
+
+                entries['prazo_adicionado_meses'].insert(0, str(termo['prazo_adicionado_meses']))
+
+                if termo['observacoes']:
+                    entries['observacoes'].insert("1.0", termo['observacoes'])
+
+                # Load Services
+                if termo['servicos_data']:
+                    try:
+                        loaded_servicos = json.loads(termo['servicos_data'])
+                        # Activate checkboxes
+                        for item in loaded_servicos:
+                            s_nome = item['servico_nome']
+                            if s_nome in tipos_vars:
+                                tipos_vars[s_nome].set(True)
+
+                        # Create containers
+                        _update_servicos_ui()
+
+                        # Add rows
+                        for item in loaded_servicos:
+                            s_nome = item['servico_nome']
+                            equipes = item.get('equipes', [])
+                            if s_nome in servico_frames:
+                                frame = servico_frames[s_nome]
+                                # Find the container frame
+                                container = None
+                                for child in frame.winfo_children():
+                                    if isinstance(child, ttk.Frame):
+                                        container = child
+                                        break
+
+                                if container:
+                                    s_id = servico_map.get(s_nome)
+                                    for eq in equipes:
+                                        _add_equipe_row(s_id, s_nome, container, row_data=eq)
+
+                        calculate_values()
+
+                    except Exception as e:
+                        print(f"Error loading term services: {e}")
 
 
     def add_task_dialog(self, op_id, parent_win):
