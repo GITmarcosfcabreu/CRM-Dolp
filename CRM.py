@@ -21,12 +21,15 @@ import requests
 from io import BytesIO
 import sqlite3
 import os
+from dotenv import load_dotenv
+
+load_dotenv()
 import webbrowser
 from tkcalendar import DateEntry, Calendar
 from datetime import datetime, timedelta
 import json
 import google.generativeai as genai
-from ddgs import DDGS
+from duckduckgo_search import DDGS
 from bs4 import BeautifulSoup
 import re
 import threading
